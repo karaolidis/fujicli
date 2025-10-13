@@ -7,13 +7,37 @@ use serde::Serialize;
 
 mod xt5;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CameraId {
+    pub name: &'static str,
+    pub vendor: u16,
+    pub product: u16,
+}
+
+pub struct SupportedCamera {
+    pub id: CameraId,
+    pub factory: fn(
+        rusb::Device<GlobalContext>,
+    ) -> Result<Box<dyn CameraImpl>, Box<dyn Error + Send + Sync>>,
+}
+
+pub const SUPPORTED_CAMERAS: &[SupportedCamera] = &[SupportedCamera {
+    id: xt5::FUJIFILM_XT5,
+    factory: |d| xt5::FujifilmXT5::new_boxed(d),
+}];
+
+impl SupportedCamera {
+    pub fn matches_descriptor(&self, descriptor: &DeviceDescriptor) -> bool {
+        descriptor.vendor_id() == self.id.vendor && descriptor.product_id() == self.id.product
+    }
+}
+
 pub const TIMEOUT: Duration = Duration::from_millis(500);
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy)]
 pub enum DevicePropCode {
     FujiUsbMode = 0xd16e,
-    FujiBatteryInfo1 = 0xD36A,
     FujiBatteryInfo2 = 0xD36B,
 }
 
@@ -43,17 +67,30 @@ impl fmt::Display for FujiUsbMode {
 }
 
 pub trait CameraImpl {
-    fn name(&self) -> &'static str;
+    fn id(&self) -> &'static CameraId;
+
+    fn usb_id(&self) -> String;
+
+    fn ptp(&self) -> libptp::Camera<GlobalContext>;
+
+    fn get_info(&self) -> Result<DeviceInfo, Box<dyn Error + Send + Sync>> {
+        debug!("Sending GetDeviceInfo command");
+        let response =
+            self.ptp()
+                .command(StandardCommandCode::GetDeviceInfo, &[], None, Some(TIMEOUT))?;
+        debug!("Received response with {} bytes", response.len());
+
+        let info = DeviceInfo::decode(&response)?;
+        Ok(info)
+    }
 
     fn next_session_id(&self) -> u32;
 
-    fn open_session(
-        &self,
-        ptp: &mut libptp::Camera<GlobalContext>,
-        session_id: u32,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    fn open_session(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let session_id = self.next_session_id();
+
         debug!("Opening new session with id {}", session_id);
-        ptp.command(
+        self.ptp().command(
             StandardCommandCode::OpenSession,
             &[session_id],
             None,
@@ -63,34 +100,30 @@ pub trait CameraImpl {
         Ok(())
     }
 
-    fn close_session(
-        &self,
-        ptp: &mut libptp::Camera<GlobalContext>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    fn close_session(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         debug!("Closing session");
-        ptp.command(StandardCommandCode::CloseSession, &[], None, Some(TIMEOUT))?;
+        self.ptp()
+            .command(StandardCommandCode::CloseSession, &[], None, Some(TIMEOUT))?;
 
         Ok(())
     }
 
     fn get_prop_value_raw(
         &self,
-        ptp: &mut libptp::Camera<GlobalContext>,
         prop: DevicePropCode,
     ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
-        let session_id = self.next_session_id();
-        self.open_session(ptp, session_id)?;
+        self.open_session()?;
 
         debug!("Getting property {:?}", prop);
 
-        let response = ptp.command(
+        let response = self.ptp().command(
             StandardCommandCode::GetDevicePropValue,
             &[prop as u32],
             None,
             Some(TIMEOUT),
         );
 
-        self.close_session(ptp)?;
+        self.close_session()?;
 
         let response = response?;
         debug!("Received response with {} bytes", response.len());
@@ -100,10 +133,9 @@ pub trait CameraImpl {
 
     fn get_prop_value_scalar(
         &self,
-        ptp: &mut libptp::Camera<GlobalContext>,
         prop: DevicePropCode,
     ) -> Result<u32, Box<dyn Error + Send + Sync>> {
-        let data = self.get_prop_value_raw(ptp, prop)?;
+        let data = self.get_prop_value_raw(prop)?;
 
         match data.len() {
             1 => Ok(data[0] as u32),
@@ -113,19 +145,13 @@ pub trait CameraImpl {
         }
     }
 
-    fn get_fuji_usb_mode(
-        &self,
-        ptp: &mut libptp::Camera<GlobalContext>,
-    ) -> Result<FujiUsbMode, Box<dyn Error + Send + Sync>> {
-        let result = self.get_prop_value_scalar(ptp, DevicePropCode::FujiUsbMode)?;
+    fn get_fuji_usb_mode(&self) -> Result<FujiUsbMode, Box<dyn Error + Send + Sync>> {
+        let result = self.get_prop_value_scalar(DevicePropCode::FujiUsbMode)?;
         Ok(result.into())
     }
 
-    fn get_fuji_battery_info(
-        &self,
-        ptp: &mut libptp::Camera<GlobalContext>,
-    ) -> Result<u32, Box<dyn Error + Send + Sync>> {
-        let data = self.get_prop_value_raw(ptp, DevicePropCode::FujiBatteryInfo2)?;
+    fn get_fuji_battery_info(&self) -> Result<u32, Box<dyn Error + Send + Sync>> {
+        let data = self.get_prop_value_raw(DevicePropCode::FujiBatteryInfo2)?;
         debug!("Raw battery data: {:?}", data);
 
         if data.len() < 3 {
@@ -150,45 +176,5 @@ pub trait CameraImpl {
             .parse()?;
 
         Ok(percentage)
-    }
-
-    fn get_info(
-        &self,
-        ptp: &mut libptp::Camera<GlobalContext>,
-    ) -> Result<DeviceInfo, Box<dyn Error + Send + Sync>> {
-        debug!("Sending GetDeviceInfo command");
-        let response = ptp.command(StandardCommandCode::GetDeviceInfo, &[], None, Some(TIMEOUT))?;
-        debug!("Received response with {} bytes", response.len());
-
-        let info = DeviceInfo::decode(&response)?;
-        Ok(info)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CameraId {
-    pub vendor: u16,
-    pub product: u16,
-}
-
-pub struct SupportedCamera {
-    pub id: CameraId,
-    pub factory: fn() -> Box<dyn CameraImpl>,
-}
-
-pub const SUPPORTED_CAMERAS: &[SupportedCamera] = &[SupportedCamera {
-    id: xt5::FUJIFILM_XT5,
-    factory: || Box::new(xt5::FujifilmXT5::new()),
-}];
-
-impl From<&SupportedCamera> for Box<dyn CameraImpl> {
-    fn from(camera: &SupportedCamera) -> Self {
-        (camera.factory)()
-    }
-}
-
-impl SupportedCamera {
-    pub fn matches_descriptor(&self, descriptor: &DeviceDescriptor) -> bool {
-        descriptor.vendor_id() == self.id.vendor && descriptor.product_id() == self.id.product
     }
 }

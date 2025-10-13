@@ -3,7 +3,10 @@ use std::{error::Error, fmt};
 use clap::Subcommand;
 use serde::Serialize;
 
-use crate::{hardware::FujiUsbMode, usb};
+use crate::{
+    hardware::{CameraImpl, FujiUsbMode},
+    usb,
+};
 
 #[derive(Subcommand, Debug)]
 pub enum DeviceCmd {
@@ -24,13 +27,13 @@ pub struct CameraItemRepr {
     pub product_id: String,
 }
 
-impl From<&usb::Camera> for CameraItemRepr {
-    fn from(device: &usb::Camera) -> Self {
+impl From<&Box<dyn CameraImpl>> for CameraItemRepr {
+    fn from(camera: &Box<dyn CameraImpl>) -> Self {
         CameraItemRepr {
-            id: device.id(),
-            name: device.name(),
-            vendor_id: format!("0x{:04x}", device.vendor_id()),
-            product_id: format!("0x{:04x}", device.product_id()),
+            id: camera.usb_id(),
+            name: camera.id().name.to_string(),
+            vendor_id: format!("0x{:04x}", camera.id().vendor),
+            product_id: format!("0x{:04x}", camera.id().product),
         }
     }
 }
@@ -101,7 +104,7 @@ impl fmt::Display for CameraRepr {
 }
 
 fn handle_info(json: bool, device_id: Option<&str>) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let camera = usb::get_camera(device_id)?;
+    let mut camera = usb::get_camera(device_id)?;
 
     let info = camera.get_info()?;
     let mode = camera.get_fuji_usb_mode()?;
