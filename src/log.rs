@@ -1,5 +1,3 @@
-use std::error::Error;
-
 use log::LevelFilter;
 use log4rs::{
     Config,
@@ -8,7 +6,7 @@ use log4rs::{
     encode::pattern::PatternEncoder,
 };
 
-pub fn init(quiet: bool, verbose: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub fn init(quiet: bool, verbose: bool) -> Result<(), anyhow::Error> {
     let level = if quiet {
         LevelFilter::Warn
     } else if verbose {

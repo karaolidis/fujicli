@@ -1,18 +1,16 @@
-use std::error::Error;
+use anyhow::{anyhow, bail};
 
 use crate::hardware::{CameraImpl, SUPPORTED_CAMERAS};
 
-pub fn get_connected_camers()
--> Result<Vec<Box<dyn crate::hardware::CameraImpl>>, Box<dyn Error + Send + Sync>> {
+pub fn get_connected_camers() -> Result<Vec<Box<dyn crate::hardware::CameraImpl>>, anyhow::Error> {
     let mut connected_cameras = Vec::new();
 
     for device in rusb::devices()?.iter() {
-        let descriptor = match device.device_descriptor() {
-            Ok(d) => d,
-            Err(_) => continue,
+        let Ok(descriptor) = device.device_descriptor() else {
+            continue;
         };
 
-        for camera in SUPPORTED_CAMERAS.iter() {
+        for camera in SUPPORTED_CAMERAS {
             if camera.matches_descriptor(&descriptor) {
                 let camera = (camera.factory)(device)?;
                 connected_cameras.push(camera);
@@ -24,12 +22,10 @@ pub fn get_connected_camers()
     Ok(connected_cameras)
 }
 
-pub fn get_connected_camera_by_id(
-    id: &str,
-) -> Result<Box<dyn CameraImpl>, Box<dyn Error + Send + Sync>> {
+pub fn get_connected_camera_by_id(id: &str) -> Result<Box<dyn CameraImpl>, anyhow::Error> {
     let parts: Vec<&str> = id.split('.').collect();
     if parts.len() != 2 {
-        return Err(format!("Invalid device id format: {}", id).into());
+        bail!("Invalid device id format: {id}");
     }
 
     let bus: u8 = parts[0].parse()?;
@@ -39,28 +35,26 @@ pub fn get_connected_camera_by_id(
         if device.bus_number() == bus && device.address() == address {
             let descriptor = device.device_descriptor()?;
 
-            for camera in SUPPORTED_CAMERAS.iter() {
+            for camera in SUPPORTED_CAMERAS {
                 if camera.matches_descriptor(&descriptor) {
                     let camera = (camera.factory)(device)?;
                     return Ok(camera);
                 }
             }
 
-            return Err(format!("Device found at {} but is not supported", id).into());
+            bail!("Device found at {id} but is not supported");
         }
     }
 
-    Err(format!("No device found with id: {}", id).into())
+    bail!("No device found with id: {id}");
 }
 
-pub fn get_camera(
-    device_id: Option<&str>,
-) -> Result<Box<dyn CameraImpl>, Box<dyn Error + Send + Sync>> {
+pub fn get_camera(device_id: Option<&str>) -> Result<Box<dyn CameraImpl>, anyhow::Error> {
     match device_id {
         Some(id) => get_connected_camera_by_id(id),
         None => get_connected_camers()?
             .into_iter()
             .next()
-            .ok_or_else(|| "No supported devices connected.".into()),
+            .ok_or_else(|| anyhow!("No supported devices connected.")),
     }
 }

@@ -1,5 +1,4 @@
-use std::error::Error;
-
+use anyhow::bail;
 use clap::Args;
 
 #[derive(Debug, Clone)]
@@ -9,18 +8,18 @@ pub enum SimulationSelector {
 }
 
 impl std::str::FromStr for SimulationSelector {
-    type Err = Box<dyn Error + Send + Sync>;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Ok(slot) = s.parse::<u8>() {
-            return Ok(SimulationSelector::Slot(slot));
+            return Ok(Self::Slot(slot));
         }
 
         if s.is_empty() {
-            Err("Simulation name cannot be empty".into())
-        } else {
-            Ok(SimulationSelector::Name(s.to_string()))
+            bail!("Simulation name cannot be empty")
         }
+
+        Ok(Self::Name(s.to_string()))
     }
 }
 

@@ -1,14 +1,14 @@
-use std::{error::Error, fmt};
+use std::fmt;
 
 use clap::Subcommand;
 use serde::Serialize;
 
 use crate::{
-    hardware::{CameraImpl, FujiUsbMode},
+    hardware::{CameraImpl, UsbMode},
     usb,
 };
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone, Copy)]
 pub enum DeviceCmd {
     /// List cameras
     #[command(alias = "l")]
@@ -29,7 +29,7 @@ pub struct CameraItemRepr {
 
 impl From<&Box<dyn CameraImpl>> for CameraItemRepr {
     fn from(camera: &Box<dyn CameraImpl>) -> Self {
-        CameraItemRepr {
+        Self {
             id: camera.usb_id(),
             name: camera.id().name.to_string(),
             vendor_id: format!("0x{:04x}", camera.id().vendor),
@@ -48,10 +48,10 @@ impl fmt::Display for CameraItemRepr {
     }
 }
 
-fn handle_list(json: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
+fn handle_list(json: bool) -> Result<(), anyhow::Error> {
     let cameras: Vec<CameraItemRepr> = usb::get_connected_camers()?
         .iter()
-        .map(|d| d.into())
+        .map(std::convert::Into::into)
         .collect();
 
     if json {
@@ -66,7 +66,7 @@ fn handle_list(json: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
 
     println!("Connected cameras:");
     for d in cameras {
-        println!("- {}", d);
+        println!("- {d}");
     }
 
     Ok(())
@@ -81,7 +81,7 @@ pub struct CameraRepr {
     pub model: String,
     pub device_version: String,
     pub serial_number: String,
-    pub mode: FujiUsbMode,
+    pub mode: UsbMode,
     pub battery: u32,
 }
 
@@ -103,19 +103,22 @@ impl fmt::Display for CameraRepr {
     }
 }
 
-fn handle_info(json: bool, device_id: Option<&str>) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let mut camera = usb::get_camera(device_id)?;
+fn handle_info(json: bool, device_id: Option<&str>) -> Result<(), anyhow::Error> {
+    let camera = usb::get_camera(device_id)?;
+    let mut ptp = camera.ptp();
 
-    let info = camera.get_info()?;
-    let mode = camera.get_fuji_usb_mode()?;
-    let battery = camera.get_fuji_battery_info()?;
+    let info = camera.get_info(&mut ptp)?;
+
+    let mut ptp = camera.open_session(ptp)?;
+    let mode = camera.get_usb_mode(&mut ptp)?;
+    let battery = camera.get_battery_info(&mut ptp)?;
 
     let repr = CameraRepr {
         device: (&camera).into(),
         manufacturer: info.Manufacturer.clone(),
         model: info.Model.clone(),
         device_version: info.DeviceVersion.clone(),
-        serial_number: info.SerialNumber.clone(),
+        serial_number: info.SerialNumber,
         mode,
         battery,
     };
@@ -125,15 +128,11 @@ fn handle_info(json: bool, device_id: Option<&str>) -> Result<(), Box<dyn Error 
         return Ok(());
     }
 
-    println!("{}", repr);
+    println!("{repr}");
     Ok(())
 }
 
-pub fn handle(
-    cmd: DeviceCmd,
-    json: bool,
-    device_id: Option<&str>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub fn handle(cmd: DeviceCmd, json: bool, device_id: Option<&str>) -> Result<(), anyhow::Error> {
     match cmd {
         DeviceCmd::List => handle_list(json),
         DeviceCmd::Info => handle_info(json, device_id),

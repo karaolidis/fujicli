@@ -1,5 +1,3 @@
-use std::error::Error;
-
 use crate::usb;
 
 use super::common::file::{Input, Output};
@@ -22,35 +20,32 @@ pub enum BackupCmd {
     },
 }
 
-fn handle_export(
-    device_id: Option<&str>,
-    output: Output,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+fn handle_export(device_id: Option<&str>, output: &Output) -> Result<(), anyhow::Error> {
     let camera = usb::get_camera(device_id)?;
+    let mut ptp = camera.ptp_session()?;
 
     let mut writer = output.get_writer()?;
-
-    todo!();
+    let backup = camera.export_backup(&mut ptp)?;
+    writer.write_all(&backup)?;
 
     Ok(())
 }
 
-fn handle_import(
-    device_id: Option<&str>,
-    input: Input,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+fn handle_import(device_id: Option<&str>, input: &Input) -> Result<(), anyhow::Error> {
     let camera = usb::get_camera(device_id)?;
+    let mut ptp = camera.ptp_session()?;
 
     let mut reader = input.get_reader()?;
-
-    todo!();
+    let mut buffer = Vec::new();
+    reader.read_to_end(&mut buffer)?;
+    camera.import_backup(&mut ptp, &buffer)?;
 
     Ok(())
 }
 
-pub fn handle(cmd: BackupCmd, device_id: Option<&str>) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub fn handle(cmd: BackupCmd, device_id: Option<&str>) -> Result<(), anyhow::Error> {
     match cmd {
-        BackupCmd::Export { output_file } => handle_export(device_id, output_file),
-        BackupCmd::Import { input_file } => handle_import(device_id, input_file),
+        BackupCmd::Export { output_file } => handle_export(device_id, &output_file),
+        BackupCmd::Import { input_file } => handle_import(device_id, &input_file),
     }
 }
