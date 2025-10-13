@@ -1,36 +1,194 @@
-use std::error::Error;
+use std::{error::Error, fmt, time::Duration};
 
 use libptp::{DeviceInfo, StandardCommandCode};
 use log::debug;
-use rusb::GlobalContext;
+use rusb::{DeviceDescriptor, GlobalContext};
+use serde::Serialize;
 
-mod common;
 mod xt5;
 
-pub trait Camera {
-    fn vendor_id(&self) -> u16;
-    fn product_id(&self) -> u16;
-    fn name(&self) -> &'static str;
+pub const TIMEOUT: Duration = Duration::from_millis(500);
 
-    fn get_device_info(
-        &self,
-        camera: &mut libptp::Camera<GlobalContext>,
-    ) -> Result<DeviceInfo, Box<dyn Error + Send + Sync>> {
-        debug!("Using default GetDeviceInfo command for {}", self.name());
+#[repr(u32)]
+#[derive(Debug, Clone, Copy)]
+pub enum DevicePropCode {
+    FujiUsbMode = 0xd16e,
+    FujiBatteryInfo1 = 0xD36A,
+    FujiBatteryInfo2 = 0xD36B,
+}
 
-        let response = camera.command(
-            StandardCommandCode::GetDeviceInfo,
-            &[],
-            None,
-            Some(common::TIMEOUT),
-        )?;
+#[derive(Debug, Clone, Copy, Serialize)]
+pub enum FujiUsbMode {
+    RawConversion, // mode == 6
+    Unsupported,
+}
 
-        debug!("Received response with {} bytes", response.len());
-
-        let device_info = DeviceInfo::decode(&response)?;
-
-        Ok(device_info)
+impl From<u32> for FujiUsbMode {
+    fn from(val: u32) -> Self {
+        match val {
+            6 => FujiUsbMode::RawConversion,
+            _ => FujiUsbMode::Unsupported,
+        }
     }
 }
 
-pub const SUPPORTED_MODELS: &[&dyn Camera] = &[&xt5::FujifilmXT5];
+impl fmt::Display for FujiUsbMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            FujiUsbMode::RawConversion => "USB RAW CONV./BACKUP RESTORE",
+            FujiUsbMode::Unsupported => "Unsupported USB Mode",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+pub trait CameraImpl {
+    fn name(&self) -> &'static str;
+
+    fn next_session_id(&self) -> u32;
+
+    fn open_session(
+        &self,
+        ptp: &mut libptp::Camera<GlobalContext>,
+        session_id: u32,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        debug!("Opening new session with id {}", session_id);
+        ptp.command(
+            StandardCommandCode::OpenSession,
+            &[session_id],
+            None,
+            Some(TIMEOUT),
+        )?;
+
+        Ok(())
+    }
+
+    fn close_session(
+        &self,
+        ptp: &mut libptp::Camera<GlobalContext>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        debug!("Closing session");
+        ptp.command(StandardCommandCode::CloseSession, &[], None, Some(TIMEOUT))?;
+
+        Ok(())
+    }
+
+    fn get_prop_value_raw(
+        &self,
+        ptp: &mut libptp::Camera<GlobalContext>,
+        prop: DevicePropCode,
+    ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
+        let session_id = self.next_session_id();
+        self.open_session(ptp, session_id)?;
+
+        debug!("Getting property {:?}", prop);
+
+        let response = ptp.command(
+            StandardCommandCode::GetDevicePropValue,
+            &[prop as u32],
+            None,
+            Some(TIMEOUT),
+        );
+
+        self.close_session(ptp)?;
+
+        let response = response?;
+        debug!("Received response with {} bytes", response.len());
+
+        Ok(response)
+    }
+
+    fn get_prop_value_scalar(
+        &self,
+        ptp: &mut libptp::Camera<GlobalContext>,
+        prop: DevicePropCode,
+    ) -> Result<u32, Box<dyn Error + Send + Sync>> {
+        let data = self.get_prop_value_raw(ptp, prop)?;
+
+        match data.len() {
+            1 => Ok(data[0] as u32),
+            2 => Ok(u16::from_le_bytes([data[0], data[1]]) as u32),
+            4 => Ok(u32::from_le_bytes([data[0], data[1], data[2], data[3]])),
+            n => Err(format!("Cannot parse property {:?} as scalar: {} bytes", prop, n).into()),
+        }
+    }
+
+    fn get_fuji_usb_mode(
+        &self,
+        ptp: &mut libptp::Camera<GlobalContext>,
+    ) -> Result<FujiUsbMode, Box<dyn Error + Send + Sync>> {
+        let result = self.get_prop_value_scalar(ptp, DevicePropCode::FujiUsbMode)?;
+        Ok(result.into())
+    }
+
+    fn get_fuji_battery_info(
+        &self,
+        ptp: &mut libptp::Camera<GlobalContext>,
+    ) -> Result<u32, Box<dyn Error + Send + Sync>> {
+        let data = self.get_prop_value_raw(ptp, DevicePropCode::FujiBatteryInfo2)?;
+        debug!("Raw battery data: {:?}", data);
+
+        if data.len() < 3 {
+            return Err("Battery info payload too short".into());
+        }
+
+        let utf16: Vec<u16> = data[1..]
+            .chunks(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .take_while(|&c| c != 0)
+            .collect();
+
+        debug!("Decoded UTF-16 units: {:?}", utf16);
+
+        let utf8_string = String::from_utf16(&utf16)?;
+        debug!("Decoded UTF-16 string: {}", utf8_string);
+
+        let percentage: u32 = utf8_string
+            .split(',')
+            .next()
+            .ok_or("Failed to parse battery percentage")?
+            .parse()?;
+
+        Ok(percentage)
+    }
+
+    fn get_info(
+        &self,
+        ptp: &mut libptp::Camera<GlobalContext>,
+    ) -> Result<DeviceInfo, Box<dyn Error + Send + Sync>> {
+        debug!("Sending GetDeviceInfo command");
+        let response = ptp.command(StandardCommandCode::GetDeviceInfo, &[], None, Some(TIMEOUT))?;
+        debug!("Received response with {} bytes", response.len());
+
+        let info = DeviceInfo::decode(&response)?;
+        Ok(info)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CameraId {
+    pub vendor: u16,
+    pub product: u16,
+}
+
+pub struct SupportedCamera {
+    pub id: CameraId,
+    pub factory: fn() -> Box<dyn CameraImpl>,
+}
+
+pub const SUPPORTED_CAMERAS: &[SupportedCamera] = &[SupportedCamera {
+    id: xt5::FUJIFILM_XT5,
+    factory: || Box::new(xt5::FujifilmXT5::new()),
+}];
+
+impl From<&SupportedCamera> for Box<dyn CameraImpl> {
+    fn from(camera: &SupportedCamera) -> Self {
+        (camera.factory)()
+    }
+}
+
+impl SupportedCamera {
+    pub fn matches_descriptor(&self, descriptor: &DeviceDescriptor) -> bool {
+        descriptor.vendor_id() == self.id.vendor && descriptor.product_id() == self.id.product
+    }
+}

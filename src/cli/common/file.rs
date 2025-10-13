@@ -1,4 +1,4 @@
-use std::{error::Error, path::PathBuf, str::FromStr};
+use std::{error::Error, fs::File, io, path::PathBuf, str::FromStr};
 
 #[derive(Debug, Clone)]
 pub enum Input {
@@ -17,6 +17,15 @@ impl FromStr for Input {
     }
 }
 
+impl Input {
+    pub fn get_reader(&self) -> Result<Box<dyn io::Read>, Box<dyn Error + Send + Sync>> {
+        match self {
+            Input::Stdin => Ok(Box::new(io::stdin())),
+            Input::Path(path) => Ok(Box::new(File::open(path)?)),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Output {
     Path(PathBuf),
@@ -30,6 +39,15 @@ impl FromStr for Output {
             Ok(Output::Stdout)
         } else {
             Ok(Output::Path(PathBuf::from(s)))
+        }
+    }
+}
+
+impl Output {
+    pub fn get_writer(&self) -> Result<Box<dyn io::Write>, Box<dyn Error + Send + Sync>> {
+        match self {
+            Output::Stdout => Ok(Box::new(io::stdout())),
+            Output::Path(path) => Ok(Box::new(File::create(path)?)),
         }
     }
 }

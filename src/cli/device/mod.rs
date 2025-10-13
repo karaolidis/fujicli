@@ -3,30 +3,30 @@ use std::{error::Error, fmt};
 use clap::Subcommand;
 use serde::Serialize;
 
-use crate::usb;
+use crate::{hardware::FujiUsbMode, usb};
 
 #[derive(Subcommand, Debug)]
 pub enum DeviceCmd {
-    /// List devices
+    /// List cameras
     #[command(alias = "l")]
     List,
 
-    /// Dump device info
+    /// Get camera info
     #[command(alias = "i")]
     Info,
 }
 
 #[derive(Serialize)]
-pub struct DeviceItemRepr {
+pub struct CameraItemRepr {
     pub name: String,
     pub id: String,
     pub vendor_id: String,
     pub product_id: String,
 }
 
-impl From<&usb::Device> for DeviceItemRepr {
-    fn from(device: &usb::Device) -> Self {
-        DeviceItemRepr {
+impl From<&usb::Camera> for CameraItemRepr {
+    fn from(device: &usb::Camera) -> Self {
+        CameraItemRepr {
             id: device.id(),
             name: device.name(),
             vendor_id: format!("0x{:04x}", device.vendor_id()),
@@ -35,7 +35,7 @@ impl From<&usb::Device> for DeviceItemRepr {
     }
 }
 
-impl fmt::Display for DeviceItemRepr {
+impl fmt::Display for CameraItemRepr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -45,24 +45,24 @@ impl fmt::Display for DeviceItemRepr {
     }
 }
 
-pub fn handle_list(json: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let devices: Vec<DeviceItemRepr> = usb::get_connected_devices()?
+fn handle_list(json: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let cameras: Vec<CameraItemRepr> = usb::get_connected_camers()?
         .iter()
         .map(|d| d.into())
         .collect();
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&devices)?);
+        println!("{}", serde_json::to_string_pretty(&cameras)?);
         return Ok(());
     }
 
-    if devices.is_empty() {
-        println!("No supported devices connected.");
+    if cameras.is_empty() {
+        println!("No supported cameras connected.");
         return Ok(());
     }
 
-    println!("Connected devices:");
-    for d in devices {
+    println!("Connected cameras:");
+    for d in cameras {
         println!("- {}", d);
     }
 
@@ -70,29 +70,19 @@ pub fn handle_list(json: bool) -> Result<(), Box<dyn Error + Send + Sync>> {
 }
 
 #[derive(Serialize)]
-pub struct DeviceRepr {
+pub struct CameraRepr {
     #[serde(flatten)]
-    pub device: DeviceItemRepr,
+    pub device: CameraItemRepr,
 
     pub manufacturer: String,
     pub model: String,
     pub device_version: String,
     pub serial_number: String,
+    pub mode: FujiUsbMode,
+    pub battery: u32,
 }
 
-impl DeviceRepr {
-    pub fn from_info(device: &usb::Device, info: &libptp::DeviceInfo) -> Self {
-        DeviceRepr {
-            device: device.into(),
-            manufacturer: info.Manufacturer.clone(),
-            model: info.Model.clone(),
-            device_version: info.DeviceVersion.clone(),
-            serial_number: info.SerialNumber.clone(),
-        }
-    }
-}
-
-impl fmt::Display for DeviceRepr {
+impl fmt::Display for CameraRepr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Name: {}", self.device.name)?;
         writeln!(f, "ID: {}", self.device.id)?;
@@ -103,20 +93,29 @@ impl fmt::Display for DeviceRepr {
         )?;
         writeln!(f, "Manufacturer: {}", self.manufacturer)?;
         writeln!(f, "Model: {}", self.model)?;
-        writeln!(f, "Device Version: {}", self.device_version)?;
-        write!(f, "Serial Number: {}", self.serial_number)
+        writeln!(f, "Version: {}", self.device_version)?;
+        writeln!(f, "Serial Number: {}", self.serial_number)?;
+        writeln!(f, "Mode: {}", self.mode)?;
+        write!(f, "Battery: {}%", self.battery)
     }
 }
 
-pub fn handle_info(
-    json: bool,
-    device_id: Option<&str>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let device = usb::get_device(device_id)?;
+fn handle_info(json: bool, device_id: Option<&str>) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let camera = usb::get_camera(device_id)?;
 
-    let mut camera = device.camera()?;
-    let info = device.model.get_device_info(&mut camera)?;
-    let repr = DeviceRepr::from_info(&device, &info);
+    let info = camera.get_info()?;
+    let mode = camera.get_fuji_usb_mode()?;
+    let battery = camera.get_fuji_battery_info()?;
+
+    let repr = CameraRepr {
+        device: (&camera).into(),
+        manufacturer: info.Manufacturer.clone(),
+        model: info.Model.clone(),
+        device_version: info.DeviceVersion.clone(),
+        serial_number: info.SerialNumber.clone(),
+        mode,
+        battery,
+    };
 
     if json {
         println!("{}", serde_json::to_string_pretty(&repr)?);

@@ -1,23 +1,16 @@
 use std::error::Error;
 
+use libptp::DeviceInfo;
 use rusb::GlobalContext;
 
-use crate::hardware::SUPPORTED_MODELS;
+use crate::hardware::{FujiUsbMode, SUPPORTED_CAMERAS};
 
-#[derive(Clone)]
-pub struct Device {
-    pub model: &'static dyn crate::hardware::Camera,
-    pub rusb_device: rusb::Device<GlobalContext>,
+pub struct Camera {
+    camera_impl: Box<dyn crate::hardware::CameraImpl>,
+    rusb_device: rusb::Device<GlobalContext>,
 }
 
-impl Device {
-    pub fn camera(&self) -> Result<libptp::Camera<GlobalContext>, Box<dyn Error + Send + Sync>> {
-        let handle = self.rusb_device.open()?;
-        let device = handle.device();
-        let camera = libptp::Camera::new(&device)?;
-        Ok(camera)
-    }
-
+impl Camera {
     pub fn id(&self) -> String {
         let bus = self.rusb_device.bus_number();
         let address = self.rusb_device.address();
@@ -25,7 +18,7 @@ impl Device {
     }
 
     pub fn name(&self) -> String {
-        self.model.name().to_string()
+        self.camera_impl.name().to_string()
     }
 
     pub fn vendor_id(&self) -> u16 {
@@ -37,10 +30,32 @@ impl Device {
         let descriptor = self.rusb_device.device_descriptor().unwrap();
         descriptor.product_id()
     }
+
+    pub fn ptp(&self) -> Result<libptp::Camera<GlobalContext>, Box<dyn Error + Send + Sync>> {
+        let handle = self.rusb_device.open()?;
+        let device = handle.device();
+        let ptp = libptp::Camera::new(&device)?;
+        Ok(ptp)
+    }
+
+    pub fn get_info(&self) -> Result<DeviceInfo, Box<dyn Error + Send + Sync>> {
+        let mut ptp = self.ptp()?;
+        self.camera_impl.get_info(&mut ptp)
+    }
+
+    pub fn get_fuji_usb_mode(&self) -> Result<FujiUsbMode, Box<dyn Error + Send + Sync>> {
+        let mut ptp = self.ptp()?;
+        self.camera_impl.get_fuji_usb_mode(&mut ptp)
+    }
+
+    pub fn get_fuji_battery_info(&self) -> Result<u32, Box<dyn Error + Send + Sync>> {
+        let mut ptp = self.ptp()?;
+        self.camera_impl.get_fuji_battery_info(&mut ptp)
+    }
 }
 
-pub fn get_connected_devices() -> Result<Vec<Device>, Box<dyn Error + Send + Sync>> {
-    let mut connected_devices = Vec::new();
+pub fn get_connected_camers() -> Result<Vec<Camera>, Box<dyn Error + Send + Sync>> {
+    let mut connected_cameras = Vec::new();
 
     for device in rusb::devices()?.iter() {
         let descriptor = match device.device_descriptor() {
@@ -48,25 +63,23 @@ pub fn get_connected_devices() -> Result<Vec<Device>, Box<dyn Error + Send + Syn
             Err(_) => continue,
         };
 
-        for model in SUPPORTED_MODELS.iter() {
-            if descriptor.vendor_id() == model.vendor_id()
-                && descriptor.product_id() == model.product_id()
-            {
-                let connected_device = Device {
-                    model: *model,
+        for camera in SUPPORTED_CAMERAS.iter() {
+            if camera.matches_descriptor(&descriptor) {
+                let camera = Camera {
+                    camera_impl: camera.into(),
                     rusb_device: device,
                 };
 
-                connected_devices.push(connected_device);
+                connected_cameras.push(camera);
                 break;
             }
         }
     }
 
-    Ok(connected_devices)
+    Ok(connected_cameras)
 }
 
-pub fn get_connected_device_by_id(id: &str) -> Result<Device, Box<dyn Error + Send + Sync>> {
+pub fn get_connected_camera_by_id(id: &str) -> Result<Camera, Box<dyn Error + Send + Sync>> {
     let parts: Vec<&str> = id.split('.').collect();
     if parts.len() != 2 {
         return Err(format!("Invalid device id format: {}", id).into());
@@ -79,12 +92,10 @@ pub fn get_connected_device_by_id(id: &str) -> Result<Device, Box<dyn Error + Se
         if device.bus_number() == bus && device.address() == address {
             let descriptor = device.device_descriptor()?;
 
-            for model in SUPPORTED_MODELS.iter() {
-                if descriptor.vendor_id() == model.vendor_id()
-                    && descriptor.product_id() == model.product_id()
-                {
-                    return Ok(Device {
-                        model: *model,
+            for camera in SUPPORTED_CAMERAS.iter() {
+                if camera.matches_descriptor(&descriptor) {
+                    return Ok(Camera {
+                        camera_impl: camera.into(),
                         rusb_device: device,
                     });
                 }
@@ -97,10 +108,10 @@ pub fn get_connected_device_by_id(id: &str) -> Result<Device, Box<dyn Error + Se
     Err(format!("No device found with id: {}", id).into())
 }
 
-pub fn get_device(device_id: Option<&str>) -> Result<Device, Box<dyn Error + Send + Sync>> {
+pub fn get_camera(device_id: Option<&str>) -> Result<Camera, Box<dyn Error + Send + Sync>> {
     match device_id {
-        Some(id) => get_connected_device_by_id(id),
-        None => get_connected_devices()?
+        Some(id) => get_connected_camera_by_id(id),
+        None => get_connected_camers()?
             .into_iter()
             .next()
             .ok_or_else(|| "No supported devices connected.".into()),
