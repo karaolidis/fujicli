@@ -1,0 +1,21 @@
+[package]
+name = "fujicli"
+version = "0.1.0"
+edition = "2024"
+description = "A CLI to manage Fujifilm devices, simulations, backups, and rendering"
+authors = [
+    "Nikolaos Karaolidis <nick@karaolidis.com>",
+]
+
+[profile.release]
+panic         = 'abort'
+strip         = true
+lto           = true
+codegen-units = 1
+
+[dependencies]
+clap = { version = "4.5.48", features = ["derive", "wrap_help"] }
+libptp = "0.6.5"
+log = "0.4.28"
+log4rs = "1.4.0"
+rusb = "0.9.4"
