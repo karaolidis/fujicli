@@ -1,8 +1,9 @@
-mod backup;
 mod common;
-mod device;
-mod render;
-mod simulation;
+
+pub mod backup;
+pub mod device;
+pub mod render;
+pub mod simulation;
 
 use clap::{Parser, Subcommand};
 
