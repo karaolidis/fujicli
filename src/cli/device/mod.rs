@@ -4,7 +4,7 @@ use clap::Subcommand;
 use serde::Serialize;
 
 use crate::{
-    hardware::{CameraImpl, UsbMode},
+    camera::{Camera, UsbMode},
     usb,
 };
 
@@ -21,19 +21,19 @@ pub enum DeviceCmd {
 
 #[derive(Serialize)]
 pub struct CameraItemRepr {
-    pub name: String,
-    pub id: String,
+    pub name: &'static str,
+    pub usb_id: String,
     pub vendor_id: String,
     pub product_id: String,
 }
 
-impl From<&Box<dyn CameraImpl>> for CameraItemRepr {
-    fn from(camera: &Box<dyn CameraImpl>) -> Self {
+impl From<&Camera> for CameraItemRepr {
+    fn from(camera: &Camera) -> Self {
         Self {
-            id: camera.usb_id(),
-            name: camera.id().name.to_string(),
-            vendor_id: format!("0x{:04x}", camera.id().vendor),
-            product_id: format!("0x{:04x}", camera.id().product),
+            name: camera.name(),
+            usb_id: camera.connected_usb_id(),
+            vendor_id: format!("0x{:04x}", camera.vendor_id()),
+            product_id: format!("0x{:04x}", camera.product_id()),
         }
     }
 }
@@ -42,14 +42,14 @@ impl fmt::Display for CameraItemRepr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{} ({}:{}) (ID: {})",
-            self.name, self.vendor_id, self.product_id, self.id
+            "{} ({}:{}) (USB ID: {})",
+            self.name, self.vendor_id, self.product_id, self.usb_id
         )
     }
 }
 
-fn handle_list(json: bool) -> Result<(), anyhow::Error> {
-    let cameras: Vec<CameraItemRepr> = usb::get_connected_camers()?
+fn handle_list(json: bool) -> anyhow::Result<()> {
+    let cameras: Vec<CameraItemRepr> = usb::get_connected_cameras()?
         .iter()
         .map(std::convert::Into::into)
         .collect();
@@ -88,7 +88,7 @@ pub struct CameraRepr {
 impl fmt::Display for CameraRepr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Name: {}", self.device.name)?;
-        writeln!(f, "ID: {}", self.device.id)?;
+        writeln!(f, "USB ID: {}", self.device.usb_id)?;
         writeln!(
             f,
             "Vendor ID: {}, Product ID: {}",
@@ -103,15 +103,12 @@ impl fmt::Display for CameraRepr {
     }
 }
 
-fn handle_info(json: bool, device_id: Option<&str>) -> Result<(), anyhow::Error> {
-    let camera = usb::get_camera(device_id)?;
-    let mut ptp = camera.ptp();
+fn handle_info(json: bool, device_id: Option<&str>) -> anyhow::Result<()> {
+    let mut camera = usb::get_camera(device_id)?;
 
-    let info = camera.get_info(&mut ptp)?;
-
-    let mut ptp = camera.open_session(ptp)?;
-    let mode = camera.get_usb_mode(&mut ptp)?;
-    let battery = camera.get_battery_info(&mut ptp)?;
+    let info = camera.get_info()?;
+    let mode = camera.get_usb_mode()?;
+    let battery = camera.get_battery_info()?;
 
     let repr = CameraRepr {
         device: (&camera).into(),
@@ -132,7 +129,7 @@ fn handle_info(json: bool, device_id: Option<&str>) -> Result<(), anyhow::Error>
     Ok(())
 }
 
-pub fn handle(cmd: DeviceCmd, json: bool, device_id: Option<&str>) -> Result<(), anyhow::Error> {
+pub fn handle(cmd: DeviceCmd, json: bool, device_id: Option<&str>) -> anyhow::Result<()> {
     match cmd {
         DeviceCmd::List => handle_list(json),
         DeviceCmd::Info => handle_info(json, device_id),

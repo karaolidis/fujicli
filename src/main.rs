@@ -5,11 +5,11 @@ use clap::Parser;
 use cli::Commands;
 
 mod cli;
-mod hardware;
+mod camera;
 mod log;
 mod usb;
 
-fn main() -> Result<(), anyhow::Error> {
+fn main() -> anyhow::Result<()> {
     let cli = cli::Cli::parse();
 
     log::init(cli.quiet, cli.verbose)?;

@@ -6,7 +6,7 @@ use log4rs::{
     encode::pattern::PatternEncoder,
 };
 
-pub fn init(quiet: bool, verbose: bool) -> Result<(), anyhow::Error> {
+pub fn init(quiet: bool, verbose: bool) -> anyhow::Result<()> {
     let level = if quiet {
         LevelFilter::Warn
     } else if verbose {

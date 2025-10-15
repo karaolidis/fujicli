@@ -18,7 +18,7 @@ impl FromStr for Input {
 }
 
 impl Input {
-    pub fn get_reader(&self) -> Result<Box<dyn io::Read>, anyhow::Error> {
+    pub fn get_reader(&self) -> anyhow::Result<Box<dyn io::Read>> {
         match self {
             Self::Stdin => Ok(Box::new(io::stdin())),
             Self::Path(path) => Ok(Box::new(File::open(path)?)),
@@ -44,7 +44,7 @@ impl FromStr for Output {
 }
 
 impl Output {
-    pub fn get_writer(&self) -> Result<Box<dyn io::Write>, anyhow::Error> {
+    pub fn get_writer(&self) -> anyhow::Result<Box<dyn io::Write>> {
         match self {
             Self::Stdout => Ok(Box::new(io::stdout())),
             Self::Path(path) => Ok(Box::new(File::create(path)?)),
