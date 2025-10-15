@@ -4,7 +4,7 @@ use clap::Subcommand;
 use serde::Serialize;
 
 use crate::{
-    camera::{Camera, UsbMode},
+    camera::{Camera, ptp::enums::UsbMode},
     usb,
 };
 
@@ -112,10 +112,10 @@ fn handle_info(json: bool, device_id: Option<&str>) -> anyhow::Result<()> {
 
     let repr = CameraRepr {
         device: (&camera).into(),
-        manufacturer: info.Manufacturer.clone(),
-        model: info.Model.clone(),
-        device_version: info.DeviceVersion.clone(),
-        serial_number: info.SerialNumber,
+        manufacturer: info.manufacturer.clone(),
+        model: info.model.clone(),
+        device_version: info.device_version.clone(),
+        serial_number: info.serial_number,
         mode,
         battery,
     };

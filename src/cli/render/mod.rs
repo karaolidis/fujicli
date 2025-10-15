@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use super::common::{
     file::{Input, Output},
-    film::{FilmSimulationOptions, SimulationSelector},
+    film::FilmSimulationOptions,
 };
 use clap::Args;
 
@@ -10,7 +10,7 @@ use clap::Args;
 pub struct RenderCmd {
     /// Simulation number or name
     #[arg(long, conflicts_with = "simulation_file")]
-    simulation: Option<SimulationSelector>,
+    simulation: Option<u8>,
 
     /// Path to exported simulation
     #[arg(long, conflicts_with = "simulation")]

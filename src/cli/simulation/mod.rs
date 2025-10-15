@@ -1,6 +1,6 @@
 use super::common::{
     file::{Input, Output},
-    film::{FilmSimulationOptions, SimulationSelector},
+    film::FilmSimulationOptions,
 };
 use clap::Subcommand;
 
@@ -14,14 +14,14 @@ pub enum SimulationCmd {
     #[command(alias = "g")]
     Get {
         /// Simulation number or name
-        simulation: SimulationSelector,
+        simulation: u8,
     },
 
     /// Set simulation parameters
     #[command(alias = "s")]
     Set {
         /// Simulation number or name
-        simulation: SimulationSelector,
+        simulation: u8,
 
         #[command(flatten)]
         film_simulation_options: FilmSimulationOptions,
@@ -31,7 +31,7 @@ pub enum SimulationCmd {
     #[command(alias = "e")]
     Export {
         /// Simulation number or name
-        simulation: SimulationSelector,
+        simulation: u8,
 
         /// Output file (use '-' to write to stdout)
         output_file: Output,

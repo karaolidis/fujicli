@@ -6,13 +6,12 @@ use log4rs::{
     encode::pattern::PatternEncoder,
 };
 
-pub fn init(quiet: bool, verbose: bool) -> anyhow::Result<()> {
-    let level = if quiet {
-        LevelFilter::Warn
-    } else if verbose {
-        LevelFilter::Debug
-    } else {
-        LevelFilter::Info
+pub fn init(verbose: u8) -> anyhow::Result<()> {
+    let level = match verbose {
+        0 => LevelFilter::Warn,
+        1 => LevelFilter::Info,
+        2 => LevelFilter::Debug,
+        _ => LevelFilter::Trace,
     };
 
     let encoder = Box::new(PatternEncoder::new("{d} {h({l})} {M}::{L} - {m}{n}"));

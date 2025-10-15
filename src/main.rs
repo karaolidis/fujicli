@@ -4,15 +4,15 @@
 use clap::Parser;
 use cli::Commands;
 
-mod cli;
 mod camera;
+mod cli;
 mod log;
 mod usb;
 
 fn main() -> anyhow::Result<()> {
     let cli = cli::Cli::parse();
 
-    log::init(cli.quiet, cli.verbose)?;
+    log::init(cli.verbose)?;
 
     let device_id = cli.device.as_deref();
 

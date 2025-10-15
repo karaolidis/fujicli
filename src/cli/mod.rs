@@ -5,7 +5,7 @@ pub mod device;
 pub mod render;
 pub mod simulation;
 
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 
 use backup::BackupCmd;
 use device::DeviceCmd;
@@ -23,13 +23,9 @@ pub struct Cli {
     #[arg(long, short = 'j', global = true)]
     pub json: bool,
 
-    /// Only log warnings and errors
-    #[arg(long, short = 'q', global = true, conflicts_with = "verbose")]
-    pub quiet: bool,
-
-    /// Log extra debugging information
-    #[arg(long, short = 'v', global = true, conflicts_with = "quiet")]
-    pub verbose: bool,
+    /// Log extra debugging information (multiple instances increase verbosity)
+    #[arg(long, short = 'v', action = ArgAction::Count, global = true)]
+    pub verbose: u8,
 
     /// Manually specify target device
     #[arg(long, short = 'd', global = true)]
