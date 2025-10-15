@@ -1,10 +1,12 @@
 use std::{
     fmt,
+    io::Cursor,
     ops::{Deref, DerefMut},
     time::Duration,
 };
 
 use anyhow::bail;
+use byteorder::{LittleEndian, WriteBytesExt};
 use libptp::{DeviceInfo, StandardCommandCode};
 use log::{debug, error};
 use rusb::{DeviceDescriptor, GlobalContext};
@@ -280,29 +282,18 @@ pub trait CameraImpl {
         debug!("Preparing ObjectInfo header for backup");
 
         let mut obj_info = vec![0u8; 1088];
-        let mut offset = 0;
 
-        let padding0: u32 = 0x0;
-        let object_format: u16 = 0x5000;
-        let padding1: u16 = 0x0;
-
-        obj_info[offset..offset + size_of::<u32>()].copy_from_slice(&padding0.to_le_bytes());
-        offset += size_of::<u32>();
-        obj_info[offset..offset + size_of::<u16>()].copy_from_slice(&object_format.to_le_bytes());
-        offset += size_of::<u16>();
-        obj_info[offset..offset + size_of::<u16>()].copy_from_slice(&padding1.to_le_bytes());
-        offset += size_of::<u16>();
-        obj_info[offset..offset + size_of::<u32>()]
-            .copy_from_slice(&u32::try_from(buffer.len())?.to_le_bytes());
-
-        let param0: u32 = 0x0;
-        let param1: u32 = 0x0;
+        let mut cursor = Cursor::new(&mut obj_info[..]);
+        cursor.write_u32::<LittleEndian>(0x0)?;
+        cursor.write_u16::<LittleEndian>(0x5000)?;
+        cursor.write_u16::<LittleEndian>(0x0)?;
+        cursor.write_u32::<LittleEndian>(u32::try_from(buffer.len())?)?;
 
         debug!("Sending ObjectInfo for backup");
 
         ptp.command(
             libptp::StandardCommandCode::SendObjectInfo,
-            &[param0, param1],
+            &[0x0, 0x0],
             Some(&obj_info),
             Some(TIMEOUT),
         )?;

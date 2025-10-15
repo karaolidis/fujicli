@@ -15,6 +15,7 @@ codegen-units = 1
 
 [dependencies]
 anyhow = "1.0.100"
+byteorder = "1.5.0"
 clap = { version = "4.5.48", features = ["derive", "wrap_help"] }
 libptp = "0.6.5"
 log = "0.4.28"
