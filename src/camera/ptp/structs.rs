@@ -1,8 +1,11 @@
 use std::io::Cursor;
 
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use super::{enums::ContainerType, read::Read};
+use super::{
+    enums::{CommandCode, ContainerCode, ContainerType},
+    read::Read,
+};
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -50,28 +53,81 @@ impl TryFrom<&[u8]> for DeviceInfo {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ContainerInfo {
+    pub total_len: u32,
     pub kind: ContainerType,
-    pub payload_len: u32,
-    pub code: u16,
+    pub code: ContainerCode,
+    pub transaction_id: Option<u32>,
 }
 
 impl ContainerInfo {
-    pub const SIZE: usize =
-        size_of::<ContainerType>() + size_of::<u32>() + size_of::<u16>() + size_of::<u32>();
-}
+    const BASE_SIZE: usize = size_of::<u32>() + size_of::<u16>() + size_of::<u16>();
+    pub const SIZE: usize = Self::BASE_SIZE + size_of::<u32>();
 
-impl ContainerInfo {
-    pub fn parse<R: ReadBytesExt>(mut r: R) -> anyhow::Result<Self> {
-        let payload_len = r.read_u32::<LittleEndian>()? - Self::SIZE as u32;
-        let kind = r.read_u16::<LittleEndian>()?;
-        let kind = ContainerType::try_from(kind)?;
-        let code = r.read_u16::<LittleEndian>()?;
-        let _transaction_id = r.read_u32::<LittleEndian>()?;
+    pub fn new(
+        kind: ContainerType,
+        code: CommandCode,
+        transaction_id: Option<u32>,
+        payload: &[u8],
+    ) -> anyhow::Result<Self> {
+        let mut total_len = if transaction_id.is_some() {
+            Self::SIZE
+        } else {
+            Self::BASE_SIZE
+        };
+        total_len += payload.len();
 
         Ok(Self {
+            total_len: u32::try_from(total_len)?,
             kind,
-            payload_len,
-            code,
+            code: ContainerCode::Command(code),
+            transaction_id,
         })
+    }
+
+    pub const fn len(&self) -> usize {
+        if self.transaction_id.is_some() {
+            Self::SIZE
+        } else {
+            Self::BASE_SIZE
+        }
+    }
+
+    pub const fn payload_len(&self) -> usize {
+        self.total_len as usize - self.len()
+    }
+}
+
+impl TryFrom<&[u8]> for ContainerInfo {
+    type Error = anyhow::Error;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        let mut r = Cursor::new(bytes);
+
+        let total_len = r.read_u32::<LittleEndian>()?;
+        let kind = ContainerType::try_from(r.read_u16::<LittleEndian>()?)?;
+        let code = ContainerCode::try_from(r.read_u16::<LittleEndian>()?)?;
+        let transaction_id = Some(r.read_u32::<LittleEndian>()?);
+
+        Ok(Self {
+            total_len,
+            kind,
+            code,
+            transaction_id,
+        })
+    }
+}
+
+impl TryFrom<ContainerInfo> for Vec<u8> {
+    type Error = anyhow::Error;
+
+    fn try_from(val: ContainerInfo) -> Result<Self, Self::Error> {
+        let mut buf = Self::with_capacity(val.len());
+        buf.write_u32::<LittleEndian>(val.total_len)?;
+        buf.write_u16::<LittleEndian>(val.kind as u16)?;
+        buf.write_u16::<LittleEndian>(val.code.into())?;
+        if let Some(transaction_id) = val.transaction_id {
+            buf.write_u32::<LittleEndian>(transaction_id)?;
+        }
+        Ok(buf)
     }
 }

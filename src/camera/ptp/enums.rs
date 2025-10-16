@@ -31,7 +31,7 @@ impl TryFrom<u16> for CommandCode {
             0x100D => Ok(Self::SendObject),
             0x1015 => Ok(Self::GetDevicePropValue),
             0x1016 => Ok(Self::SetDevicePropValue),
-            v => bail!("Unknown command code '{v}'"),
+            v => bail!("Unknown command code '{v:x?}'"),
         }
     }
 }
@@ -112,8 +112,40 @@ impl std::convert::TryFrom<u16> for ResponseCode {
             0x201E => Ok(Self::SessionAlreadyOpen),
             0x201F => Ok(Self::TransactionCancelled),
             0x2020 => Ok(Self::SpecificationOfDestinationUnsupported),
-            v => bail!("Unknown response code '{v}'"),
+            v => bail!("Unknown response code '{v:x?}'"),
         }
+    }
+}
+
+#[repr(u16)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContainerCode {
+    Command(CommandCode),
+    Response(ResponseCode),
+}
+
+impl From<ContainerCode> for u16 {
+    fn from(code: ContainerCode) -> Self {
+        match code {
+            ContainerCode::Command(cmd) => cmd as Self,
+            ContainerCode::Response(resp) => resp as Self,
+        }
+    }
+}
+
+impl TryFrom<u16> for ContainerCode {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        if let Ok(cmd) = CommandCode::try_from(value) {
+            return Ok(Self::Command(cmd));
+        }
+
+        if let Ok(resp) = ResponseCode::try_from(value) {
+            return Ok(Self::Response(resp));
+        }
+
+        bail!("Unknown container code '{value:x?}'");
     }
 }
 

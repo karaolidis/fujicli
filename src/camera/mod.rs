@@ -9,7 +9,7 @@ use byteorder::{LittleEndian, WriteBytesExt};
 use devices::SupportedCamera;
 use log::{debug, error, trace};
 use ptp::{
-    enums::{CommandCode, ContainerType, PropCode, ResponseCode, UsbMode},
+    enums::{CommandCode, ContainerCode, ContainerType, PropCode, ResponseCode, UsbMode},
     structs::{ContainerInfo, DeviceInfo},
 };
 use rusb::{GlobalContext, constants::LIBUSB_CLASS_IMAGE};
@@ -216,7 +216,9 @@ pub trait CameraImpl<P: rusb::UsbContext> {
         transaction: bool,
     ) -> anyhow::Result<Vec<u8>> {
         let transaction_id = if transaction {
-            Some(ptp.transaction_id)
+            let transaction_id = Some(ptp.transaction_id);
+            ptp.transaction_id += 1;
+            transaction_id
         } else {
             None
         };
@@ -252,10 +254,13 @@ pub trait CameraImpl<P: rusb::UsbContext> {
                 }
                 ContainerType::Response => {
                     trace!("Response received: code {:?}", container.code);
-                    let code = ResponseCode::try_from(container.code)?;
-                    if code != ResponseCode::Ok {
-                        bail!(ptp::error::Error::Response(container.code));
+                    match container.code {
+                        ContainerCode::Command(_) | ContainerCode::Response(ResponseCode::Ok) => {}
+                        ContainerCode::Response(code) => {
+                            bail!(ptp::error::Error::Response(code as u16));
+                        }
                     }
+
                     trace!(
                         "Command {:?} completed successfully with data payload of {} bytes",
                         code,
@@ -276,28 +281,12 @@ pub trait CameraImpl<P: rusb::UsbContext> {
         kind: ContainerType,
         code: CommandCode,
         payload: &[u8],
-        // Fuji, for the love of God don't ever write code again.
         transaction_id: Option<u32>,
     ) -> anyhow::Result<()> {
-        // Look at what you made me do. Fuck.
-        let header_len = ContainerInfo::SIZE
-            - if transaction_id.is_none() {
-                size_of::<u32>()
-            } else {
-                0
-            };
+        let container_info = ContainerInfo::new(kind, code, transaction_id, payload)?;
+        let first_chunk_len = min(payload.len(), self.chunk_size() - container_info.len());
 
-        let first_chunk_len = min(payload.len(), self.chunk_size() - header_len);
-        let total_len = u32::try_from(payload.len() + header_len)?;
-
-        let mut buffer = Vec::with_capacity(first_chunk_len + header_len);
-        buffer.write_u32::<LittleEndian>(total_len)?;
-        buffer.write_u16::<LittleEndian>(kind as u16)?;
-        buffer.write_u16::<LittleEndian>(code as u16)?;
-        if let Some(transaction_id) = transaction_id {
-            buffer.write_u32::<LittleEndian>(transaction_id)?;
-        }
-
+        let mut buffer: Vec<u8> = container_info.try_into()?;
         buffer.extend_from_slice(&payload[..first_chunk_len]);
 
         trace!(
@@ -329,13 +318,14 @@ pub trait CameraImpl<P: rusb::UsbContext> {
 
         trace!("Read {n} bytes from bulk_in");
 
-        let container_info = ContainerInfo::parse(buf)?;
-        if container_info.payload_len == 0 {
+        let container_info = ContainerInfo::try_from(buf)?;
+
+        let payload_len = container_info.payload_len();
+        if payload_len == 0 {
             trace!("No payload in container");
             return Ok((container_info, Vec::new()));
         }
 
-        let payload_len = container_info.payload_len as usize;
         let mut payload = Vec::with_capacity(payload_len);
         if buf.len() > ContainerInfo::SIZE {
             payload.extend_from_slice(&buf[ContainerInfo::SIZE..]);
@@ -415,7 +405,7 @@ pub trait CameraImpl<P: rusb::UsbContext> {
 
     fn import_backup(&self, ptp: &mut Ptp, buffer: &[u8]) -> anyhow::Result<()> {
         debug!("Preparing ObjectInfo header for backup");
-        let mut obj_info = vec![0u8; 1088];
+        let mut obj_info = vec![0u8; 1012];
         let mut cursor = Cursor::new(&mut obj_info[..]);
         cursor.write_u32::<LittleEndian>(0x0)?;
         cursor.write_u16::<LittleEndian>(0x5000)?;
@@ -433,13 +423,7 @@ pub trait CameraImpl<P: rusb::UsbContext> {
         debug!("Received response with {} bytes", response.len());
 
         debug!("Sending SendObject command for backup");
-        let response = self.send(
-            ptp,
-            CommandCode::SendObject,
-            Some(&[0x0]),
-            Some(buffer),
-            false,
-        )?;
+        let response = self.send(ptp, CommandCode::SendObject, None, Some(buffer), true)?;
         debug!("Received response with {} bytes", response.len());
 
         Ok(())
