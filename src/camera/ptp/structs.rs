@@ -67,14 +67,14 @@ impl ContainerInfo {
         kind: ContainerType,
         code: CommandCode,
         transaction_id: Option<u32>,
-        payload: &[u8],
+        payload_len: usize,
     ) -> anyhow::Result<Self> {
         let mut total_len = if transaction_id.is_some() {
             Self::SIZE
         } else {
             Self::BASE_SIZE
         };
-        total_len += payload.len();
+        total_len += payload_len;
 
         Ok(Self {
             total_len: u32::try_from(total_len)?,
