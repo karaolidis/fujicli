@@ -216,7 +216,7 @@ pub trait PtpDeserialize: Sized {
     fn try_read_ptp<R: Read>(cur: &mut R) -> io::Result<Self>;
 }
 
-macro_rules! impl_ptp {
+macro_rules! impl_ptp_ser {
     ($ty:ty, $read_fn:ident, $write_fn:ident) => {
         impl PtpSerialize for $ty {
             fn try_into_ptp(&self) -> io::Result<Vec<u8>> {
@@ -229,7 +229,11 @@ macro_rules! impl_ptp {
                 buf.$write_fn(self)
             }
         }
+    };
+}
 
+macro_rules! impl_ptp_de {
+    ($ty:ty, $read_fn:ident, $write_fn:ident) => {
         impl PtpDeserialize for $ty {
             fn try_from_ptp(buf: &[u8]) -> io::Result<Self> {
                 let mut cur = Cursor::new(buf);
@@ -245,20 +249,38 @@ macro_rules! impl_ptp {
     };
 }
 
-impl_ptp!(u8, read_ptp_u8, write_ptp_u8);
-impl_ptp!(i8, read_ptp_i8, write_ptp_i8);
-impl_ptp!(u16, read_ptp_u16, write_ptp_u16);
-impl_ptp!(i16, read_ptp_i16, write_ptp_i16);
-impl_ptp!(u32, read_ptp_u32, write_ptp_u32);
-impl_ptp!(i32, read_ptp_i32, write_ptp_i32);
-impl_ptp!(u64, read_ptp_u64, write_ptp_u64);
-impl_ptp!(i64, read_ptp_i64, write_ptp_i64);
-impl_ptp!(String, read_ptp_str, write_ptp_str);
-impl_ptp!(Vec<u8>, read_ptp_u8_vec, write_ptp_u8_vec);
-impl_ptp!(Vec<i8>, read_ptp_i8_vec, write_ptp_i8_vec);
-impl_ptp!(Vec<u16>, read_ptp_u16_vec, write_ptp_u16_vec);
-impl_ptp!(Vec<i16>, read_ptp_i16_vec, write_ptp_i16_vec);
-impl_ptp!(Vec<u32>, read_ptp_u32_vec, write_ptp_u32_vec);
-impl_ptp!(Vec<i32>, read_ptp_i32_vec, write_ptp_i32_vec);
-impl_ptp!(Vec<u64>, read_ptp_u64_vec, write_ptp_u64_vec);
-impl_ptp!(Vec<i64>, read_ptp_i64_vec, write_ptp_i64_vec);
+impl_ptp_ser!(u8, read_ptp_u8, write_ptp_u8);
+impl_ptp_de!(u8, read_ptp_u8, write_ptp_u8);
+impl_ptp_ser!(i8, read_ptp_i8, write_ptp_i8);
+impl_ptp_de!(i8, read_ptp_i8, write_ptp_i8);
+impl_ptp_ser!(u16, read_ptp_u16, write_ptp_u16);
+impl_ptp_de!(u16, read_ptp_u16, write_ptp_u16);
+impl_ptp_ser!(i16, read_ptp_i16, write_ptp_i16);
+impl_ptp_de!(i16, read_ptp_i16, write_ptp_i16);
+impl_ptp_ser!(u32, read_ptp_u32, write_ptp_u32);
+impl_ptp_de!(u32, read_ptp_u32, write_ptp_u32);
+impl_ptp_ser!(i32, read_ptp_i32, write_ptp_i32);
+impl_ptp_de!(i32, read_ptp_i32, write_ptp_i32);
+impl_ptp_ser!(u64, read_ptp_u64, write_ptp_u64);
+impl_ptp_de!(u64, read_ptp_u64, write_ptp_u64);
+impl_ptp_ser!(i64, read_ptp_i64, write_ptp_i64);
+impl_ptp_de!(i64, read_ptp_i64, write_ptp_i64);
+impl_ptp_ser!(&str, read_ptp_str, write_ptp_str);
+impl_ptp_ser!(String, read_ptp_str, write_ptp_str);
+impl_ptp_de!(String, read_ptp_str, write_ptp_str);
+impl_ptp_ser!(Vec<u8>, read_ptp_u8_vec, write_ptp_u8_vec);
+impl_ptp_de!(Vec<u8>, read_ptp_u8_vec, write_ptp_u8_vec);
+impl_ptp_ser!(Vec<i8>, read_ptp_i8_vec, write_ptp_i8_vec);
+impl_ptp_de!(Vec<i8>, read_ptp_i8_vec, write_ptp_i8_vec);
+impl_ptp_ser!(Vec<u16>, read_ptp_u16_vec, write_ptp_u16_vec);
+impl_ptp_de!(Vec<u16>, read_ptp_u16_vec, write_ptp_u16_vec);
+impl_ptp_ser!(Vec<i16>, read_ptp_i16_vec, write_ptp_i16_vec);
+impl_ptp_de!(Vec<i16>, read_ptp_i16_vec, write_ptp_i16_vec);
+impl_ptp_ser!(Vec<u32>, read_ptp_u32_vec, write_ptp_u32_vec);
+impl_ptp_de!(Vec<u32>, read_ptp_u32_vec, write_ptp_u32_vec);
+impl_ptp_ser!(Vec<i32>, read_ptp_i32_vec, write_ptp_i32_vec);
+impl_ptp_de!(Vec<i32>, read_ptp_i32_vec, write_ptp_i32_vec);
+impl_ptp_ser!(Vec<u64>, read_ptp_u64_vec, write_ptp_u64_vec);
+impl_ptp_de!(Vec<u64>, read_ptp_u64_vec, write_ptp_u64_vec);
+impl_ptp_ser!(Vec<i64>, read_ptp_i64_vec, write_ptp_i64_vec);
+impl_ptp_de!(Vec<i64>, read_ptp_i64_vec, write_ptp_i64_vec);

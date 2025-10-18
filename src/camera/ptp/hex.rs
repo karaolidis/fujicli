@@ -1,6 +1,7 @@
 use std::{
     fmt,
     io::{self, Cursor},
+    ops::{Deref, DerefMut},
     str::FromStr,
 };
 
@@ -146,8 +147,8 @@ pub enum DevicePropCode {
     FujiStillCustomSettingColorChromeFXBlue = 0xD197,
     // TODO: 0xD198 All 1s
     FujiStillCustomSettingWhiteBalance = 0xD199,
-    FujiStillCustomSettingWhiteBalanceRed = 0xD19A,
-    FujiStillCustomSettingWhiteBalanceBlue = 0xD19B,
+    FujiStillCustomSettingWhiteBalanceShiftRed = 0xD19A,
+    FujiStillCustomSettingWhiteBalanceShiftBlue = 0xD19B,
     FujiStillCustomSettingWhiteBalanceTemperature = 0xD19C,
     FujiStillCustomSettingHighlightTone = 0xD19D,
     FujiStillCustomSettingShadowTone = 0xD19E,
@@ -181,7 +182,7 @@ where
         }
     }
 
-    println!("{}", best_score);
+    println!("{best_score}");
     if best_score <= SIMILARITY_THRESHOLD {
         best_match
     } else {
@@ -231,7 +232,7 @@ impl Serialize for FujiCustomSetting {
     where
         S: Serializer,
     {
-        serializer.serialize_u16(*self as u16)
+        serializer.serialize_u16((*self).into())
     }
 }
 
@@ -253,6 +254,52 @@ impl FromStr for FujiCustomSetting {
         };
 
         Ok(variant)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, PtpSerialize, PtpDeserialize)]
+pub struct FujiCustomSettingName(String);
+
+impl FujiCustomSettingName {
+    pub const MAX_LEN: usize = 25;
+}
+
+impl Deref for FujiCustomSettingName {
+    type Target = String;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for FujiCustomSettingName {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl TryFrom<String> for FujiCustomSettingName {
+    type Error = anyhow::Error;
+    fn try_from(value: String) -> Result<Self, anyhow::Error> {
+        if value.len() > Self::MAX_LEN {
+            bail!("Value '{}' exceeds max length of {}", value, Self::MAX_LEN);
+        }
+        Ok(Self(value))
+    }
+}
+
+impl FromStr for FujiCustomSettingName {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, anyhow::Error> {
+        if s.len() > Self::MAX_LEN {
+            bail!("Value '{}' exceeds max length of {}", s, Self::MAX_LEN);
+        }
+        Ok(Self(s.to_string()))
+    }
+}
+
+impl std::fmt::Display for FujiCustomSettingName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -329,8 +376,8 @@ impl FromStr for FujiImageSize {
             _ => {}
         }
 
-        let resolution_input = s.replace(' ', "x").replace("by", "x");
-        if let Some((w_str, h_str)) = resolution_input.split_once('x')
+        let input = s.replace(' ', "x").replace("by", "x");
+        if let Some((w_str, h_str)) = input.split_once('x')
             && let (Ok(w), Ok(h)) = (w_str.trim().parse::<u32>(), h_str.trim().parse::<u32>())
         {
             match (w, h) {
@@ -489,14 +536,14 @@ impl FromStr for FujiDynamicRange {
     PtpDeserialize,
     EnumIter,
 )]
-pub enum FujiStillDynamicRangePriority {
+pub enum FujiDynamicRangePriority {
     Auto = 0x8000,
     Strong = 0x2,
     Weak = 0x1,
     Off = 0x0,
 }
 
-impl fmt::Display for FujiStillDynamicRangePriority {
+impl fmt::Display for FujiDynamicRangePriority {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Auto => write!(f, "Auto"),
@@ -507,7 +554,7 @@ impl fmt::Display for FujiStillDynamicRangePriority {
     }
 }
 
-impl FromStr for FujiStillDynamicRangePriority {
+impl FromStr for FujiDynamicRangePriority {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> anyhow::Result<Self> {
@@ -705,10 +752,10 @@ impl FromStr for FujiGrainEffect {
             .replace(['+', '-', ',', ' '].as_ref(), "");
 
         match input.as_str() {
-            "stronglarge" => return Ok(Self::StrongLarge),
-            "weaklarge" => return Ok(Self::WeakLarge),
-            "strongsmall" => return Ok(Self::StrongSmall),
-            "weaksmall" => return Ok(Self::WeakSmall),
+            "stronglarge" | "largestrong" => return Ok(Self::StrongLarge),
+            "weaklarge" | "largeweak" => return Ok(Self::WeakLarge),
+            "strongsmall" | "smallstrong" => return Ok(Self::StrongSmall),
+            "weaksmall" | "smallweak" => return Ok(Self::WeakSmall),
             "off" => return Ok(Self::Off),
             _ => {}
         }
@@ -999,10 +1046,22 @@ macro_rules! define_fuji_i16 {
         pub struct $name(i16);
 
         impl $name {
-            pub const MIN: i16 = $min;
-            pub const MAX: i16 = $max;
-            pub const STEP: i16 = $step;
-            pub const SCALE: f32 = $scale;
+            pub const MIN: f32 = $min;
+            pub const MAX: f32 = $max;
+            pub const STEP: f32 = $step;
+
+            pub const SCALE: f32 = $scale as f32;
+
+            #[allow(clippy::cast_possible_truncation)]
+            pub const RAW_MIN: i16 = ($min * $scale as f32) as i16;
+            #[allow(clippy::cast_possible_truncation)]
+            pub const RAW_MAX: i16 = ($max * $scale as f32) as i16;
+            #[allow(clippy::cast_possible_truncation)]
+            pub const RAW_STEP: i16 = ($step * $scale as f32) as i16;
+
+            pub const unsafe fn new_unchecked(value: i16) -> Self {
+                Self(value)
+            }
         }
 
         impl std::ops::Deref for $name {
@@ -1022,12 +1081,12 @@ macro_rules! define_fuji_i16 {
             type Error = anyhow::Error;
 
             fn try_from(value: i16) -> anyhow::Result<Self> {
-                if !(Self::MIN..=Self::MAX).contains(&value) {
+                if !(Self::RAW_MIN..=Self::RAW_MAX).contains(&value) {
                     anyhow::bail!("Value {} is out of range", value);
                 }
                 #[allow(clippy::modulo_one)]
-                if (value - Self::MIN) % Self::STEP != 0 {
-                    anyhow::bail!("Value {} is not aligned to step {}", value, Self::STEP);
+                if (value - Self::RAW_MIN) % Self::RAW_STEP != 0 {
+                    anyhow::bail!("Value {} is not aligned to step {}", value, Self::RAW_STEP);
                 }
                 Ok(Self(value))
             }
@@ -1035,18 +1094,8 @@ macro_rules! define_fuji_i16 {
 
         impl std::fmt::Display for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                if (Self::SCALE - 1.0).abs() < f32::EPSILON {
-                    write!(f, "{}", self.0)
-                } else {
-                    let val = f32::from(self.0) * Self::SCALE;
-                    if val.fract().abs() < f32::EPSILON {
-                        #[allow(clippy::cast_possible_truncation)]
-                        let val = val as i32;
-                        write!(f, "{}", val as i32)
-                    } else {
-                        write!(f, "{:.1}", val)
-                    }
-                }
+                let value = (f32::from(self.0) / Self::SCALE);
+                write!(f, "{}", value)
             }
         }
 
@@ -1061,9 +1110,18 @@ macro_rules! define_fuji_i16 {
                     .parse::<f32>()
                     .with_context(|| format!("Invalid numeric value '{s}'"))?;
 
+                if !(Self::MIN..=Self::MAX).contains(&input) {
+                    anyhow::bail!("Value {} is out of range", input);
+                }
+                #[allow(clippy::modulo_one)]
+                if (input - Self::MIN) % Self::STEP != 0.0 {
+                    anyhow::bail!("Value {} is not aligned to step {}", input, Self::STEP);
+                }
+
                 #[allow(clippy::cast_possible_truncation)]
-                let raw = (input / Self::SCALE).round() as i16;
-                Self::try_from(raw)
+                let raw = (input * Self::SCALE).round() as i16;
+
+                unsafe { Ok(Self::new_unchecked(raw)) }
             }
         }
 
@@ -1072,24 +1130,20 @@ macro_rules! define_fuji_i16 {
             where
                 S: serde::Serializer,
             {
-                let val = f32::from(self.0) * Self::SCALE;
-                if (val.fract().abs() < f32::EPSILON) {
-                    serializer.serialize_i32(val as i32)
-                } else {
-                    serializer.serialize_f32(val)
-                }
+                let val = f32::from(self.0) / Self::SCALE;
+                serializer.serialize_f32(val)
             }
         }
     };
 }
 
-define_fuji_i16!(FujiWhiteBalanceShift, -9, 9, 1, 1.0);
-define_fuji_i16!(FujiWhiteBalanceTemperature, 2500, 10000, 10, 1.0);
-define_fuji_i16!(FujiHighlightTone, -40, 20, 5, 0.1);
-define_fuji_i16!(FujiShadowTone, -20, 40, 5, 0.1);
-define_fuji_i16!(FujiColor, -40, 40, 10, 0.1);
-define_fuji_i16!(FujiSharpness, -40, 40, 10, 0.1);
-define_fuji_i16!(FujiClarity, -50, 50, 10, 0.1);
+define_fuji_i16!(FujiWhiteBalanceShift, -9.0, 9.0, 1.0, 1i16);
+define_fuji_i16!(FujiWhiteBalanceTemperature, 2500.0, 10000.0, 10.0, 1i16);
+define_fuji_i16!(FujiHighlightTone, -2.0, 4.0, 0.5, 10i16);
+define_fuji_i16!(FujiShadowTone, -2.0, 4.0, 0.5, 10i16);
+define_fuji_i16!(FujiColor, -4.0, 4.0, 1.0, 10i16);
+define_fuji_i16!(FujiSharpness, -4.0, 4.0, 1.0, 10i16);
+define_fuji_i16!(FujiClarity, -5.0, 5.0, 1.0, 10i16);
 
 #[repr(u16)]
 #[derive(

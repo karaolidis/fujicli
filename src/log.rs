@@ -14,7 +14,13 @@ pub fn init(verbose: u8) -> anyhow::Result<()> {
         _ => LevelFilter::Trace,
     };
 
-    let encoder = Box::new(PatternEncoder::new("{d} {h({l})} {M}::{L} - {m}{n}"));
+    let pattern = if verbose > 0 {
+        "{d} {h({l})} {M}::{L} - {m}{n}"
+    } else {
+        "{h({l})} - {m}{n}"
+    };
+
+    let encoder = Box::new(PatternEncoder::new(pattern));
 
     let console = ConsoleAppender::builder()
         .encoder(encoder)
