@@ -1,6 +1,6 @@
 use std::{fmt, io};
 
-use crate::camera::ptp::enums::ResponseCode;
+use crate::camera::ptp::hex::ResponseCode;
 
 #[derive(Debug)]
 pub enum Error {

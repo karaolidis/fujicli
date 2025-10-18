@@ -19,7 +19,10 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Device(device_cmd) => cli::device::handle(device_cmd, cli.json, device_id)?,
         Commands::Backup(backup_cmd) => cli::backup::handle(backup_cmd, device_id)?,
-        _ => todo!(),
+        Commands::Simulation(simulation_cmd) => {
+            cli::simulation::handle(simulation_cmd, cli.json, device_id)?;
+        }
+        Commands::Render(_) => todo!(),
     }
 
     Ok(())

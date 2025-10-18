@@ -59,6 +59,7 @@
             clippy
             cargo-udeps
             cargo-outdated
+            cargo-expand
           ];
 
           shellHook = ''

@@ -38,6 +38,6 @@ pub fn get_camera(device_id: Option<&str>) -> anyhow::Result<Camera> {
         None => get_connected_cameras()?
             .into_iter()
             .next()
-            .ok_or_else(|| anyhow!("No supported devices connected.")),
+            .ok_or_else(|| anyhow!("No supported devices connected")),
     }
 }

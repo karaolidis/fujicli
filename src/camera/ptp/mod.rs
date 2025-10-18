@@ -1,14 +1,13 @@
-pub mod enums;
 pub mod error;
-pub mod read;
+pub mod hex;
 pub mod structs;
 
-use std::{cmp::min, time::Duration};
+use std::{cmp::min, io::Cursor, time::Duration};
 
 use anyhow::bail;
-use byteorder::{LittleEndian, WriteBytesExt};
-use enums::{CommandCode, ContainerCode, ContainerType, ResponseCode};
-use log::{debug, error, trace};
+use hex::{CommandCode, ContainerCode, ContainerType, ResponseCode};
+use log::{debug, error, trace, warn};
+use ptp_cursor::{PtpDeserialize, PtpSerialize};
 use rusb::GlobalContext;
 use structs::ContainerInfo;
 
@@ -27,61 +26,30 @@ impl Ptp {
     pub fn send(
         &mut self,
         code: CommandCode,
-        params: Option<&[u32]>,
+        params: &[u32],
         data: Option<&[u8]>,
-        transaction: bool,
         timeout: Duration,
     ) -> anyhow::Result<Vec<u8>> {
-        let (params, transaction_id) = self.prepare_send(params, transaction);
+        let transaction_id = self.transaction_id;
         self.send_header(code, params, transaction_id, timeout)?;
         if let Some(data) = data {
             self.write(ContainerType::Data, code, data, transaction_id, timeout)?;
         }
-        self.receive_response(timeout)
-    }
-
-    pub fn send_many(
-        &mut self,
-        code: CommandCode,
-        params: Option<&[u32]>,
-        data: Option<&[&[u8]]>,
-        transaction: bool,
-        timeout: Duration,
-    ) -> anyhow::Result<Vec<u8>> {
-        let (params, transaction_id) = self.prepare_send(params, transaction);
-        self.send_header(code, params, transaction_id, timeout)?;
-        if let Some(data) = data {
-            self.write_many(ContainerType::Data, code, data, transaction_id, timeout)?;
-        }
-        self.receive_response(timeout)
-    }
-
-    fn prepare_send<'a>(
-        &mut self,
-        params: Option<&'a [u32]>,
-        transaction: bool,
-    ) -> (&'a [u32], Option<u32>) {
-        let params = params.unwrap_or_default();
-        let transaction_id = if transaction {
-            let transaction_id = Some(self.transaction_id);
-            self.transaction_id += 1;
-            transaction_id
-        } else {
-            None
-        };
-        (params, transaction_id)
+        let response = self.receive_response(timeout);
+        self.transaction_id += 1;
+        response
     }
 
     fn send_header(
         &self,
         code: CommandCode,
         params: &[u32],
-        transaction_id: Option<u32>,
+        transaction_id: u32,
         timeout: Duration,
     ) -> anyhow::Result<()> {
         let mut payload = Vec::with_capacity(params.len() * 4);
         for p in params {
-            payload.write_u32::<LittleEndian>(*p).ok();
+            p.try_write_ptp(&mut payload)?;
         }
 
         trace!(
@@ -113,10 +81,18 @@ impl Ptp {
                 }
                 ContainerType::Response => {
                     trace!("Response received: code {:?}", container.code);
+
+                    if self.transaction_id != container.transaction_id {
+                        warn!(
+                            "Mismatched transaction_id {}, expecting {}",
+                            container.transaction_id, self.transaction_id
+                        );
+                    }
+
                     match container.code {
                         ContainerCode::Command(_) | ContainerCode::Response(ResponseCode::Ok) => {}
                         ContainerCode::Response(code) => {
-                            bail!(error::Error::Response(code as u16));
+                            bail!(error::Error::Response(code.into()));
                         }
                     }
 
@@ -127,7 +103,7 @@ impl Ptp {
                     return Ok(response);
                 }
                 _ => {
-                    debug!("Ignoring unexpected container type: {:?}", container.kind);
+                    warn!("Unexpected container type: {:?}", container.kind);
                 }
             }
         }
@@ -138,13 +114,13 @@ impl Ptp {
         kind: ContainerType,
         code: CommandCode,
         payload: &[u8],
-        transaction_id: Option<u32>,
+        transaction_id: u32,
         timeout: Duration,
     ) -> anyhow::Result<()> {
         let container_info = ContainerInfo::new(kind, code, transaction_id, payload.len())?;
-        let mut buffer: Vec<u8> = container_info.try_into()?;
+        let mut buffer: Vec<u8> = container_info.try_into_ptp()?;
 
-        let first_chunk_len = min(payload.len(), self.chunk_size - container_info.len());
+        let first_chunk_len = min(payload.len(), self.chunk_size - ContainerInfo::SIZE);
         buffer.extend_from_slice(&payload[..first_chunk_len]);
 
         trace!(
@@ -165,62 +141,6 @@ impl Ptp {
         Ok(())
     }
 
-    fn write_many(
-        &self,
-        kind: ContainerType,
-        code: CommandCode,
-        parts: &[&[u8]],
-        transaction_id: Option<u32>,
-        timeout: Duration,
-    ) -> anyhow::Result<()> {
-        if parts.is_empty() {
-            return self.write(kind, code, &[], transaction_id, timeout);
-        }
-
-        if parts.len() == 1 {
-            return self.write(kind, code, parts[0], transaction_id, timeout);
-        }
-
-        let total_len: usize = parts.iter().map(|c| c.len()).sum();
-        let container_info = ContainerInfo::new(kind, code, transaction_id, total_len)?;
-        let mut buffer: Vec<u8> = container_info.try_into()?;
-
-        let first = parts[0];
-        let first_part_chunk_len = min(first.len(), self.chunk_size - container_info.len());
-        buffer.extend_from_slice(&first[..first_part_chunk_len]);
-
-        trace!(
-            "Writing PTP {kind:?} container, code: {code:?}, transaction: {transaction_id:?}, first payload part chunk ({first_part_chunk_len} bytes)",
-        );
-        self.handle.write_bulk(self.bulk_out, &buffer, timeout)?;
-
-        for chunk in first[first_part_chunk_len..].chunks(self.chunk_size) {
-            trace!(
-                "Writing additional payload part chunk ({} bytes)",
-                chunk.len(),
-            );
-            self.handle.write_bulk(self.bulk_out, chunk, timeout)?;
-        }
-
-        for part in &parts[1..] {
-            trace!("Writing additional payload part");
-            for chunk in part.chunks(self.chunk_size) {
-                trace!(
-                    "Writing additional payload part chunk ({} bytes)",
-                    chunk.len(),
-                );
-                self.handle.write_bulk(self.bulk_out, chunk, timeout)?;
-            }
-            trace!(
-                "Write completed for part, total payload of {} bytes",
-                part.len()
-            );
-        }
-
-        trace!("Write completed for code {code:?}, total payload of {total_len} bytes");
-        Ok(())
-    }
-
     fn read(&self, timeout: Duration) -> anyhow::Result<(ContainerInfo, Vec<u8>)> {
         let mut stack_buf = [0u8; 8 * 1024];
 
@@ -230,7 +150,8 @@ impl Ptp {
         let buf = &stack_buf[..n];
         trace!("Read chunk ({n} bytes)");
 
-        let container_info = ContainerInfo::try_from(buf)?;
+        let mut cur = Cursor::new(buf);
+        let container_info = ContainerInfo::try_read_ptp(&mut cur)?;
 
         let payload_len = container_info.payload_len();
         if payload_len == 0 {

@@ -4,7 +4,7 @@ use clap::Subcommand;
 use serde::Serialize;
 
 use crate::{
-    camera::{Camera, ptp::enums::UsbMode},
+    camera::{Camera, ptp::hex::UsbMode},
     usb,
 };
 
@@ -20,6 +20,7 @@ pub enum DeviceCmd {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CameraItemRepr {
     pub name: &'static str,
     pub usb_id: String,
@@ -60,11 +61,11 @@ fn handle_list(json: bool) -> anyhow::Result<()> {
     }
 
     if cameras.is_empty() {
-        println!("No supported cameras connected.");
+        println!("No supported cameras connected");
         return Ok(());
     }
 
-    println!("Connected cameras:");
+    println!("Connected Cameras:");
     for d in cameras {
         println!("- {d}");
     }
@@ -73,6 +74,7 @@ fn handle_list(json: bool) -> anyhow::Result<()> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CameraRepr {
     #[serde(flatten)]
     pub device: CameraItemRepr,
