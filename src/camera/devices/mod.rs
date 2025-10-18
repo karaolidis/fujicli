@@ -1,4 +1,3 @@
-use anyhow::bail;
 use rusb::GlobalContext;
 
 use super::CameraImpl;
@@ -11,26 +10,6 @@ pub struct SupportedCamera<P: rusb::UsbContext> {
     pub vendor: u16,
     pub product: u16,
     pub impl_factory: ImplFactory<P>,
-}
-
-impl<P: rusb::UsbContext> SupportedCamera<P> {
-    pub fn new_camera(&self, device: &rusb::Device<P>) -> anyhow::Result<Box<dyn CameraImpl<P>>> {
-        let descriptor = device.device_descriptor()?;
-
-        let matches =
-            descriptor.vendor_id() == self.vendor && descriptor.product_id() == self.product;
-
-        if !matches {
-            bail!(
-                "Device with vendor {:04x} and product {:04x} does not match {}",
-                descriptor.vendor_id(),
-                descriptor.product_id(),
-                self.name
-            );
-        }
-
-        Ok((self.impl_factory)())
-    }
 }
 
 macro_rules! default_camera_impl {

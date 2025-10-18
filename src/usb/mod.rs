@@ -2,11 +2,23 @@ use anyhow::{anyhow, bail};
 
 use crate::camera::Camera;
 
+pub fn find_endpoint(
+    interface_descriptor: &rusb::InterfaceDescriptor<'_>,
+    direction: rusb::Direction,
+    transfer_type: rusb::TransferType,
+) -> Result<u8, rusb::Error> {
+    interface_descriptor
+        .endpoint_descriptors()
+        .find(|ep| ep.direction() == direction && ep.transfer_type() == transfer_type)
+        .map(|x| x.address())
+        .ok_or(rusb::Error::NotFound)
+}
+
 pub fn get_connected_cameras() -> anyhow::Result<Vec<Camera>> {
     let mut connected_cameras = Vec::new();
 
     for device in rusb::devices()?.iter() {
-        if let Ok(camera) = Camera::from_device(&device) {
+        if let Ok(camera) = Camera::try_from(&device) {
             connected_cameras.push(camera);
         }
     }
@@ -25,7 +37,7 @@ pub fn get_connected_camera_by_id(id: &str) -> anyhow::Result<Camera> {
 
     for device in rusb::devices()?.iter() {
         if device.bus_number() == bus && device.address() == address {
-            return Camera::from_device(&device);
+            return Camera::try_from(&device);
         }
     }
 

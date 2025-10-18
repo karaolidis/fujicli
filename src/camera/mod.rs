@@ -21,6 +21,8 @@ use ptp::{
 use ptp_cursor::{PtpDeserialize, PtpSerialize};
 use rusb::{GlobalContext, constants::LIBUSB_CLASS_IMAGE};
 
+use crate::usb::find_endpoint;
+
 const SESSION: u32 = 1;
 
 pub struct Camera {
@@ -29,75 +31,6 @@ pub struct Camera {
 }
 
 impl Camera {
-    pub fn from_device(device: &rusb::Device<GlobalContext>) -> anyhow::Result<Self> {
-        for supported_camera in devices::SUPPORTED {
-            if let Ok(r#impl) = supported_camera.new_camera(device) {
-                let bus = device.bus_number();
-                let address = device.address();
-
-                let config_descriptor = device.active_config_descriptor()?;
-
-                let interface_descriptor = config_descriptor
-                    .interfaces()
-                    .flat_map(|i| i.descriptors())
-                    .find(|x| x.class_code() == LIBUSB_CLASS_IMAGE)
-                    .ok_or(rusb::Error::NotFound)?;
-
-                let interface = interface_descriptor.interface_number();
-                debug!("Found interface {interface}");
-
-                let handle = device.open()?;
-                handle.claim_interface(interface)?;
-
-                let bulk_in = Self::find_endpoint(
-                    &interface_descriptor,
-                    rusb::Direction::In,
-                    rusb::TransferType::Bulk,
-                )?;
-                let bulk_out = Self::find_endpoint(
-                    &interface_descriptor,
-                    rusb::Direction::Out,
-                    rusb::TransferType::Bulk,
-                )?;
-
-                let transaction_id = 0;
-
-                let chunk_size = r#impl.chunk_size();
-
-                let mut ptp = Ptp {
-                    bus,
-                    address,
-                    interface,
-                    bulk_in,
-                    bulk_out,
-                    handle,
-                    transaction_id,
-                    chunk_size,
-                };
-
-                debug!("Opening session");
-                let () = r#impl.open_session(&mut ptp, SESSION)?;
-                debug!("Session opened");
-
-                return Ok(Self { r#impl, ptp });
-            }
-        }
-
-        bail!("Device not supported");
-    }
-
-    fn find_endpoint(
-        interface_descriptor: &rusb::InterfaceDescriptor<'_>,
-        direction: rusb::Direction,
-        transfer_type: rusb::TransferType,
-    ) -> Result<u8, rusb::Error> {
-        interface_descriptor
-            .endpoint_descriptors()
-            .find(|ep| ep.direction() == direction && ep.transfer_type() == transfer_type)
-            .map(|x| x.address())
-            .ok_or(rusb::Error::NotFound)
-    }
-
     pub fn name(&self) -> &'static str {
         self.r#impl.supported_camera().name
     }
@@ -333,6 +266,76 @@ impl Drop for Camera {
             error!("Error closing session: {e}");
         }
         debug!("Session closed");
+    }
+}
+
+impl TryFrom<&rusb::Device<GlobalContext>> for Camera {
+    type Error = anyhow::Error;
+
+    fn try_from(device: &rusb::Device<GlobalContext>) -> anyhow::Result<Self> {
+        let descriptor = device.device_descriptor()?;
+
+        let vendor = descriptor.vendor_id();
+        let product = descriptor.product_id();
+
+        for supported_camera in devices::SUPPORTED {
+            if vendor != supported_camera.vendor || product != supported_camera.product {
+                continue;
+            }
+
+            let r#impl = (supported_camera.impl_factory)();
+
+            let bus = device.bus_number();
+            let address = device.address();
+
+            let config_descriptor = device.active_config_descriptor()?;
+
+            let interface_descriptor = config_descriptor
+                .interfaces()
+                .flat_map(|i| i.descriptors())
+                .find(|x| x.class_code() == LIBUSB_CLASS_IMAGE)
+                .ok_or(rusb::Error::NotFound)?;
+
+            let interface = interface_descriptor.interface_number();
+            debug!("Found interface {interface}");
+
+            let handle = device.open()?;
+            handle.claim_interface(interface)?;
+
+            let bulk_in = find_endpoint(
+                &interface_descriptor,
+                rusb::Direction::In,
+                rusb::TransferType::Bulk,
+            )?;
+            let bulk_out = find_endpoint(
+                &interface_descriptor,
+                rusb::Direction::Out,
+                rusb::TransferType::Bulk,
+            )?;
+
+            let transaction_id = 0;
+
+            let chunk_size = r#impl.chunk_size();
+
+            let mut ptp = Ptp {
+                bus,
+                address,
+                interface,
+                bulk_in,
+                bulk_out,
+                handle,
+                transaction_id,
+                chunk_size,
+            };
+
+            debug!("Opening session");
+            let () = r#impl.open_session(&mut ptp, SESSION)?;
+            debug!("Session opened");
+
+            return Ok(Self { r#impl, ptp });
+        }
+
+        bail!("Device not supported");
     }
 }
 

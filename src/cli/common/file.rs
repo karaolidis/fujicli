@@ -8,6 +8,7 @@ pub enum Input {
 
 impl FromStr for Input {
     type Err = anyhow::Error;
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "-" {
             Ok(Self::Stdin)
@@ -34,6 +35,7 @@ pub enum Output {
 
 impl FromStr for Output {
     type Err = anyhow::Error;
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "-" {
             Ok(Self::Stdout)

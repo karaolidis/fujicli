@@ -279,7 +279,8 @@ impl DerefMut for FujiCustomSettingName {
 
 impl TryFrom<String> for FujiCustomSettingName {
     type Error = anyhow::Error;
-    fn try_from(value: String) -> Result<Self, anyhow::Error> {
+
+    fn try_from(value: String) -> anyhow::Result<Self> {
         if value.len() > Self::MAX_LEN {
             bail!("Value '{}' exceeds max length of {}", value, Self::MAX_LEN);
         }
@@ -289,7 +290,8 @@ impl TryFrom<String> for FujiCustomSettingName {
 
 impl FromStr for FujiCustomSettingName {
     type Err = anyhow::Error;
-    fn from_str(s: &str) -> Result<Self, anyhow::Error> {
+
+    fn from_str(s: &str) -> anyhow::Result<Self> {
         if s.len() > Self::MAX_LEN {
             bail!("Value '{}' exceeds max length of {}", s, Self::MAX_LEN);
         }
