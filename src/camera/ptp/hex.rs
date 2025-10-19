@@ -1095,7 +1095,7 @@ impl FromStr for FujiHighISONR {
     }
 }
 
-macro_rules! define_fuji_i16 {
+macro_rules! fuji_i16 {
     ($name:ident, $min:expr, $max:expr, $step:expr, $scale:literal) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PtpSerialize, PtpDeserialize)]
         pub struct $name(i16);
@@ -1192,13 +1192,13 @@ macro_rules! define_fuji_i16 {
     };
 }
 
-define_fuji_i16!(FujiWhiteBalanceShift, -9.0, 9.0, 1.0, 1i16);
-define_fuji_i16!(FujiWhiteBalanceTemperature, 2500.0, 10000.0, 10.0, 1i16);
-define_fuji_i16!(FujiHighlightTone, -2.0, 4.0, 0.5, 10i16);
-define_fuji_i16!(FujiShadowTone, -2.0, 4.0, 0.5, 10i16);
-define_fuji_i16!(FujiColor, -4.0, 4.0, 1.0, 10i16);
-define_fuji_i16!(FujiSharpness, -4.0, 4.0, 1.0, 10i16);
-define_fuji_i16!(FujiClarity, -5.0, 5.0, 1.0, 10i16);
+fuji_i16!(FujiWhiteBalanceShift, -9.0, 9.0, 1.0, 1i16);
+fuji_i16!(FujiWhiteBalanceTemperature, 2500.0, 10000.0, 10.0, 1i16);
+fuji_i16!(FujiHighlightTone, -2.0, 4.0, 0.5, 10i16);
+fuji_i16!(FujiShadowTone, -2.0, 4.0, 0.5, 10i16);
+fuji_i16!(FujiColor, -4.0, 4.0, 1.0, 10i16);
+fuji_i16!(FujiSharpness, -4.0, 4.0, 1.0, 10i16);
+fuji_i16!(FujiClarity, -5.0, 5.0, 1.0, 10i16);
 
 #[repr(u16)]
 #[derive(

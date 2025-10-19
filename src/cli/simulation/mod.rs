@@ -81,7 +81,7 @@ fn handle_list(json: bool, device_id: Option<&str>) -> anyhow::Result<()> {
     let mut slots = Vec::new();
 
     for slot in FujiCustomSetting::iter() {
-        camera.set_active_custom_setting(slot)?;
+        camera.set_active_custom_setting(&slot)?;
         let name = camera.get_custom_setting_name()?;
         slots.push(CustomSettingRepr { slot, name });
     }
@@ -157,7 +157,7 @@ impl fmt::Display for FilmSimulationRepr {
 
 fn handle_get(json: bool, device_id: Option<&str>, slot: FujiCustomSetting) -> anyhow::Result<()> {
     let mut camera = usb::get_camera(device_id)?;
-    camera.set_active_custom_setting(slot)?;
+    camera.set_active_custom_setting(&slot)?;
 
     let repr = FilmSimulationRepr {
         name: camera.get_custom_setting_name()?,
@@ -191,14 +191,15 @@ fn handle_get(json: bool, device_id: Option<&str>, slot: FujiCustomSetting) -> a
     Ok(())
 }
 
+#[allow(clippy::cognitive_complexity)]
 fn handle_set(
     device_id: Option<&str>,
     slot: FujiCustomSetting,
-    name: Option<FujiCustomSettingName>,
-    options: FilmSimulationOptions,
+    name: Option<&FujiCustomSettingName>,
+    options: &FilmSimulationOptions,
 ) -> anyhow::Result<()> {
     let mut camera = usb::get_camera(device_id)?;
-    camera.set_active_custom_setting(slot)?;
+    camera.set_active_custom_setting(&slot)?;
 
     // General
     if let Some(name) = &name {
@@ -206,53 +207,53 @@ fn handle_set(
     }
 
     if let Some(size) = &options.size {
-        camera.set_image_size(*size)?;
+        camera.set_image_size(size)?;
     }
 
     if let Some(quality) = &options.quality {
-        camera.set_image_quality(*quality)?;
+        camera.set_image_quality(quality)?;
     }
 
     // Style
     if let Some(simulation) = &options.simulation {
-        camera.set_film_simulation(*simulation)?;
+        camera.set_film_simulation(simulation)?;
     }
 
     if let Some(color) = &options.color {
-        camera.set_color(*color)?;
+        camera.set_color(color)?;
     }
 
     if let Some(sharpness) = &options.sharpness {
-        camera.set_sharpness(*sharpness)?;
+        camera.set_sharpness(sharpness)?;
     }
 
     if let Some(clarity) = &options.clarity {
-        camera.set_clarity(*clarity)?;
+        camera.set_clarity(clarity)?;
     }
 
     if let Some(noise_reduction) = &options.noise_reduction {
-        camera.set_high_iso_nr(*noise_reduction)?;
+        camera.set_high_iso_nr(noise_reduction)?;
     }
 
     if let Some(grain) = &options.grain {
-        camera.set_grain_effect(*grain)?;
+        camera.set_grain_effect(grain)?;
     }
 
     if let Some(color_chrome_effect) = &options.color_chrome_effect {
-        camera.set_color_chrome_effect(*color_chrome_effect)?;
+        camera.set_color_chrome_effect(color_chrome_effect)?;
     }
 
     if let Some(color_chrome_fx_blue) = &options.color_chrome_fx_blue {
-        camera.set_color_chrome_fx_blue(*color_chrome_fx_blue)?;
+        camera.set_color_chrome_fx_blue(color_chrome_fx_blue)?;
     }
 
     if let Some(smooth_skin_effect) = &options.smooth_skin_effect {
-        camera.set_smooth_skin_effect(*smooth_skin_effect)?;
+        camera.set_smooth_skin_effect(smooth_skin_effect)?;
     }
 
     // White Balance
     if let Some(white_balance) = &options.white_balance {
-        camera.set_white_balance(*white_balance)?;
+        camera.set_white_balance(white_balance)?;
     }
 
     if let Some(temperature) = &options.white_balance_temperature {
@@ -262,24 +263,24 @@ fn handle_set(
             &camera.get_white_balance()?
         };
 
-        if *white_balance != FujiWhiteBalance::Temperature {
-            warn!("White Balance mode is not set to 'Temperature', refusing to set temperature")
+        if *white_balance == FujiWhiteBalance::Temperature {
+            camera.set_white_balance_temperature(temperature)?;
         } else {
-            camera.set_white_balance_temperature(*temperature)?;
+            warn!("White Balance mode is not set to 'Temperature', refusing to set temperature");
         }
     }
 
     if let Some(shift_red) = &options.white_balance_shift_red {
-        camera.set_white_balance_shift_red(*shift_red)?;
+        camera.set_white_balance_shift_red(shift_red)?;
     }
 
     if let Some(shift_blue) = &options.white_balance_shift_blue {
-        camera.set_white_balance_shift_blue(*shift_blue)?;
+        camera.set_white_balance_shift_blue(shift_blue)?;
     }
 
     // Exposure
     if let Some(dynamic_range_priority) = &options.dynamic_range_priority {
-        camera.set_dynamic_range_priority(*dynamic_range_priority)?;
+        camera.set_dynamic_range_priority(dynamic_range_priority)?;
     }
 
     if options.dynamic_range.is_some() || options.highlight.is_some() || options.shadow.is_some() {
@@ -291,26 +292,26 @@ fn handle_set(
             };
 
         if let Some(dynamic_range) = &options.dynamic_range {
-            if *dynamic_range_priority != FujiDynamicRangePriority::Off {
-                warn!("Dynamic Range Priority is enabled, refusing to set dynamic range")
+            if *dynamic_range_priority == FujiDynamicRangePriority::Off {
+                camera.set_dynamic_range(dynamic_range)?;
             } else {
-                camera.set_dynamic_range(*dynamic_range)?;
+                warn!("Dynamic Range Priority is enabled, refusing to set dynamic range");
             }
         }
 
         if let Some(highlights) = &options.highlight {
-            if *dynamic_range_priority != FujiDynamicRangePriority::Off {
-                warn!("Dynamic Range Priority is enabled, refusing to set highlight tone")
+            if *dynamic_range_priority == FujiDynamicRangePriority::Off {
+                camera.set_highlight_tone(highlights)?;
             } else {
-                camera.set_highlight_tone(*highlights)?;
+                warn!("Dynamic Range Priority is enabled, refusing to set highlight tone");
             }
         }
 
         if let Some(shadows) = &options.shadow {
-            if *dynamic_range_priority != FujiDynamicRangePriority::Off {
-                warn!("Dynamic Range Priority is enabled, refusing to set shadow tone")
+            if *dynamic_range_priority == FujiDynamicRangePriority::Off {
+                camera.set_shadow_tone(shadows)?;
             } else {
-                camera.set_shadow_tone(*shadows)?;
+                warn!("Dynamic Range Priority is enabled, refusing to set shadow tone");
             }
         }
     }
@@ -342,7 +343,7 @@ pub fn handle(cmd: SimulationCmd, json: bool, device_id: Option<&str>) -> anyhow
             slot,
             name,
             film_simulation_options,
-        } => handle_set(device_id, slot, name, film_simulation_options),
+        } => handle_set(device_id, slot, name.as_ref(), &film_simulation_options),
         SimulationCmd::Export { slot, output_file } => handle_export(device_id, slot, &output_file),
         SimulationCmd::Import { slot, input_file } => handle_import(device_id, slot, &input_file),
     }
