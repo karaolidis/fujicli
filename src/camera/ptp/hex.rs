@@ -27,6 +27,8 @@ pub enum CommandCode {
     SendObject = 0x100D,
     GetDevicePropValue = 0x1015,
     SetDevicePropValue = 0x1016,
+    FujiSendObjectInfo = 0x900c,
+    FujiSendObject = 0x900d,
 }
 
 #[repr(u16)]
@@ -133,6 +135,8 @@ impl PtpDeserialize for ContainerCode {
 )]
 pub enum DevicePropCode {
     FujiUsbMode = 0xd16e,
+    FujiRawConversionRun = 0xD183,
+    FujiRawConversionSettings = 0xD185,
     FujiStillCustomSetting = 0xD18C,
     FujiStillCustomSettingName = 0xD18D,
     FujiStillCustomSettingImageSize = 0xD18E,
@@ -187,6 +191,22 @@ where
         best_match
     } else {
         None
+    }
+}
+
+#[repr(u16)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive, PtpSerialize, PtpDeserialize,
+)]
+pub enum ObjectFormat {
+    None = 0x0,
+    FujiBackup = 0x5000,
+    FujiRAF = 0xf802,
+}
+
+impl Default for ObjectFormat {
+    fn default() -> Self {
+        Self::None
     }
 }
 
@@ -926,7 +946,6 @@ impl FromStr for FujiSmoothSkinEffect {
         bail!("Unknown smooth skin effect '{s}'");
     }
 }
-
 
 #[repr(u16)]
 #[derive(

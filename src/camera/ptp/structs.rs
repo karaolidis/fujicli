@@ -1,6 +1,6 @@
 use ptp_macro::{PtpDeserialize, PtpSerialize};
 
-use super::hex::{CommandCode, ContainerCode, ContainerType};
+use super::hex::{CommandCode, ContainerCode, ContainerType, ObjectFormat};
 
 #[allow(dead_code)]
 #[derive(Debug, PtpSerialize, PtpDeserialize)]
@@ -53,4 +53,27 @@ impl ContainerInfo {
     pub const fn payload_len(&self) -> usize {
         self.total_len as usize - Self::SIZE
     }
+}
+
+#[derive(Debug, Clone, Default, PtpSerialize, PtpDeserialize)]
+pub struct ObjectInfo {
+    pub storage_id: u32,
+    pub object_format: ObjectFormat,
+    pub protection_status: u16,
+    pub compressed_size: u32,
+    pub thumb_format: u16,
+    pub thumb_compressed_size: u32,
+    pub thumb_width: u32,
+    pub thumb_height: u32,
+    pub image_width: u32,
+    pub image_height: u32,
+    pub image_bit_depth: u32,
+    pub parent_object: u32,
+    pub association_type: u16,
+    pub association_desc: u32,
+    pub sequence_number: u32,
+    pub filename: String,
+    pub date_created: String,
+    pub date_modified: String,
+    pub keywords: String,
 }

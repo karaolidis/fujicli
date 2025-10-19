@@ -5,11 +5,11 @@ pub mod structs;
 use std::{cmp::min, io::Cursor, time::Duration};
 
 use anyhow::bail;
-use hex::{CommandCode, ContainerCode, ContainerType, ResponseCode};
+use hex::{CommandCode, ContainerCode, ContainerType, DevicePropCode, ResponseCode};
 use log::{debug, error, trace, warn};
 use ptp_cursor::{PtpDeserialize, PtpSerialize};
 use rusb::GlobalContext;
-use structs::ContainerInfo;
+use structs::{ContainerInfo, DeviceInfo};
 
 pub struct Ptp {
     pub bus: u8,
@@ -38,6 +38,59 @@ impl Ptp {
         let response = self.receive_response(timeout);
         self.transaction_id += 1;
         response
+    }
+
+    pub fn open_session(&mut self, session_id: u32, timeout: Duration) -> anyhow::Result<()> {
+        debug!("Sending OpenSession command");
+        self.send(CommandCode::OpenSession, &[session_id], None, timeout)?;
+        Ok(())
+    }
+
+    pub fn close_session(&mut self, _: u32, timeout: Duration) -> anyhow::Result<()> {
+        debug!("Sending CloseSession command");
+        self.send(CommandCode::CloseSession, &[], None, timeout)?;
+        Ok(())
+    }
+
+    pub fn get_info(&mut self, timeout: Duration) -> anyhow::Result<DeviceInfo> {
+        debug!("Sending GetDeviceInfo command");
+        let response = self.send(CommandCode::GetDeviceInfo, &[], None, timeout)?;
+        debug!("Received response with {} bytes", response.len());
+        let info = DeviceInfo::try_from_ptp(&response)?;
+        Ok(info)
+    }
+
+    pub fn get_prop_value(
+        &mut self,
+        prop: DevicePropCode,
+        timeout: Duration,
+    ) -> anyhow::Result<Vec<u8>> {
+        debug!("Sending GetDevicePropValue command for property {prop:?}");
+        let response = self.send(
+            CommandCode::GetDevicePropValue,
+            &[prop.into()],
+            None,
+            timeout,
+        )?;
+        debug!("Received response with {} bytes", response.len());
+        Ok(response)
+    }
+
+    pub fn set_prop_value(
+        &mut self,
+        prop: DevicePropCode,
+        value: &[u8],
+        timeout: Duration,
+    ) -> anyhow::Result<Vec<u8>> {
+        debug!("Sending GetDevicePropValue command for property {prop:?}");
+        let response = self.send(
+            CommandCode::SetDevicePropValue,
+            &[prop.into()],
+            Some(value),
+            timeout,
+        )?;
+        debug!("Received response with {} bytes", response.len());
+        Ok(response)
     }
 
     fn send_header(

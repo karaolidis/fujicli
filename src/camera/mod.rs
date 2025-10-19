@@ -15,9 +15,9 @@ use ptp::{
         FujiDynamicRangePriority, FujiFilmSimulation, FujiGrainEffect, FujiHighISONR,
         FujiHighlightTone, FujiImageQuality, FujiImageSize, FujiShadowTone, FujiSharpness,
         FujiSmoothSkinEffect, FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature,
-        UsbMode,
+        ObjectFormat, UsbMode,
     },
-    structs::DeviceInfo,
+    structs::{DeviceInfo, ObjectInfo},
 };
 use ptp_cursor::{PtpDeserialize, PtpSerialize};
 use rusb::{GlobalContext, constants::LIBUSB_CLASS_IMAGE};
@@ -27,25 +27,26 @@ use crate::usb::find_endpoint;
 const SESSION: u32 = 1;
 
 pub struct Camera {
-    r#impl: Box<dyn CameraImpl<GlobalContext>>,
-    ptp: Ptp,
+    pub r#impl: Box<dyn CameraImpl<GlobalContext>>,
+    pub ptp: Ptp,
 }
 
-macro_rules! camera_custom_settings {
-    ($( $name:ident : $type:ty => $code:expr ),+ $(,)?) => {
+macro_rules! camera_with_ptp {
+    ($($fn_name:ident => $ret:ty),* $(,)?) => {
         $(
-            paste::paste! {
-                #[allow(dead_code)]
-                pub fn [<get_ $name>](&mut self) -> anyhow::Result<$type> {
-                    self.r#impl.[<get_ $name>](&mut self.ptp)
-                }
-
-                #[allow(dead_code)]
-                pub fn [<set_ $name>](&mut self, value: &$type) -> anyhow::Result<()> {
-                    self.r#impl.[<set_ $name>](&mut self.ptp, value)
-                }
+            #[allow(dead_code)]
+            pub fn $fn_name(&mut self) -> anyhow::Result<$ret> {
+                self.r#impl.$fn_name(&mut self.ptp)
             }
-        )+
+        )*
+    };
+    ($($fn_name:ident($($arg:ident : $arg_ty:ty),*) => $ret:ty),* $(,)?) => {
+        $(
+            #[allow(dead_code)]
+            pub fn $fn_name(&mut self, $($arg: $arg_ty),*) -> anyhow::Result<$ret> {
+                self.r#impl.$fn_name(&mut self.ptp, $($arg),*)
+            }
+        )*
     };
 }
 
@@ -66,75 +67,67 @@ impl Camera {
         format!("{}.{}", self.ptp.bus, self.ptp.address)
     }
 
-    pub fn get_info(&mut self) -> anyhow::Result<DeviceInfo> {
-        let info = self.r#impl.get_info(&mut self.ptp)?;
-        Ok(info)
+    camera_with_ptp! {
+        get_info => DeviceInfo,
+        get_usb_mode => UsbMode,
+        get_battery_info => u32,
     }
 
-    pub fn get_usb_mode(&mut self) -> anyhow::Result<UsbMode> {
-        let data = self
-            .r#impl
-            .get_prop_value(&mut self.ptp, DevicePropCode::FujiUsbMode)?;
-        let result = UsbMode::try_from_ptp(&data)?;
-        Ok(result)
+    camera_with_ptp! {
+        export_backup => Vec<u8>,
+        get_active_custom_setting => FujiCustomSetting,
+        get_custom_setting_name => FujiCustomSettingName,
+        get_image_size => FujiImageSize,
+        get_image_quality => FujiImageQuality,
+        get_dynamic_range => FujiDynamicRange,
+        get_dynamic_range_priority => FujiDynamicRangePriority,
+        get_film_simulation => FujiFilmSimulation,
+        get_grain_effect => FujiGrainEffect,
+        get_white_balance => FujiWhiteBalance,
+        get_high_iso_nr => FujiHighISONR,
+        get_highlight_tone => FujiHighlightTone,
+        get_shadow_tone => FujiShadowTone,
+        get_color => FujiColor,
+        get_sharpness => FujiSharpness,
+        get_clarity => FujiClarity,
+        get_white_balance_shift_red => FujiWhiteBalanceShift,
+        get_white_balance_shift_blue => FujiWhiteBalanceShift,
+        get_white_balance_temperature => FujiWhiteBalanceTemperature,
+        get_color_chrome_effect => FujiColorChromeEffect,
+        get_color_chrome_fx_blue => FujiColorChromeFXBlue,
+        get_smooth_skin_effect => FujiSmoothSkinEffect,
     }
 
-    pub fn get_battery_info(&mut self) -> anyhow::Result<u32> {
-        let data = self
-            .r#impl
-            .get_prop_value(&mut self.ptp, DevicePropCode::FujiBatteryInfo2)?;
-
-        debug!("Raw battery data: {data:?}");
-
-        let raw_string = String::try_from_ptp(&data)?;
-        debug!("Decoded raw string: {raw_string}");
-
-        let percentage: u32 = raw_string
-            .split(',')
-            .next()
-            .ok_or_else(|| anyhow!("Failed to parse battery percentage"))?
-            .parse()?;
-
-        Ok(percentage)
-    }
-
-    pub fn export_backup(&mut self) -> anyhow::Result<Vec<u8>> {
-        self.r#impl.export_backup(&mut self.ptp)
-    }
-
-    pub fn import_backup(&mut self, backup: &[u8]) -> anyhow::Result<()> {
-        self.r#impl.import_backup(&mut self.ptp, backup)
-    }
-
-    camera_custom_settings! {
-        active_custom_setting: FujiCustomSetting => DevicePropCode::FujiStillCustomSetting,
-        custom_setting_name: FujiCustomSettingName => DevicePropCode::FujiStillCustomSettingName,
-        image_size: FujiImageSize => DevicePropCode::FujiStillCustomSettingImageSize,
-        image_quality: FujiImageQuality => DevicePropCode::FujiStillCustomSettingImageQuality,
-        dynamic_range: FujiDynamicRange => DevicePropCode::FujiStillCustomSettingDynamicRange,
-        dynamic_range_priority: FujiDynamicRangePriority => DevicePropCode::FujiStillCustomSettingDynamicRangePriority,
-        film_simulation: FujiFilmSimulation => DevicePropCode::FujiStillCustomSettingFilmSimulation,
-        grain_effect: FujiGrainEffect => DevicePropCode::FujiStillCustomSettingGrainEffect,
-        white_balance: FujiWhiteBalance => DevicePropCode::FujiStillCustomSettingWhiteBalance,
-        high_iso_nr: FujiHighISONR => DevicePropCode::FujiStillCustomSettingHighISONR,
-        highlight_tone: FujiHighlightTone => DevicePropCode::FujiStillCustomSettingHighlightTone,
-        shadow_tone: FujiShadowTone => DevicePropCode::FujiStillCustomSettingShadowTone,
-        color: FujiColor => DevicePropCode::FujiStillCustomSettingColor,
-        sharpness: FujiSharpness => DevicePropCode::FujiStillCustomSettingSharpness,
-        clarity: FujiClarity => DevicePropCode::FujiStillCustomSettingClarity,
-        white_balance_shift_red: FujiWhiteBalanceShift => DevicePropCode::FujiStillCustomSettingWhiteBalanceShiftRed,
-        white_balance_shift_blue: FujiWhiteBalanceShift => DevicePropCode::FujiStillCustomSettingWhiteBalanceShiftBlue,
-        white_balance_temperature: FujiWhiteBalanceTemperature => DevicePropCode::FujiStillCustomSettingWhiteBalanceTemperature,
-        color_chrome_effect: FujiColorChromeEffect => DevicePropCode::FujiStillCustomSettingColorChromeEffect,
-        color_chrome_fx_blue: FujiColorChromeFXBlue => DevicePropCode::FujiStillCustomSettingColorChromeFXBlue,
-        smooth_skin_effect: FujiSmoothSkinEffect => DevicePropCode::FujiStillCustomSettingSmoothSkinEffect,
+    camera_with_ptp! {
+        import_backup(buffer: &[u8]) => (),
+        set_active_custom_setting(value: &FujiCustomSetting) => (),
+        set_custom_setting_name(value: &FujiCustomSettingName) => (),
+        set_image_size(value: &FujiImageSize) => (),
+        set_image_quality(value: &FujiImageQuality) => (),
+        set_dynamic_range(value: &FujiDynamicRange) => (),
+        set_dynamic_range_priority(value: &FujiDynamicRangePriority) => (),
+        set_film_simulation(value: &FujiFilmSimulation) => (),
+        set_grain_effect(value: &FujiGrainEffect) => (),
+        set_white_balance(value: &FujiWhiteBalance) => (),
+        set_high_iso_nr(value: &FujiHighISONR) => (),
+        set_highlight_tone(value: &FujiHighlightTone) => (),
+        set_shadow_tone(value: &FujiShadowTone) => (),
+        set_color(value: &FujiColor) => (),
+        set_sharpness(value: &FujiSharpness) => (),
+        set_clarity(value: &FujiClarity) => (),
+        set_white_balance_shift_red(value: &FujiWhiteBalanceShift) => (),
+        set_white_balance_shift_blue(value: &FujiWhiteBalanceShift) => (),
+        set_white_balance_temperature(value: &FujiWhiteBalanceTemperature) => (),
+        set_color_chrome_effect(value: &FujiColorChromeEffect) => (),
+        set_color_chrome_fx_blue(value: &FujiColorChromeFXBlue) => (),
+        set_smooth_skin_effect(value: &FujiSmoothSkinEffect) => (),
     }
 }
 
 impl Drop for Camera {
     fn drop(&mut self) {
         debug!("Closing session");
-        if let Err(e) = self.r#impl.close_session(&mut self.ptp, SESSION) {
+        if let Err(e) = self.ptp.close_session(SESSION, self.r#impl.timeout()) {
             error!("Error closing session: {e}");
         }
         debug!("Session closed");
@@ -201,7 +194,7 @@ impl TryFrom<&rusb::Device<GlobalContext>> for Camera {
             };
 
             debug!("Opening session");
-            let () = r#impl.open_session(&mut ptp, SESSION)?;
+            let () = ptp.open_session(SESSION, r#impl.timeout())?;
             debug!("Session opened");
 
             return Ok(Self { r#impl, ptp });
@@ -217,7 +210,7 @@ macro_rules! camera_impl_custom_settings {
             paste::paste! {
                 #[allow(dead_code)]
                 fn [<get_ $name>](&self, ptp: &mut Ptp) -> anyhow::Result<$type> {
-                    let bytes = self.get_prop_value(ptp, $code)?;
+                    let bytes = ptp.get_prop_value($code, self.timeout())?;
                     let result = <$type>::try_from_ptp(&bytes)?;
                     Ok(result)
                 }
@@ -225,7 +218,7 @@ macro_rules! camera_impl_custom_settings {
                 #[allow(dead_code)]
                 fn [<set_ $name>](&self, ptp: &mut Ptp, value: &$type) -> anyhow::Result<()> {
                     let bytes = value.try_into_ptp()?;
-                    self.set_prop_value(ptp, $code, &bytes)?;
+                    ptp.set_prop_value($code, &bytes, self.timeout())?;
                     Ok(())
                 }
             }
@@ -244,58 +237,32 @@ pub trait CameraImpl<P: rusb::UsbContext> {
         1024 * 1024
     }
 
-    fn open_session(&self, ptp: &mut Ptp, session_id: u32) -> anyhow::Result<()> {
-        debug!("Sending OpenSession command");
-        _ = ptp.send(
-            CommandCode::OpenSession,
-            &[session_id],
-            None,
-            self.timeout(),
-        )?;
-        Ok(())
-    }
-
-    fn close_session(&self, ptp: &mut Ptp, _: u32) -> anyhow::Result<()> {
-        debug!("Sending CloseSession command");
-        _ = ptp.send(CommandCode::CloseSession, &[], None, self.timeout())?;
-        Ok(())
-    }
-
-    fn get_info(&self, ptp: &mut Ptp) -> anyhow::Result<DeviceInfo> {
-        debug!("Sending GetDeviceInfo command");
-        let response = ptp.send(CommandCode::GetDeviceInfo, &[], None, self.timeout())?;
-        debug!("Received response with {} bytes", response.len());
-        let info = DeviceInfo::try_from_ptp(&response)?;
+    fn get_info(&mut self, ptp: &mut Ptp) -> anyhow::Result<DeviceInfo> {
+        let info = ptp.get_info(self.timeout())?;
         Ok(info)
     }
 
-    fn get_prop_value(&self, ptp: &mut Ptp, prop: DevicePropCode) -> anyhow::Result<Vec<u8>> {
-        debug!("Sending GetDevicePropValue command for property {prop:?}");
-        let response = ptp.send(
-            CommandCode::GetDevicePropValue,
-            &[prop.into()],
-            None,
-            self.timeout(),
-        )?;
-        debug!("Received response with {} bytes", response.len());
-        Ok(response)
+    fn get_usb_mode(&mut self, ptp: &mut Ptp) -> anyhow::Result<UsbMode> {
+        let data = ptp.get_prop_value(DevicePropCode::FujiUsbMode, self.timeout())?;
+        let result = UsbMode::try_from_ptp(&data)?;
+        Ok(result)
     }
 
-    fn set_prop_value(
-        &self,
-        ptp: &mut Ptp,
-        prop: DevicePropCode,
-        value: &[u8],
-    ) -> anyhow::Result<Vec<u8>> {
-        debug!("Sending GetDevicePropValue command for property {prop:?}");
-        let response = ptp.send(
-            CommandCode::SetDevicePropValue,
-            &[prop.into()],
-            Some(value),
-            self.timeout(),
-        )?;
-        debug!("Received response with {} bytes", response.len());
-        Ok(response)
+    fn get_battery_info(&mut self, ptp: &mut Ptp) -> anyhow::Result<u32> {
+        let data = ptp.get_prop_value(DevicePropCode::FujiBatteryInfo2, self.timeout())?;
+
+        debug!("Raw battery data: {data:?}");
+
+        let raw_string = String::try_from_ptp(&data)?;
+        debug!("Decoded raw string: {raw_string}");
+
+        let percentage: u32 = raw_string
+            .split(',')
+            .next()
+            .ok_or_else(|| anyhow!("Failed to parse battery percentage"))?
+            .parse()?;
+
+        Ok(percentage)
     }
 
     fn export_backup(&self, ptp: &mut Ptp) -> anyhow::Result<Vec<u8>> {
@@ -316,11 +283,15 @@ pub trait CameraImpl<P: rusb::UsbContext> {
         debug!("Preparing ObjectInfo header for backup");
 
         let mut header = Vec::with_capacity(1076);
-        0x0u32.try_write_ptp(&mut header)?;
-        0x5000u16.try_write_ptp(&mut header)?;
-        0x0u16.try_write_ptp(&mut header)?;
-        u32::try_from(buffer.len())?.try_write_ptp(&mut header)?;
-        for _ in 0..1064 {
+
+        let object_info = ObjectInfo {
+            object_format: ObjectFormat::FujiBackup,
+            compressed_size: u32::try_from(buffer.len())?,
+            ..Default::default()
+        };
+        object_info.try_write_ptp(&mut header)?;
+        // TODO: What is this?
+        for _ in 0..1020 {
             0x0u8.try_write_ptp(&mut header)?;
         }
 
