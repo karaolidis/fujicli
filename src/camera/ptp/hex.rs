@@ -145,7 +145,7 @@ pub enum DevicePropCode {
     FujiStillCustomSettingGrainEffect = 0xD195,
     FujiStillCustomSettingColorChromeEffect = 0xD196,
     FujiStillCustomSettingColorChromeFXBlue = 0xD197,
-    // TODO: 0xD198 All 1s
+    FujiStillCustomSettingSmoothSkinEffect = 0xD198,
     FujiStillCustomSettingWhiteBalance = 0xD199,
     FujiStillCustomSettingWhiteBalanceShiftRed = 0xD19A,
     FujiStillCustomSettingWhiteBalanceShiftBlue = 0xD19B,
@@ -874,6 +874,59 @@ impl FromStr for FujiColorChromeFXBlue {
         bail!("Unknown color chrome fx blue '{s}'");
     }
 }
+
+#[repr(u16)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Serialize,
+    IntoPrimitive,
+    TryFromPrimitive,
+    PtpSerialize,
+    PtpDeserialize,
+    EnumIter,
+)]
+pub enum FujiSmoothSkinEffect {
+    Strong = 0x3,
+    Weak = 0x2,
+    Off = 0x1,
+}
+
+impl fmt::Display for FujiSmoothSkinEffect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Strong => write!(f, "Strong"),
+            Self::Weak => write!(f, "Weak"),
+            Self::Off => write!(f, "Off"),
+        }
+    }
+}
+
+impl FromStr for FujiSmoothSkinEffect {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> anyhow::Result<Self> {
+        let input = s.trim().to_lowercase();
+
+        match input.as_str() {
+            "strong" => return Ok(Self::Strong),
+            "weak" => return Ok(Self::Weak),
+            "off" => return Ok(Self::Off),
+            _ => {}
+        }
+
+        let choices: Vec<String> = Self::iter().map(|v| v.to_string()).collect();
+        if let Some(best) = suggest_closest(s, &choices) {
+            bail!("Unknown smooth skin effect '{s}'. Did you mean '{best}'?");
+        }
+
+        bail!("Unknown smooth skin effect '{s}'");
+    }
+}
+
 
 #[repr(u16)]
 #[derive(

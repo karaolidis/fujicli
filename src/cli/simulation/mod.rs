@@ -5,8 +5,8 @@ use crate::{
         FujiClarity, FujiColor, FujiColorChromeEffect, FujiColorChromeFXBlue, FujiCustomSetting,
         FujiCustomSettingName, FujiDynamicRange, FujiDynamicRangePriority, FujiFilmSimulation,
         FujiGrainEffect, FujiHighISONR, FujiHighlightTone, FujiImageQuality, FujiImageSize,
-        FujiShadowTone, FujiSharpness, FujiWhiteBalance, FujiWhiteBalanceShift,
-        FujiWhiteBalanceTemperature,
+        FujiShadowTone, FujiSharpness, FujiSmoothSkinEffect, FujiWhiteBalance,
+        FujiWhiteBalanceShift, FujiWhiteBalanceTemperature,
     },
     usb,
 };
@@ -38,6 +38,10 @@ pub enum SimulationCmd {
     Set {
         /// Simulation slot number
         slot: FujiCustomSetting,
+
+        /// The name of the slot
+        #[clap(long)]
+        name: Option<FujiCustomSettingName>,
 
         #[command(flatten)]
         film_simulation_options: FilmSimulationOptions,
@@ -116,6 +120,7 @@ pub struct FilmSimulationRepr {
     pub grain: FujiGrainEffect,
     pub color_chrome_effect: FujiColorChromeEffect,
     pub color_chrome_fx_blue: FujiColorChromeFXBlue,
+    pub smooth_skin_effect: FujiSmoothSkinEffect,
 }
 
 impl fmt::Display for FilmSimulationRepr {
@@ -145,7 +150,8 @@ impl fmt::Display for FilmSimulationRepr {
         writeln!(f, "Noise Reduction: {}", self.noise_reduction)?;
         writeln!(f, "Grain: {}", self.grain)?;
         writeln!(f, "Color Chrome Effect: {}", self.color_chrome_effect)?;
-        writeln!(f, "Color Chrome FX Blue: {}", self.color_chrome_fx_blue)
+        writeln!(f, "Color Chrome FX Blue: {}", self.color_chrome_fx_blue)?;
+        writeln!(f, "Smooth Skin Effect: {}", self.smooth_skin_effect)
     }
 }
 
@@ -173,6 +179,7 @@ fn handle_get(json: bool, device_id: Option<&str>, slot: FujiCustomSetting) -> a
         grain: camera.get_grain_effect()?,
         color_chrome_effect: camera.get_color_chrome_effect()?,
         color_chrome_fx_blue: camera.get_color_chrome_fx_blue()?,
+        smooth_skin_effect: camera.get_smooth_skin_effect()?,
     };
 
     if json {
@@ -187,13 +194,14 @@ fn handle_get(json: bool, device_id: Option<&str>, slot: FujiCustomSetting) -> a
 fn handle_set(
     device_id: Option<&str>,
     slot: FujiCustomSetting,
-    options: &FilmSimulationOptions,
+    name: Option<FujiCustomSettingName>,
+    options: FilmSimulationOptions,
 ) -> anyhow::Result<()> {
     let mut camera = usb::get_camera(device_id)?;
     camera.set_active_custom_setting(slot)?;
 
     // General
-    if let Some(name) = &options.name {
+    if let Some(name) = &name {
         camera.set_custom_setting_name(name)?;
     }
 
@@ -236,6 +244,10 @@ fn handle_set(
 
     if let Some(color_chrome_fx_blue) = &options.color_chrome_fx_blue {
         camera.set_color_chrome_fx_blue(*color_chrome_fx_blue)?;
+    }
+
+    if let Some(smooth_skin_effect) = &options.smooth_skin_effect {
+        camera.set_smooth_skin_effect(*smooth_skin_effect)?;
     }
 
     // White Balance
@@ -328,8 +340,9 @@ pub fn handle(cmd: SimulationCmd, json: bool, device_id: Option<&str>) -> anyhow
         SimulationCmd::Get { slot } => handle_get(json, device_id, slot),
         SimulationCmd::Set {
             slot,
+            name,
             film_simulation_options,
-        } => handle_set(device_id, slot, &film_simulation_options),
+        } => handle_set(device_id, slot, name, film_simulation_options),
         SimulationCmd::Export { slot, output_file } => handle_export(device_id, slot, &output_file),
         SimulationCmd::Import { slot, input_file } => handle_import(device_id, slot, &input_file),
     }

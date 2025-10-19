@@ -1,18 +1,14 @@
 use clap::Args;
 
 use crate::camera::ptp::hex::{
-    FujiClarity, FujiColor, FujiColorChromeEffect, FujiColorChromeFXBlue, FujiCustomSettingName,
-    FujiDynamicRange, FujiDynamicRangePriority, FujiFilmSimulation, FujiGrainEffect, FujiHighISONR,
+    FujiClarity, FujiColor, FujiColorChromeEffect, FujiColorChromeFXBlue, FujiDynamicRange,
+    FujiDynamicRangePriority, FujiFilmSimulation, FujiGrainEffect, FujiHighISONR,
     FujiHighlightTone, FujiImageQuality, FujiImageSize, FujiShadowTone, FujiSharpness,
-    FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature,
+    FujiSmoothSkinEffect, FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature,
 };
 
 #[derive(Args, Debug)]
 pub struct FilmSimulationOptions {
-    /// The name of the slot
-    #[clap(long)]
-    pub name: Option<FujiCustomSettingName>,
-
     /// The Fujifilm film simulation to use
     #[clap(long)]
     pub simulation: Option<FujiFilmSimulation>,
@@ -84,4 +80,8 @@ pub struct FilmSimulationOptions {
     /// Color Chrome FX Blue
     #[clap(long)]
     pub color_chrome_fx_blue: Option<FujiColorChromeFXBlue>,
+
+    /// Smooth Skin Effect
+    #[clap(long)]
+    pub smooth_skin_effect: Option<FujiSmoothSkinEffect>,
 }

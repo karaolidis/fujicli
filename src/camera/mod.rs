@@ -14,7 +14,8 @@ use ptp::{
         FujiColorChromeFXBlue, FujiCustomSetting, FujiCustomSettingName, FujiDynamicRange,
         FujiDynamicRangePriority, FujiFilmSimulation, FujiGrainEffect, FujiHighISONR,
         FujiHighlightTone, FujiImageQuality, FujiImageSize, FujiShadowTone, FujiSharpness,
-        FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature, UsbMode,
+        FujiSmoothSkinEffect, FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature,
+        UsbMode,
     },
     structs::DeviceInfo,
 };
@@ -256,6 +257,14 @@ impl Camera {
 
     pub fn set_color_chrome_fx_blue(&mut self, value: FujiColorChromeFXBlue) -> anyhow::Result<()> {
         self.r#impl.set_color_chrome_fx_blue(&mut self.ptp, value)
+    }
+
+    pub fn get_smooth_skin_effect(&mut self) -> anyhow::Result<FujiSmoothSkinEffect> {
+        self.r#impl.get_smooth_skin_effect(&mut self.ptp)
+    }
+
+    pub fn set_smooth_skin_effect(&mut self, value: FujiSmoothSkinEffect) -> anyhow::Result<()> {
+        self.r#impl.set_smooth_skin_effect(&mut self.ptp, value)
     }
 }
 
@@ -785,6 +794,27 @@ pub trait CameraImpl<P: rusb::UsbContext> {
         self.set_prop_value(
             ptp,
             DevicePropCode::FujiStillCustomSettingColorChromeFXBlue,
+            &bytes,
+        )?;
+        Ok(())
+    }
+
+    fn get_smooth_skin_effect(&self, ptp: &mut Ptp) -> anyhow::Result<FujiSmoothSkinEffect> {
+        let bytes =
+            self.get_prop_value(ptp, DevicePropCode::FujiStillCustomSettingSmoothSkinEffect)?;
+        let result = FujiSmoothSkinEffect::try_from_ptp(&bytes)?;
+        Ok(result)
+    }
+
+    fn set_smooth_skin_effect(
+        &self,
+        ptp: &mut Ptp,
+        value: FujiSmoothSkinEffect,
+    ) -> anyhow::Result<()> {
+        let bytes = value.try_into_ptp()?;
+        self.set_prop_value(
+            ptp,
+            DevicePropCode::FujiStillCustomSettingSmoothSkinEffect,
             &bytes,
         )?;
         Ok(())
