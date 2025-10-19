@@ -163,7 +163,7 @@ impl fmt::Display for FilmSimulationRepr {
                 )?;
             }
             _ => {}
-        };
+        }
 
         if self.dynamic_range_priority == FujiDynamicRangePriority::Off {
             writeln!(f, "Highlights: {}", self.highlight)?;
@@ -250,6 +250,7 @@ fn handle_get(json: bool, device_id: Option<&str>, slot: FujiCustomSetting) -> a
 }
 
 #[allow(clippy::cognitive_complexity)]
+#[allow(clippy::too_many_lines)]
 fn handle_set(
     device_id: Option<&str>,
     slot: FujiCustomSetting,
@@ -286,17 +287,17 @@ fn handle_set(
             &camera.get_film_simulation()?
         };
 
-        let is_bnw = match *simulation {
+        let is_bnw = matches!(
+            *simulation,
             FujiFilmSimulation::Monochrome
-            | FujiFilmSimulation::MonochromeYe
-            | FujiFilmSimulation::MonochromeR
-            | FujiFilmSimulation::MonochromeG
-            | FujiFilmSimulation::AcrosSTD
-            | FujiFilmSimulation::AcrosYe
-            | FujiFilmSimulation::AcrosR
-            | FujiFilmSimulation::AcrosG => true,
-            _ => false,
-        };
+                | FujiFilmSimulation::MonochromeYe
+                | FujiFilmSimulation::MonochromeR
+                | FujiFilmSimulation::MonochromeG
+                | FujiFilmSimulation::AcrosSTD
+                | FujiFilmSimulation::AcrosYe
+                | FujiFilmSimulation::AcrosR
+                | FujiFilmSimulation::AcrosG
+        );
 
         if let Some(monochromatic_color_temperature) = &options.monochromatic_color_temperature {
             if is_bnw {
