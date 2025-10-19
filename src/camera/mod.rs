@@ -13,9 +13,10 @@ use ptp::{
         CommandCode, DevicePropCode, FujiClarity, FujiColor, FujiColorChromeEffect,
         FujiColorChromeFXBlue, FujiCustomSetting, FujiCustomSettingName, FujiDynamicRange,
         FujiDynamicRangePriority, FujiFilmSimulation, FujiGrainEffect, FujiHighISONR,
-        FujiHighlightTone, FujiImageQuality, FujiImageSize, FujiShadowTone, FujiSharpness,
-        FujiSmoothSkinEffect, FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature,
-        ObjectFormat, UsbMode,
+        FujiHighlightTone, FujiImageQuality, FujiImageSize, FujiMonochromaticColorTemperature,
+        FujiMonochromaticColorTint, FujiShadowTone, FujiSharpness, FujiSmoothSkinEffect,
+        FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature, ObjectFormat,
+        UsbMode,
     },
     structs::{DeviceInfo, ObjectInfo},
 };
@@ -82,6 +83,8 @@ impl Camera {
         get_dynamic_range => FujiDynamicRange,
         get_dynamic_range_priority => FujiDynamicRangePriority,
         get_film_simulation => FujiFilmSimulation,
+        get_monochromatic_color_temperature => FujiMonochromaticColorTemperature,
+        get_monochromatic_color_tint => FujiMonochromaticColorTint,
         get_grain_effect => FujiGrainEffect,
         get_white_balance => FujiWhiteBalance,
         get_high_iso_nr => FujiHighISONR,
@@ -107,6 +110,8 @@ impl Camera {
         set_dynamic_range(value: &FujiDynamicRange) => (),
         set_dynamic_range_priority(value: &FujiDynamicRangePriority) => (),
         set_film_simulation(value: &FujiFilmSimulation) => (),
+        set_monochromatic_color_temperature(value: &FujiMonochromaticColorTemperature) => (),
+        set_monochromatic_color_tint(value: &FujiMonochromaticColorTint) => (),
         set_grain_effect(value: &FujiGrainEffect) => (),
         set_white_balance(value: &FujiWhiteBalance) => (),
         set_high_iso_nr(value: &FujiHighISONR) => (),
@@ -234,6 +239,7 @@ pub trait CameraImpl<P: rusb::UsbContext> {
     }
 
     fn chunk_size(&self) -> usize {
+        // Conservative estimate. Could go up to 15.75 * 1024^2 on the X-T5 but only gained 200ms.
         1024 * 1024
     }
 
@@ -324,6 +330,8 @@ pub trait CameraImpl<P: rusb::UsbContext> {
         dynamic_range: FujiDynamicRange => DevicePropCode::FujiStillCustomSettingDynamicRange,
         dynamic_range_priority: FujiDynamicRangePriority => DevicePropCode::FujiStillCustomSettingDynamicRangePriority,
         film_simulation: FujiFilmSimulation => DevicePropCode::FujiStillCustomSettingFilmSimulation,
+        monochromatic_color_temperature: FujiMonochromaticColorTemperature => DevicePropCode::FujiStillCustomSettingMonochromaticColorTemperature,
+        monochromatic_color_tint: FujiMonochromaticColorTint => DevicePropCode::FujiStillCustomSettingMonochromaticColorTint,
         grain_effect: FujiGrainEffect => DevicePropCode::FujiStillCustomSettingGrainEffect,
         white_balance: FujiWhiteBalance => DevicePropCode::FujiStillCustomSettingWhiteBalance,
         high_iso_nr: FujiHighISONR => DevicePropCode::FujiStillCustomSettingHighISONR,

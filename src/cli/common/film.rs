@@ -3,15 +3,24 @@ use clap::Args;
 use crate::camera::ptp::hex::{
     FujiClarity, FujiColor, FujiColorChromeEffect, FujiColorChromeFXBlue, FujiDynamicRange,
     FujiDynamicRangePriority, FujiFilmSimulation, FujiGrainEffect, FujiHighISONR,
-    FujiHighlightTone, FujiImageQuality, FujiImageSize, FujiShadowTone, FujiSharpness,
-    FujiSmoothSkinEffect, FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature,
+    FujiHighlightTone, FujiImageQuality, FujiImageSize, FujiMonochromaticColorTemperature,
+    FujiMonochromaticColorTint, FujiShadowTone, FujiSharpness, FujiSmoothSkinEffect,
+    FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature,
 };
 
 #[derive(Args, Debug)]
 pub struct FilmSimulationOptions {
-    /// The Fujifilm film simulation to use
+    /// Fujifilm Film Simulation
     #[clap(long)]
     pub simulation: Option<FujiFilmSimulation>,
+
+    /// Monochromatic Color Temperature (only applicable to B&W film simulations)
+    #[clap(long)]
+    pub monochromatic_color_temperature: Option<FujiMonochromaticColorTemperature>,
+
+    /// Monochromatic Color Tint (only applicable to B&W film simulations)
+    #[clap(long)]
+    pub monochromatic_color_tint: Option<FujiMonochromaticColorTint>,
 
     /// The output image resolution
     #[clap(long)]

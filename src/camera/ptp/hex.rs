@@ -136,7 +136,7 @@ impl PtpDeserialize for ContainerCode {
 pub enum DevicePropCode {
     FujiUsbMode = 0xd16e,
     FujiRawConversionRun = 0xD183,
-    FujiRawConversionSettings = 0xD185,
+    FujiRawConversionProfile = 0xD185,
     FujiStillCustomSetting = 0xD18C,
     FujiStillCustomSettingName = 0xD18D,
     FujiStillCustomSettingImageSize = 0xD18E,
@@ -144,8 +144,8 @@ pub enum DevicePropCode {
     FujiStillCustomSettingDynamicRange = 0xD190,
     FujiStillCustomSettingDynamicRangePriority = 0xD191,
     FujiStillCustomSettingFilmSimulation = 0xD192,
-    // TODO: 0xD193 All 0s
-    // TODO: 0xD194 All 0s
+    FujiStillCustomSettingMonochromaticColorTemperature = 0xD193,
+    FujiStillCustomSettingMonochromaticColorTint = 0xD194,
     FujiStillCustomSettingGrainEffect = 0xD195,
     FujiStillCustomSettingColorChromeEffect = 0xD196,
     FujiStillCustomSettingColorChromeFXBlue = 0xD197,
@@ -1211,6 +1211,8 @@ macro_rules! fuji_i16 {
     };
 }
 
+fuji_i16!(FujiMonochromaticColorTemperature, -18.0, 18.0, 1.0, 10i16);
+fuji_i16!(FujiMonochromaticColorTint, -18.0, 18.0, 1.0, 10i16);
 fuji_i16!(FujiWhiteBalanceShift, -9.0, 9.0, 1.0, 1i16);
 fuji_i16!(FujiWhiteBalanceTemperature, 2500.0, 10000.0, 10.0, 1i16);
 fuji_i16!(FujiHighlightTone, -2.0, 4.0, 0.5, 10i16);
