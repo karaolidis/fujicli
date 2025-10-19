@@ -137,31 +137,31 @@ pub enum DevicePropCode {
     FujiUsbMode = 0xd16e,
     FujiRawConversionRun = 0xD183,
     FujiRawConversionProfile = 0xD185,
-    FujiStillCustomSetting = 0xD18C,
-    FujiStillCustomSettingName = 0xD18D,
-    FujiStillCustomSettingImageSize = 0xD18E,
-    FujiStillCustomSettingImageQuality = 0xD18F,
-    FujiStillCustomSettingDynamicRange = 0xD190,
-    FujiStillCustomSettingDynamicRangePriority = 0xD191,
-    FujiStillCustomSettingFilmSimulation = 0xD192,
-    FujiStillCustomSettingMonochromaticColorTemperature = 0xD193,
-    FujiStillCustomSettingMonochromaticColorTint = 0xD194,
-    FujiStillCustomSettingGrainEffect = 0xD195,
-    FujiStillCustomSettingColorChromeEffect = 0xD196,
-    FujiStillCustomSettingColorChromeFXBlue = 0xD197,
-    FujiStillCustomSettingSmoothSkinEffect = 0xD198,
-    FujiStillCustomSettingWhiteBalance = 0xD199,
-    FujiStillCustomSettingWhiteBalanceShiftRed = 0xD19A,
-    FujiStillCustomSettingWhiteBalanceShiftBlue = 0xD19B,
-    FujiStillCustomSettingWhiteBalanceTemperature = 0xD19C,
-    FujiStillCustomSettingHighlightTone = 0xD19D,
-    FujiStillCustomSettingShadowTone = 0xD19E,
-    FujiStillCustomSettingColor = 0xD19F,
-    FujiStillCustomSettingSharpness = 0xD1A0,
-    FujiStillCustomSettingHighISONR = 0xD1A1,
-    FujiStillCustomSettingClarity = 0xD1A2,
-    // TODO: 0xD1A3 All 1s
-    // TODO: 0xD1A4 All 1s
+    FujiCustomSetting = 0xD18C,
+    FujiCustomSettingName = 0xD18D,
+    FujiCustomSettingImageSize = 0xD18E,
+    FujiCustomSettingImageQuality = 0xD18F,
+    FujiCustomSettingDynamicRange = 0xD190,
+    FujiCustomSettingDynamicRangePriority = 0xD191,
+    FujiCustomSettingFilmSimulation = 0xD192,
+    FujiCustomSettingMonochromaticColorTemperature = 0xD193,
+    FujiCustomSettingMonochromaticColorTint = 0xD194,
+    FujiCustomSettingGrainEffect = 0xD195,
+    FujiCustomSettingColorChromeEffect = 0xD196,
+    FujiCustomSettingColorChromeFXBlue = 0xD197,
+    FujiCustomSettingSmoothSkinEffect = 0xD198,
+    FujiCustomSettingWhiteBalance = 0xD199,
+    FujiCustomSettingWhiteBalanceShiftRed = 0xD19A,
+    FujiCustomSettingWhiteBalanceShiftBlue = 0xD19B,
+    FujiCustomSettingWhiteBalanceTemperature = 0xD19C,
+    FujiCustomSettingHighlightTone = 0xD19D,
+    FujiCustomSettingShadowTone = 0xD19E,
+    FujiCustomSettingColor = 0xD19F,
+    FujiCustomSettingSharpness = 0xD1A0,
+    FujiCustomSettingHighISONR = 0xD1A1,
+    FujiCustomSettingClarity = 0xD1A2,
+    FujiCustomSettingLensModulationOptimizer = 0xD1A3,
+    FujiCustomSettingColorSpace = 0xD1A4,
     // TODO: 0xD1A5 All 7s
     FujiBatteryInfo2 = 0xD36B,
 }
@@ -1111,6 +1111,104 @@ impl FromStr for FujiHighISONR {
             -4 => Ok(Self::Minus4),
             _ => bail!("Value {input} is out of range",),
         }
+    }
+}
+
+#[repr(u16)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Serialize,
+    IntoPrimitive,
+    TryFromPrimitive,
+    PtpSerialize,
+    PtpDeserialize,
+    EnumIter,
+)]
+pub enum FujiLensModulationOptimizer {
+    Off = 0x2,
+    On = 0x1,
+}
+
+impl fmt::Display for FujiLensModulationOptimizer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Off => write!(f, "Off"),
+            Self::On => write!(f, "On"),
+        }
+    }
+}
+
+impl FromStr for FujiLensModulationOptimizer {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> anyhow::Result<Self> {
+        let input = s.trim().to_lowercase();
+
+        match input.as_str() {
+            "off" | "false" => return Ok(Self::Off),
+            "on" | "true" => return Ok(Self::On),
+            _ => {}
+        }
+
+        let choices: Vec<String> = Self::iter().map(|v| v.to_string()).collect();
+        if let Some(best) = suggest_closest(s, &choices) {
+            bail!("Unknown lens modulation optimizer '{s}'. Did you mean '{best}'?");
+        }
+
+        bail!("Unknown lens modulation optimizer '{s}'");
+    }
+}
+
+#[repr(u16)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Serialize,
+    IntoPrimitive,
+    TryFromPrimitive,
+    PtpSerialize,
+    PtpDeserialize,
+    EnumIter,
+)]
+pub enum FujiColorSpace {
+    SRGB = 0x2,
+    AdobeRGB = 0x1,
+}
+
+impl fmt::Display for FujiColorSpace {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SRGB => write!(f, "sRGB"),
+            Self::AdobeRGB => write!(f, "Adobe RGB"),
+        }
+    }
+}
+
+impl FromStr for FujiColorSpace {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> anyhow::Result<Self> {
+        let input = s.trim().to_lowercase();
+
+        match input.as_str() {
+            "s" | "srgb" => return Ok(Self::SRGB),
+            "adobe" | "adobergb" => return Ok(Self::AdobeRGB),
+            _ => {}
+        }
+
+        let choices: Vec<String> = Self::iter().map(|v| v.to_string()).collect();
+        if let Some(best) = suggest_closest(s, &choices) {
+            bail!("Unknown color space '{s}'. Did you mean '{best}'?");
+        }
+
+        bail!("Unknown color space '{s}'");
     }
 }
 

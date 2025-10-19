@@ -2,12 +2,12 @@ use std::fmt;
 
 use crate::{
     camera::ptp::hex::{
-        FujiClarity, FujiColor, FujiColorChromeEffect, FujiColorChromeFXBlue, FujiCustomSetting,
-        FujiCustomSettingName, FujiDynamicRange, FujiDynamicRangePriority, FujiFilmSimulation,
-        FujiGrainEffect, FujiHighISONR, FujiHighlightTone, FujiImageQuality, FujiImageSize,
-        FujiMonochromaticColorTemperature, FujiMonochromaticColorTint, FujiShadowTone,
-        FujiSharpness, FujiSmoothSkinEffect, FujiWhiteBalance, FujiWhiteBalanceShift,
-        FujiWhiteBalanceTemperature,
+        FujiClarity, FujiColor, FujiColorChromeEffect, FujiColorChromeFXBlue, FujiColorSpace,
+        FujiCustomSetting, FujiCustomSettingName, FujiDynamicRange, FujiDynamicRangePriority,
+        FujiFilmSimulation, FujiGrainEffect, FujiHighISONR, FujiHighlightTone, FujiImageQuality,
+        FujiImageSize, FujiLensModulationOptimizer, FujiMonochromaticColorTemperature,
+        FujiMonochromaticColorTint, FujiShadowTone, FujiSharpness, FujiSmoothSkinEffect,
+        FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature,
     },
     usb,
 };
@@ -16,7 +16,7 @@ use super::common::{
     file::{Input, Output},
     film::FilmSimulationOptions,
 };
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 use log::warn;
 use serde::Serialize;
 use strum::IntoEnumIterator;
@@ -40,9 +40,8 @@ pub enum SimulationCmd {
         /// Simulation slot number
         slot: FujiCustomSetting,
 
-        /// The name of the slot
-        #[clap(long)]
-        name: Option<FujiCustomSettingName>,
+        #[command(flatten)]
+        set_film_simulation_options: SetFilmSimulationOptions,
 
         #[command(flatten)]
         film_simulation_options: FilmSimulationOptions,
@@ -67,6 +66,13 @@ pub enum SimulationCmd {
         /// Input file (use '-' to read from stdin)
         input_file: Input,
     },
+}
+
+#[derive(Args, Debug)]
+pub struct SetFilmSimulationOptions {
+    /// The name of the slot
+    #[clap(long)]
+    name: Option<FujiCustomSettingName>,
 }
 
 #[derive(Debug, Serialize)]
@@ -124,6 +130,8 @@ pub struct FilmSimulationRepr {
     pub white_balance_temperature: FujiWhiteBalanceTemperature,
     pub dynamic_range: FujiDynamicRange,
     pub dynamic_range_priority: FujiDynamicRangePriority,
+    pub lens_modulation_optimizer: FujiLensModulationOptimizer,
+    pub color_space: FujiColorSpace,
 }
 
 impl fmt::Display for FilmSimulationRepr {
@@ -190,7 +198,14 @@ impl fmt::Display for FilmSimulationRepr {
             writeln!(f, "Dynamic Range: {}", self.dynamic_range)?;
         }
 
-        writeln!(f, "Dynamic Range Priority: {}", self.dynamic_range_priority)
+        writeln!(f, "Dynamic Range Priority: {}", self.dynamic_range_priority)?;
+
+        writeln!(
+            f,
+            "Lens Modulation Optimizer: {}",
+            self.lens_modulation_optimizer
+        )?;
+        writeln!(f, "Color Space: {}", self.color_space)
     }
 }
 
@@ -221,6 +236,8 @@ fn handle_get(json: bool, device_id: Option<&str>, slot: FujiCustomSetting) -> a
         white_balance_temperature: camera.get_white_balance_temperature()?,
         dynamic_range: camera.get_dynamic_range()?,
         dynamic_range_priority: camera.get_dynamic_range_priority()?,
+        lens_modulation_optimizer: camera.get_lens_modulation_optimizer()?,
+        color_space: camera.get_color_space()?,
     };
 
     if json {
@@ -236,14 +253,14 @@ fn handle_get(json: bool, device_id: Option<&str>, slot: FujiCustomSetting) -> a
 fn handle_set(
     device_id: Option<&str>,
     slot: FujiCustomSetting,
-    name: Option<&FujiCustomSettingName>,
+    set_options: &SetFilmSimulationOptions,
     options: &FilmSimulationOptions,
 ) -> anyhow::Result<()> {
     let mut camera = usb::get_camera(device_id)?;
     camera.set_active_custom_setting(&slot)?;
 
     // General
-    if let Some(name) = &name {
+    if let Some(name) = &set_options.name {
         camera.set_custom_setting_name(name)?;
     }
 
@@ -401,6 +418,15 @@ fn handle_set(
         }
     }
 
+    // Extras
+    if let Some(lens_modulation_optimizer) = &options.lens_modulation_optimizer {
+        camera.set_lens_modulation_optimizer(lens_modulation_optimizer)?;
+    }
+
+    if let Some(color_space) = &options.color_space {
+        camera.set_color_space(color_space)?;
+    }
+
     Ok(())
 }
 
@@ -426,9 +452,14 @@ pub fn handle(cmd: SimulationCmd, json: bool, device_id: Option<&str>) -> anyhow
         SimulationCmd::Get { slot } => handle_get(json, device_id, slot),
         SimulationCmd::Set {
             slot,
-            name,
+            set_film_simulation_options,
             film_simulation_options,
-        } => handle_set(device_id, slot, name.as_ref(), &film_simulation_options),
+        } => handle_set(
+            device_id,
+            slot,
+            &set_film_simulation_options,
+            &film_simulation_options,
+        ),
         SimulationCmd::Export { slot, output_file } => handle_export(device_id, slot, &output_file),
         SimulationCmd::Import { slot, input_file } => handle_import(device_id, slot, &input_file),
     }

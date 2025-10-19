@@ -1,11 +1,11 @@
 use clap::Args;
 
 use crate::camera::ptp::hex::{
-    FujiClarity, FujiColor, FujiColorChromeEffect, FujiColorChromeFXBlue, FujiDynamicRange,
-    FujiDynamicRangePriority, FujiFilmSimulation, FujiGrainEffect, FujiHighISONR,
-    FujiHighlightTone, FujiImageQuality, FujiImageSize, FujiMonochromaticColorTemperature,
-    FujiMonochromaticColorTint, FujiShadowTone, FujiSharpness, FujiSmoothSkinEffect,
-    FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature,
+    FujiClarity, FujiColor, FujiColorChromeEffect, FujiColorChromeFXBlue, FujiColorSpace,
+    FujiDynamicRange, FujiDynamicRangePriority, FujiFilmSimulation, FujiGrainEffect, FujiHighISONR,
+    FujiHighlightTone, FujiImageQuality, FujiImageSize, FujiLensModulationOptimizer,
+    FujiMonochromaticColorTemperature, FujiMonochromaticColorTint, FujiShadowTone, FujiSharpness,
+    FujiSmoothSkinEffect, FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature,
 };
 
 #[derive(Args, Debug)]
@@ -93,4 +93,12 @@ pub struct FilmSimulationOptions {
     /// Smooth Skin Effect
     #[clap(long)]
     pub smooth_skin_effect: Option<FujiSmoothSkinEffect>,
+
+    /// Lens Modulation Optimizer
+    #[clap(long)]
+    pub lens_modulation_optimizer: Option<FujiLensModulationOptimizer>,
+
+    /// Color Space
+    #[clap(long)]
+    pub color_space: Option<FujiColorSpace>,
 }
