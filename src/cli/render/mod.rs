@@ -8,11 +8,11 @@ use clap::Args;
 
 #[derive(Args, Debug)]
 pub struct RenderCmd {
-    /// Simulation number or name
+    /// Simulation slot number
     #[arg(long, conflicts_with = "simulation_file")]
     simulation: Option<u8>,
 
-    /// Path to exported simulation
+    /// Path to exported simulation file
     #[arg(long, conflicts_with = "simulation")]
     simulation_file: Option<PathBuf>,
 

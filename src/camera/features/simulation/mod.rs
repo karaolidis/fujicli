@@ -1,0 +1,28 @@
+#[allow(clippy::module_inception)]
+pub mod simulation;
+
+use simulation::Simulation;
+use strum::IntoEnumIterator;
+
+use crate::camera::ptp::{Ptp, hex::FujiCustomSetting};
+
+use super::base::CameraBase;
+
+pub trait CameraSimulations: CameraBase {
+    fn custom_settings_slots(&self) -> Vec<FujiCustomSetting> {
+        FujiCustomSetting::iter().collect()
+    }
+
+    fn get_simulation(
+        &self,
+        ptp: &mut Ptp,
+        slot: FujiCustomSetting,
+    ) -> anyhow::Result<Box<dyn Simulation>>;
+
+    fn update_simulation(
+        &self,
+        ptp: &mut Ptp,
+        slot: FujiCustomSetting,
+        modifier: &mut dyn FnMut(&mut dyn Simulation) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()>;
+}

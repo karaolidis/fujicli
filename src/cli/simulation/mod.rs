@@ -1,13 +1,7 @@
-use std::fmt;
-
 use crate::{
-    camera::ptp::hex::{
-        FujiClarity, FujiColor, FujiColorChromeEffect, FujiColorChromeFXBlue, FujiColorSpace,
-        FujiCustomSetting, FujiCustomSettingName, FujiDynamicRange, FujiDynamicRangePriority,
-        FujiFilmSimulation, FujiGrainEffect, FujiHighISONR, FujiHighlightTone, FujiImageQuality,
-        FujiImageSize, FujiLensModulationOptimizer, FujiMonochromaticColorTemperature,
-        FujiMonochromaticColorTint, FujiShadowTone, FujiSharpness, FujiSmoothSkinEffect,
-        FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature,
+    camera::{
+        features::simulation::simulation::SimulationListItem,
+        ptp::hex::{FujiCustomSetting, FujiCustomSettingName},
     },
     usb,
 };
@@ -17,9 +11,6 @@ use super::common::{
     film::FilmSimulationOptions,
 };
 use clap::{Args, Subcommand};
-use log::warn;
-use serde::Serialize;
-use strum::IntoEnumIterator;
 
 #[derive(Subcommand, Debug)]
 pub enum SimulationCmd {
@@ -72,181 +63,56 @@ pub enum SimulationCmd {
 pub struct SetFilmSimulationOptions {
     /// The name of the slot
     #[clap(long)]
-    name: Option<FujiCustomSettingName>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CustomSettingRepr {
-    pub slot: FujiCustomSetting,
-    pub name: FujiCustomSettingName,
+    pub name: Option<FujiCustomSettingName>,
 }
 
 fn handle_list(json: bool, device_id: Option<&str>) -> anyhow::Result<()> {
     let mut camera = usb::get_camera(device_id)?;
 
-    let mut slots = Vec::new();
-
-    for slot in FujiCustomSetting::iter() {
-        camera.set_active_custom_setting(&slot)?;
-        let name = camera.get_custom_setting_name()?;
-        slots.push(CustomSettingRepr { slot, name });
-    }
+    let slots: Vec<SimulationListItem> = camera
+        .custom_settings_slots()?
+        .into_iter()
+        .map(|slot| -> anyhow::Result<SimulationListItem> {
+            let simulation = camera.get_simulation(slot)?;
+            let name = simulation.get_name()?;
+            Ok(SimulationListItem { slot, name })
+        })
+        .collect::<anyhow::Result<Vec<SimulationListItem>>>()?;
 
     if json {
         println!("{}", serde_json::to_string_pretty(&slots)?);
     } else {
-        println!("Film Simulations:");
         for slot in slots {
-            println!("- {}: {}", slot.slot, slot.name);
+            println!("- {slot}");
         }
     }
 
     Ok(())
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FilmSimulationRepr {
-    pub name: FujiCustomSettingName,
-    pub size: FujiImageSize,
-    pub quality: FujiImageQuality,
-    pub simulation: FujiFilmSimulation,
-    pub monochromatic_color_temperature: FujiMonochromaticColorTemperature,
-    pub monochromatic_color_tint: FujiMonochromaticColorTint,
-    pub highlight: FujiHighlightTone,
-    pub shadow: FujiShadowTone,
-    pub color: FujiColor,
-    pub sharpness: FujiSharpness,
-    pub clarity: FujiClarity,
-    pub noise_reduction: FujiHighISONR,
-    pub grain: FujiGrainEffect,
-    pub color_chrome_effect: FujiColorChromeEffect,
-    pub color_chrome_fx_blue: FujiColorChromeFXBlue,
-    pub smooth_skin_effect: FujiSmoothSkinEffect,
-    pub white_balance: FujiWhiteBalance,
-    pub white_balance_shift_red: FujiWhiteBalanceShift,
-    pub white_balance_shift_blue: FujiWhiteBalanceShift,
-    pub white_balance_temperature: FujiWhiteBalanceTemperature,
-    pub dynamic_range: FujiDynamicRange,
-    pub dynamic_range_priority: FujiDynamicRangePriority,
-    pub lens_modulation_optimizer: FujiLensModulationOptimizer,
-    pub color_space: FujiColorSpace,
-}
-
-impl fmt::Display for FilmSimulationRepr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Name: {}", self.name)?;
-        writeln!(f, "Size: {}", self.size)?;
-        writeln!(f, "Quality: {}", self.quality)?;
-
-        writeln!(f, "Simulation: {}", self.simulation)?;
-
-        match self.simulation {
-            FujiFilmSimulation::Monochrome
-            | FujiFilmSimulation::MonochromeYe
-            | FujiFilmSimulation::MonochromeR
-            | FujiFilmSimulation::MonochromeG
-            | FujiFilmSimulation::AcrosSTD
-            | FujiFilmSimulation::AcrosYe
-            | FujiFilmSimulation::AcrosR
-            | FujiFilmSimulation::AcrosG => {
-                writeln!(
-                    f,
-                    "Monochromatic Color Temperature: {}",
-                    self.monochromatic_color_temperature
-                )?;
-                writeln!(
-                    f,
-                    "Monochromatic Color Tint: {}",
-                    self.monochromatic_color_tint
-                )?;
-            }
-            _ => {}
-        }
-
-        if self.dynamic_range_priority == FujiDynamicRangePriority::Off {
-            writeln!(f, "Highlights: {}", self.highlight)?;
-            writeln!(f, "Shadows: {}", self.shadow)?;
-        }
-
-        writeln!(f, "Color: {}", self.color)?;
-        writeln!(f, "Sharpness: {}", self.sharpness)?;
-        writeln!(f, "Clarity: {}", self.clarity)?;
-        writeln!(f, "Noise Reduction: {}", self.noise_reduction)?;
-        writeln!(f, "Grain: {}", self.grain)?;
-        writeln!(f, "Color Chrome Effect: {}", self.color_chrome_effect)?;
-        writeln!(f, "Color Chrome FX Blue: {}", self.color_chrome_fx_blue)?;
-        writeln!(f, "Smooth Skin Effect: {}", self.smooth_skin_effect)?;
-
-        writeln!(f, "White Balance: {}", self.white_balance)?;
-        writeln!(
-            f,
-            "White Balance Shift (R/B): {} / {}",
-            self.white_balance_shift_red, self.white_balance_shift_blue
-        )?;
-
-        if self.white_balance == FujiWhiteBalance::Temperature {
-            writeln!(
-                f,
-                "White Balance Temperature: {}K",
-                self.white_balance_temperature
-            )?;
-        }
-
-        if self.dynamic_range_priority == FujiDynamicRangePriority::Off {
-            writeln!(f, "Dynamic Range: {}", self.dynamic_range)?;
-        }
-
-        writeln!(f, "Dynamic Range Priority: {}", self.dynamic_range_priority)?;
-
-        writeln!(
-            f,
-            "Lens Modulation Optimizer: {}",
-            self.lens_modulation_optimizer
-        )?;
-        writeln!(f, "Color Space: {}", self.color_space)
-    }
 }
 
 fn handle_get(json: bool, device_id: Option<&str>, slot: FujiCustomSetting) -> anyhow::Result<()> {
     let mut camera = usb::get_camera(device_id)?;
-    camera.set_active_custom_setting(&slot)?;
-
-    let repr = FilmSimulationRepr {
-        name: camera.get_custom_setting_name()?,
-        size: camera.get_image_size()?,
-        quality: camera.get_image_quality()?,
-        simulation: camera.get_film_simulation()?,
-        monochromatic_color_temperature: camera.get_monochromatic_color_temperature()?,
-        monochromatic_color_tint: camera.get_monochromatic_color_tint()?,
-        highlight: camera.get_highlight_tone()?,
-        shadow: camera.get_shadow_tone()?,
-        color: camera.get_color()?,
-        sharpness: camera.get_sharpness()?,
-        clarity: camera.get_clarity()?,
-        noise_reduction: camera.get_high_iso_nr()?,
-        grain: camera.get_grain_effect()?,
-        color_chrome_effect: camera.get_color_chrome_effect()?,
-        color_chrome_fx_blue: camera.get_color_chrome_fx_blue()?,
-        smooth_skin_effect: camera.get_smooth_skin_effect()?,
-        white_balance: camera.get_white_balance()?,
-        white_balance_shift_red: camera.get_white_balance_shift_red()?,
-        white_balance_shift_blue: camera.get_white_balance_shift_blue()?,
-        white_balance_temperature: camera.get_white_balance_temperature()?,
-        dynamic_range: camera.get_dynamic_range()?,
-        dynamic_range_priority: camera.get_dynamic_range_priority()?,
-        lens_modulation_optimizer: camera.get_lens_modulation_optimizer()?,
-        color_space: camera.get_color_space()?,
-    };
+    let simulation = camera.get_simulation(slot)?;
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&repr)?);
+        println!("{}", serde_json::to_string_pretty(&simulation)?);
     } else {
-        println!("{repr}");
+        println!("{simulation}");
     }
 
     Ok(())
+}
+
+macro_rules! update_simulation {
+    ($sim_var:ident, [
+        $($local_field:ident => $setter:ident,)*
+    ]) => {
+        $(
+            if let Some(value) = $local_field {
+                $sim_var.$setter(value)?;
+            }
+        )*
+    };
 }
 
 #[allow(clippy::cognitive_complexity)]
@@ -258,175 +124,68 @@ fn handle_set(
     options: &FilmSimulationOptions,
 ) -> anyhow::Result<()> {
     let mut camera = usb::get_camera(device_id)?;
-    camera.set_active_custom_setting(&slot)?;
 
-    // General
-    if let Some(name) = &set_options.name {
-        camera.set_custom_setting_name(name)?;
-    }
+    let SetFilmSimulationOptions { name } = set_options;
 
-    if let Some(size) = &options.size {
-        camera.set_image_size(size)?;
-    }
+    let FilmSimulationOptions {
+        simulation: film_simulation,
+        monochromatic_color_temperature,
+        monochromatic_color_tint,
+        size,
+        quality,
+        highlight,
+        shadow,
+        color,
+        sharpness,
+        clarity,
+        white_balance,
+        white_balance_shift_red,
+        white_balance_shift_blue,
+        white_balance_temperature,
+        dynamic_range,
+        dynamic_range_priority,
+        noise_reduction,
+        grain,
+        color_chrome_effect,
+        color_chrome_fx_blue,
+        smooth_skin_effect,
+        lens_modulation_optimizer,
+        color_space,
+    } = options;
 
-    if let Some(quality) = &options.quality {
-        camera.set_image_quality(quality)?;
-    }
-
-    // Style
-    if let Some(simulation) = &options.simulation {
-        camera.set_film_simulation(simulation)?;
-    }
-
-    if options.monochromatic_color_temperature.is_some()
-        || options.monochromatic_color_tint.is_some()
-    {
-        let simulation = if let Some(simulation) = &options.simulation {
-            simulation
-        } else {
-            &camera.get_film_simulation()?
+    camera.update_simulation(slot, &mut |simulation| {
+        update_simulation! {
+            simulation,
+            [
+                name => set_name,
+                film_simulation => set_simulation,
+                monochromatic_color_temperature => set_monochromatic_color_temperature,
+                monochromatic_color_tint => set_monochromatic_color_tint,
+                size => set_size,
+                quality => set_quality,
+                highlight => set_highlight,
+                shadow => set_shadow,
+                color => set_color,
+                sharpness => set_sharpness,
+                clarity => set_clarity,
+                white_balance => set_white_balance,
+                white_balance_shift_red => set_white_balance_shift_red,
+                white_balance_shift_blue => set_white_balance_shift_blue,
+                white_balance_temperature => set_white_balance_temperature,
+                dynamic_range => set_dynamic_range,
+                dynamic_range_priority => set_dynamic_range_priority,
+                noise_reduction => set_noise_reduction,
+                grain => set_grain,
+                color_chrome_effect => set_color_chrome_effect,
+                color_chrome_fx_blue => set_color_chrome_fx_blue,
+                smooth_skin_effect => set_smooth_skin_effect,
+                lens_modulation_optimizer => set_lens_modulation_optimizer,
+                color_space => set_color_space,
+            ]
         };
 
-        let is_bnw = matches!(
-            *simulation,
-            FujiFilmSimulation::Monochrome
-                | FujiFilmSimulation::MonochromeYe
-                | FujiFilmSimulation::MonochromeR
-                | FujiFilmSimulation::MonochromeG
-                | FujiFilmSimulation::AcrosSTD
-                | FujiFilmSimulation::AcrosYe
-                | FujiFilmSimulation::AcrosR
-                | FujiFilmSimulation::AcrosG
-        );
-
-        if let Some(monochromatic_color_temperature) = &options.monochromatic_color_temperature {
-            if is_bnw {
-                camera.set_monochromatic_color_temperature(monochromatic_color_temperature)?;
-            } else {
-                warn!(
-                    "A B&W film simulation is not selected, refusing to set monochromatic color temperature"
-                );
-            }
-        }
-
-        if let Some(monochromatic_color_tint) = &options.monochromatic_color_tint {
-            if is_bnw {
-                camera.set_monochromatic_color_tint(monochromatic_color_tint)?;
-            } else {
-                warn!(
-                    "A B&W film simulation is not selected, refusing to set monochromatic color tint"
-                );
-            }
-        }
-    }
-
-    if let Some(color) = &options.color {
-        camera.set_color(color)?;
-    }
-
-    if let Some(sharpness) = &options.sharpness {
-        camera.set_sharpness(sharpness)?;
-    }
-
-    if let Some(clarity) = &options.clarity {
-        camera.set_clarity(clarity)?;
-    }
-
-    if let Some(noise_reduction) = &options.noise_reduction {
-        camera.set_high_iso_nr(noise_reduction)?;
-    }
-
-    if let Some(grain) = &options.grain {
-        camera.set_grain_effect(grain)?;
-    }
-
-    if let Some(color_chrome_effect) = &options.color_chrome_effect {
-        camera.set_color_chrome_effect(color_chrome_effect)?;
-    }
-
-    if let Some(color_chrome_fx_blue) = &options.color_chrome_fx_blue {
-        camera.set_color_chrome_fx_blue(color_chrome_fx_blue)?;
-    }
-
-    if let Some(smooth_skin_effect) = &options.smooth_skin_effect {
-        camera.set_smooth_skin_effect(smooth_skin_effect)?;
-    }
-
-    // White Balance
-    if let Some(white_balance) = &options.white_balance {
-        camera.set_white_balance(white_balance)?;
-    }
-
-    if let Some(temperature) = &options.white_balance_temperature {
-        let white_balance = if let Some(white_balance) = &options.white_balance {
-            white_balance
-        } else {
-            &camera.get_white_balance()?
-        };
-
-        if *white_balance == FujiWhiteBalance::Temperature {
-            camera.set_white_balance_temperature(temperature)?;
-        } else {
-            warn!("White Balance mode is not set to 'Temperature', refusing to set temperature");
-        }
-    }
-
-    if let Some(shift_red) = &options.white_balance_shift_red {
-        camera.set_white_balance_shift_red(shift_red)?;
-    }
-
-    if let Some(shift_blue) = &options.white_balance_shift_blue {
-        camera.set_white_balance_shift_blue(shift_blue)?;
-    }
-
-    // Exposure
-    if let Some(dynamic_range_priority) = &options.dynamic_range_priority {
-        camera.set_dynamic_range_priority(dynamic_range_priority)?;
-    }
-
-    if options.dynamic_range.is_some() || options.highlight.is_some() || options.shadow.is_some() {
-        let dynamic_range_priority =
-            if let Some(dynamic_range_priority) = &options.dynamic_range_priority {
-                dynamic_range_priority
-            } else {
-                &camera.get_dynamic_range_priority()?
-            };
-
-        let is_drp_off = *dynamic_range_priority == FujiDynamicRangePriority::Off;
-
-        if let Some(dynamic_range) = &options.dynamic_range {
-            if is_drp_off {
-                camera.set_dynamic_range(dynamic_range)?;
-            } else {
-                warn!("Dynamic Range Priority is enabled, refusing to set dynamic range");
-            }
-        }
-
-        if let Some(highlights) = &options.highlight {
-            if is_drp_off {
-                camera.set_highlight_tone(highlights)?;
-            } else {
-                warn!("Dynamic Range Priority is enabled, refusing to set highlight tone");
-            }
-        }
-
-        if let Some(shadows) = &options.shadow {
-            if is_drp_off {
-                camera.set_shadow_tone(shadows)?;
-            } else {
-                warn!("Dynamic Range Priority is enabled, refusing to set shadow tone");
-            }
-        }
-    }
-
-    // Extras
-    if let Some(lens_modulation_optimizer) = &options.lens_modulation_optimizer {
-        camera.set_lens_modulation_optimizer(lens_modulation_optimizer)?;
-    }
-
-    if let Some(color_space) = &options.color_space {
-        camera.set_color_space(color_space)?;
-    }
+        Ok(())
+    })?;
 
     Ok(())
 }

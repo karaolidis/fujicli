@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Data, DeriveInput, Expr, Fields, parse_macro_input, punctuated::Punctuated};
+use syn::{Data, DeriveInput, Fields, parse_macro_input};
 
 #[proc_macro_derive(PtpSerialize)]
 pub fn derive_ptp_serialize(input: TokenStream) -> TokenStream {
@@ -75,21 +75,8 @@ pub fn derive_ptp_serialize(input: TokenStream) -> TokenStream {
             let repr_ty = input
                 .attrs
                 .iter()
-                .find_map(|attr| {
-                    if attr.path().is_ident("repr") {
-                        attr.parse_args_with(
-                            Punctuated::<Expr, syn::Token![,]>::parse_separated_nonempty,
-                        )
-                        .ok()
-                        .and_then(|args| args.into_iter().next())
-                        .and_then(|expr| match expr {
-                            Expr::Path(path) => path.path.get_ident().cloned(),
-                            _ => None,
-                        })
-                    } else {
-                        None
-                    }
-                })
+                .filter(|attr| attr.path().is_ident("repr"))
+                .find_map(|attr| attr.parse_args::<syn::Ident>().ok())
                 .expect("Enums must have a #[repr(T)] attribute for PtpSerialize");
 
             quote! {
@@ -201,22 +188,9 @@ pub fn derive_ptp_deserialize(input: TokenStream) -> TokenStream {
             let repr_ty = input
                 .attrs
                 .iter()
-                .find_map(|attr| {
-                    if attr.path().is_ident("repr") {
-                        attr.parse_args_with(
-                            Punctuated::<Expr, syn::Token![,]>::parse_separated_nonempty,
-                        )
-                        .ok()
-                        .and_then(|args| args.into_iter().next())
-                        .and_then(|expr| match expr {
-                            Expr::Path(path) => path.path.get_ident().cloned(),
-                            _ => None,
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .expect("Enums must have a #[repr(T)] attribute for PtpDeserialize");
+                .filter(|attr| attr.path().is_ident("repr"))
+                .find_map(|attr| attr.parse_args::<syn::Ident>().ok())
+                .expect("Enums must have a #[repr(T)] attribute for PtpSerialize");
 
             quote! {
                 impl ptp_cursor::PtpDeserialize for #name

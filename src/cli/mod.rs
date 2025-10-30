@@ -1,6 +1,5 @@
-mod common;
-
 pub mod backup;
+pub mod common;
 pub mod device;
 pub mod render;
 pub mod simulation;

@@ -2,7 +2,6 @@ use ptp_macro::{PtpDeserialize, PtpSerialize};
 
 use super::hex::{CommandCode, ContainerCode, ContainerType, ObjectFormat};
 
-#[allow(dead_code)]
 #[derive(Debug, PtpSerialize, PtpDeserialize)]
 pub struct DeviceInfo {
     pub version: u16,
