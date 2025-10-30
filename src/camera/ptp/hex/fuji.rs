@@ -145,6 +145,7 @@ fuji_enum! {
         WeakLarge = 0x4, "Weak Large", ["weaklarge", "largeweak"],
         StrongSmall = 0x3, "Strong Small", ["strongsmall", "smallstrong"],
         WeakSmall = 0x2, "Weak Small", ["weaksmall", "smallweak"],
+        // TODO: Figure out what's going on here. Even if we immediately get after setting to 0x1, we might get 0x6 or 0x7.
         #[num_enum(alternatives = [0x6, 0x7])]
         Off = 0x1, "Off", ["off"],
     }

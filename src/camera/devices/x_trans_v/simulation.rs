@@ -1,7 +1,7 @@
 use std::{any::Any, fmt};
 
 use anyhow::{anyhow, bail};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::camera::{
     features::simulation::{CameraSimulations, simulation::Simulation},
@@ -22,7 +22,7 @@ use super::XTransV;
 
 // NOTE: Naively assuming that all cameras using the same sensor
 // also have the same simulation feature set.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct XTransVSimulation {
     pub name: FujiCustomSettingName,
@@ -519,6 +519,8 @@ where
         modifier(&mut updated_simulation)?;
         updated_simulation.validate()?;
 
+        ptp.set_prop(DevicePropCode::FujiCustomSetting, &slot)?;
+
         if original_simulation.name != updated_simulation.name {
             ptp.set_prop(
                 DevicePropCode::FujiCustomSettingName,
@@ -682,6 +684,118 @@ where
                 &updated_simulation.color_space,
             )?;
         }
+
+        Ok(())
+    }
+
+    fn export_simulation(&self, ptp: &mut Ptp, slot: FujiCustomSetting) -> anyhow::Result<Vec<u8>> {
+        let simulation = self.get_simulation(ptp, slot)?;
+        Ok(serde_json::to_vec(&simulation)?)
+    }
+
+    fn import_simulation(
+        &self,
+        ptp: &mut Ptp,
+        slot: FujiCustomSetting,
+        simulation: &[u8],
+    ) -> anyhow::Result<()> {
+        let simulation: XTransVSimulation = serde_json::from_slice(simulation)?;
+
+        ptp.set_prop(DevicePropCode::FujiCustomSetting, &slot)?;
+
+        ptp.set_prop(DevicePropCode::FujiCustomSettingName, &simulation.name)?;
+        ptp.set_prop(DevicePropCode::FujiCustomSettingImageSize, &simulation.size)?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingImageQuality,
+            &simulation.quality,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingFilmSimulation,
+            &simulation.simulation,
+        )?;
+        if let Some(monochromatic_color_temperature) = simulation.monochromatic_color_temperature {
+            ptp.set_prop(
+                DevicePropCode::FujiCustomSettingMonochromaticColorTemperature,
+                &monochromatic_color_temperature,
+            )?;
+        }
+        if let Some(monochromatic_color_tint) = simulation.monochromatic_color_tint {
+            ptp.set_prop(
+                DevicePropCode::FujiCustomSettingMonochromaticColorTint,
+                &monochromatic_color_tint,
+            )?;
+        }
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingDynamicRangePriority,
+            &simulation.dynamic_range_priority,
+        )?;
+        if let Some(dynamic_range) = simulation.dynamic_range {
+            ptp.set_prop(
+                DevicePropCode::FujiCustomSettingDynamicRange,
+                &dynamic_range,
+            )?;
+        }
+        if let Some(highlight) = simulation.highlight {
+            ptp.set_prop(DevicePropCode::FujiCustomSettingHighlightTone, &highlight)?;
+        }
+        if let Some(shadow) = simulation.shadow {
+            ptp.set_prop(DevicePropCode::FujiCustomSettingShadowTone, &shadow)?;
+        }
+        ptp.set_prop(DevicePropCode::FujiCustomSettingColor, &simulation.color)?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingSharpness,
+            &simulation.sharpness,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingClarity,
+            &simulation.clarity,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingHighISONR,
+            &simulation.noise_reduction,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingGrainEffect,
+            &simulation.grain,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingColorChromeEffect,
+            &simulation.color_chrome_effect,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingColorChromeFXBlue,
+            &simulation.color_chrome_fx_blue,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingSmoothSkinEffect,
+            &simulation.smooth_skin_effect,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingWhiteBalance,
+            &simulation.white_balance,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingWhiteBalanceShiftRed,
+            &simulation.white_balance_shift_red,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingWhiteBalanceShiftBlue,
+            &simulation.white_balance_shift_blue,
+        )?;
+        if let Some(white_balance_temperature) = simulation.white_balance_temperature {
+            ptp.set_prop(
+                DevicePropCode::FujiCustomSettingWhiteBalanceTemperature,
+                &white_balance_temperature,
+            )?;
+        }
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingLensModulationOptimizer,
+            &simulation.lens_modulation_optimizer,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingColorSpace,
+            &simulation.color_space,
+        )?;
 
         Ok(())
     }

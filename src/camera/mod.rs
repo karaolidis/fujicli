@@ -166,6 +166,26 @@ impl Camera {
         }
     }
 
+    pub fn export_simulation(&mut self, slot: FujiCustomSetting) -> anyhow::Result<Vec<u8>> {
+        if let Some(simulations) = self.r#impl.as_simulations() {
+            simulations.export_simulation(&mut self.ptp, slot)
+        } else {
+            bail!("Camera does not support simulations");
+        }
+    }
+
+    pub fn import_simulation(
+        &mut self,
+        slot: FujiCustomSetting,
+        buffer: &[u8],
+    ) -> anyhow::Result<()> {
+        if let Some(simulations) = self.r#impl.as_simulations() {
+            simulations.import_simulation(&mut self.ptp, slot, buffer)
+        } else {
+            bail!("Camera does not support simulations");
+        }
+    }
+
     pub fn export_backup(&mut self) -> anyhow::Result<Vec<u8>> {
         if let Some(backups) = self.r#impl.as_backups() {
             backups.export_backup(&mut self.ptp)

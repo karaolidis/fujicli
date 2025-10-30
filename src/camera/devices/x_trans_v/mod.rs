@@ -1,3 +1,4 @@
+pub mod render;
 pub mod simulation;
 
 pub mod x_t5;

@@ -191,19 +191,32 @@ fn handle_set(
 }
 
 fn handle_export(
-    _device_id: Option<&str>,
-    _slot: FujiCustomSetting,
-    _output: &Output,
+    device_id: Option<&str>,
+    slot: FujiCustomSetting,
+    output: &Output,
 ) -> anyhow::Result<()> {
-    todo!();
+    let mut camera = usb::get_camera(device_id)?;
+
+    let mut writer = output.get_writer()?;
+    let simulation = camera.export_simulation(slot)?;
+    writer.write_all(&simulation)?;
+
+    Ok(())
 }
 
 fn handle_import(
-    _device_id: Option<&str>,
-    _slot: FujiCustomSetting,
-    _input: &Input,
+    device_id: Option<&str>,
+    slot: FujiCustomSetting,
+    input: &Input,
 ) -> anyhow::Result<()> {
-    todo!();
+    let mut camera = usb::get_camera(device_id)?;
+
+    let mut reader = input.get_reader()?;
+    let mut simulation = Vec::new();
+    reader.read_to_end(&mut simulation)?;
+    camera.import_simulation(slot, &simulation)?;
+
+    Ok(())
 }
 
 pub fn handle(cmd: SimulationCmd, json: bool, device_id: Option<&str>) -> anyhow::Result<()> {
