@@ -69,8 +69,8 @@ fn handle_render(
     output: &Output,
     render_options: &RenderOptions,
     options: &FilmSimulationOptions,
-    slot: &Option<FujiCustomSetting>,
-    simulation_file: &Option<Input>,
+    slot: Option<FujiCustomSetting>,
+    simulation_file: Option<Input>,
 ) -> anyhow::Result<()> {
     let mut camera = usb::get_camera(device_id)?;
 
@@ -112,7 +112,7 @@ fn handle_render(
     reader.read_to_end(&mut image)?;
 
     let simulation = if let Some(slot) = slot {
-        Some(camera.get_simulation(*slot)?)
+        Some(camera.get_simulation(slot)?)
     } else if let Some(simulation_file) = simulation_file {
         let mut reader = simulation_file.get_reader()?;
         let mut simulation = Vec::new();
@@ -181,7 +181,7 @@ pub fn handle(cmd: RenderCmd, device_id: Option<&str>) -> anyhow::Result<()> {
         &cmd.output,
         &cmd.render_options,
         &cmd.film_simulation_options,
-        &cmd.slot,
-        &cmd.simulation_file,
+        cmd.slot,
+        cmd.simulation_file,
     )
 }

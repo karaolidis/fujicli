@@ -24,7 +24,7 @@ const ERROR_CAMERA_DOES_NOT_SUPPORT_RENDERS: &str = "This camera does not suppor
 const SESSION: u32 = 1;
 
 pub struct Camera {
-    ptp: Ptp,
+    pub ptp: Ptp,
     r#impl: Box<dyn CameraBase<Context = GlobalContext>>,
 }
 
@@ -184,18 +184,15 @@ impl Camera {
         }
     }
 
-    pub fn serialize_simulation(&mut self, simulation: &dyn Simulation) -> anyhow::Result<Vec<u8>> {
+    pub fn serialize_simulation(&self, simulation: &dyn Simulation) -> anyhow::Result<Vec<u8>> {
         if let Some(simulations) = self.r#impl.as_simulations() {
-            simulations.serialize_simulation(&*simulation)
+            simulations.serialize_simulation(simulation)
         } else {
             bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
         }
     }
 
-    pub fn deserialize_simulation(
-        &mut self,
-        simulation: &[u8],
-    ) -> anyhow::Result<Box<dyn Simulation>> {
+    pub fn deserialize_simulation(&self, simulation: &[u8]) -> anyhow::Result<Box<dyn Simulation>> {
         if let Some(simulations) = self.r#impl.as_simulations() {
             simulations.deserialize_simulation(simulation)
         } else {
