@@ -57,7 +57,6 @@ impl fmt::Display for XTransVSimulation {
         writeln!(f, "Name: {}", self.name)?;
         writeln!(f, "Size: {}", self.size)?;
         writeln!(f, "Quality: {}", self.quality)?;
-
         writeln!(f, "Simulation: {}", self.simulation)?;
         writeln!(
             f,
@@ -373,14 +372,16 @@ where
             DevicePropCode::FujiCustomSettingFilmSimulation,
             &simulation.simulation,
         )?;
-        ptp.set_prop(
-            DevicePropCode::FujiCustomSettingMonochromaticColorTemperature,
-            &simulation.monochromatic_color_temperature,
-        )?;
-        ptp.set_prop(
-            DevicePropCode::FujiCustomSettingMonochromaticColorTint,
-            &simulation.monochromatic_color_tint,
-        )?;
+        if simulation.simulation.is_black_and_white() {
+            ptp.set_prop(
+                DevicePropCode::FujiCustomSettingMonochromaticColorTemperature,
+                &simulation.monochromatic_color_temperature,
+            )?;
+            ptp.set_prop(
+                DevicePropCode::FujiCustomSettingMonochromaticColorTint,
+                &simulation.monochromatic_color_tint,
+            )?;
+        }
         ptp.set_prop(
             DevicePropCode::FujiCustomSettingDynamicRangePriority,
             &simulation.dynamic_range_priority,

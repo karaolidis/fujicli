@@ -68,7 +68,7 @@ impl Ptp {
     }
 
     pub fn set_prop_raw(&mut self, prop: DevicePropCode, value: &[u8]) -> anyhow::Result<Vec<u8>> {
-        debug!("Sending GetDevicePropValue command for property {prop:?}");
+        debug!("Sending SetDevicePropValue command for property {prop:?}");
         let response = self.send(CommandCode::SetDevicePropValue, &[prop.into()], Some(value))?;
         debug!("Received response with {} bytes", response.len());
         Ok(response)
