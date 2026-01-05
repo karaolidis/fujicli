@@ -45,7 +45,7 @@ pub enum Commands {
     #[command(alias = "b", subcommand)]
     Backup(BackupCmd),
 
-    /// Render images
+    /// Render images using in-camera processor
     #[command(alias = "r")]
     Render(RenderCmd),
 }

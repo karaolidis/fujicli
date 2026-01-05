@@ -6,6 +6,7 @@ use log::debug;
 
 use crate::camera::{
     SupportedCamera,
+    features::render::CameraRenders,
     ptp::{Ptp, hex::DevicePropCode},
 };
 
@@ -26,6 +27,10 @@ pub trait CameraBase {
     }
 
     fn as_backups(&self) -> Option<&dyn CameraBackups<Context = Self::Context>> {
+        None
+    }
+
+    fn as_renders(&self) -> Option<&dyn CameraRenders<Context = Self::Context>> {
         None
     }
 

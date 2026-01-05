@@ -1,6 +1,6 @@
 use std::{any::Any, fmt};
 
-use anyhow::{anyhow, bail};
+use log::error;
 use serde::{Deserialize, Serialize};
 
 use crate::camera::{
@@ -30,12 +30,12 @@ pub struct XTransVSimulation {
     pub quality: FujiImageQuality,
     #[allow(clippy::struct_field_names)]
     pub simulation: FujiFilmSimulation,
-    pub monochromatic_color_temperature: Option<FujiMonochromaticColorShift>,
-    pub monochromatic_color_tint: Option<FujiMonochromaticColorShift>,
+    pub monochromatic_color_temperature: FujiMonochromaticColorShift,
+    pub monochromatic_color_tint: FujiMonochromaticColorShift,
     pub dynamic_range_priority: FujiDynamicRangePriority,
-    pub dynamic_range: Option<FujiDynamicRange>,
-    pub highlight: Option<FujiHighlightTone>,
-    pub shadow: Option<FujiShadowTone>,
+    pub dynamic_range: FujiDynamicRange,
+    pub highlight: FujiHighlightTone,
+    pub shadow: FujiShadowTone,
     pub color: FujiColor,
     pub sharpness: FujiSharpness,
     pub clarity: FujiClarity,
@@ -47,7 +47,7 @@ pub struct XTransVSimulation {
     pub white_balance: FujiWhiteBalance,
     pub white_balance_shift_red: FujiWhiteBalanceShift,
     pub white_balance_shift_blue: FujiWhiteBalanceShift,
-    pub white_balance_temperature: Option<FujiWhiteBalanceTemperature>,
+    pub white_balance_temperature: FujiWhiteBalanceTemperature,
     pub lens_modulation_optimizer: FujiLensModulationOptimizer,
     pub color_space: FujiColorSpace,
 }
@@ -59,32 +59,20 @@ impl fmt::Display for XTransVSimulation {
         writeln!(f, "Quality: {}", self.quality)?;
 
         writeln!(f, "Simulation: {}", self.simulation)?;
-
-        if let Some(monochromatic_color_temperature) = self.monochromatic_color_temperature {
-            writeln!(
-                f,
-                "Monochromatic Color Temperature: {monochromatic_color_temperature}"
-            )?;
-        }
-
-        if let Some(monochromatic_color_tint) = self.monochromatic_color_tint {
-            writeln!(f, "Monochromatic Color Tint: {monochromatic_color_tint}")?;
-        }
-
+        writeln!(
+            f,
+            "Monochromatic Color Temperature: {}",
+            self.monochromatic_color_temperature
+        )?;
+        writeln!(
+            f,
+            "Monochromatic Color Tint: {}",
+            self.monochromatic_color_tint
+        )?;
         writeln!(f, "Dynamic Range Priority: {}", self.dynamic_range_priority)?;
-
-        if let Some(dynamic_range) = self.dynamic_range {
-            writeln!(f, "Dynamic Range: {dynamic_range}")?;
-        }
-
-        if let Some(highlight) = self.highlight {
-            writeln!(f, "Highlights: {highlight}")?;
-        }
-
-        if let Some(shadow) = self.shadow {
-            writeln!(f, "Shadows: {shadow}")?;
-        }
-
+        writeln!(f, "Dynamic Range: {}", self.dynamic_range)?;
+        writeln!(f, "Highlights: {}", self.highlight)?;
+        writeln!(f, "Shadows: {}", self.shadow)?;
         writeln!(f, "Color: {}", self.color)?;
         writeln!(f, "Sharpness: {}", self.sharpness)?;
         writeln!(f, "Clarity: {}", self.clarity)?;
@@ -100,11 +88,11 @@ impl fmt::Display for XTransVSimulation {
             "White Balance Shift (R/B): {} / {}",
             self.white_balance_shift_red, self.white_balance_shift_blue
         )?;
-
-        if let Some(white_balance_temperature) = self.white_balance_temperature {
-            writeln!(f, "White Balance Temperature: {white_balance_temperature}K")?;
-        }
-
+        writeln!(
+            f,
+            "White Balance Temperature: {}K",
+            self.white_balance_temperature
+        )?;
         writeln!(
             f,
             "Lens Modulation Optimizer: {}",
@@ -147,7 +135,7 @@ impl Simulation for XTransVSimulation {
         &mut self,
         value: &FujiMonochromaticColorShift,
     ) -> anyhow::Result<()> {
-        self.monochromatic_color_temperature = Some(*value);
+        self.monochromatic_color_temperature = *value;
         Ok(())
     }
 
@@ -155,7 +143,7 @@ impl Simulation for XTransVSimulation {
         &mut self,
         value: &FujiMonochromaticColorShift,
     ) -> anyhow::Result<()> {
-        self.monochromatic_color_tint = Some(*value);
+        self.monochromatic_color_tint = *value;
         Ok(())
     }
 
@@ -168,17 +156,17 @@ impl Simulation for XTransVSimulation {
     }
 
     fn set_dynamic_range(&mut self, value: &FujiDynamicRange) -> anyhow::Result<()> {
-        self.dynamic_range = Some(*value);
+        self.dynamic_range = *value;
         Ok(())
     }
 
     fn set_highlight(&mut self, value: &FujiHighlightTone) -> anyhow::Result<()> {
-        self.highlight = Some(*value);
+        self.highlight = *value;
         Ok(())
     }
 
     fn set_shadow(&mut self, value: &FujiShadowTone) -> anyhow::Result<()> {
-        self.shadow = Some(*value);
+        self.shadow = *value;
         Ok(())
     }
 
@@ -244,7 +232,7 @@ impl Simulation for XTransVSimulation {
         &mut self,
         value: &FujiWhiteBalanceTemperature,
     ) -> anyhow::Result<()> {
-        self.white_balance_temperature = Some(*value);
+        self.white_balance_temperature = *value;
         Ok(())
     }
 
@@ -259,141 +247,6 @@ impl Simulation for XTransVSimulation {
     fn set_color_space(&mut self, value: &FujiColorSpace) -> anyhow::Result<()> {
         self.color_space = *value;
         Ok(())
-    }
-}
-
-impl XTransVSimulation {
-    fn validate_monochromatic(&self) -> anyhow::Result<()> {
-        let mut errors = Vec::new();
-
-        if !self.simulation.is_black_and_white()
-            && (self.monochromatic_color_temperature.is_some()
-                || self.monochromatic_color_tint.is_some())
-        {
-            if self.monochromatic_color_temperature.is_some() {
-                errors.push(anyhow!(
-                "A B&W film simulation is not selected, refusing to set monochromatic color temperature"
-            ));
-            }
-
-            if self.monochromatic_color_tint.is_some() {
-                errors.push(anyhow!(
-                "A B&W film simulation is not selected, refusing to set monochromatic color tint"
-            ));
-            }
-        }
-
-        if errors.is_empty() {
-            return Ok(());
-        }
-
-        bail!(
-            errors
-                .iter()
-                .map(std::string::ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("; ")
-        )
-    }
-
-    fn validate_white_balance_temperature(&self) -> anyhow::Result<()> {
-        if self.white_balance != FujiWhiteBalance::Temperature
-            && self.white_balance_temperature.is_some()
-        {
-            bail!("White Balance mode is not set to 'Temperature', refusing to set temperature");
-        }
-
-        Ok(())
-    }
-
-    fn validate_dynamic_range_priority(&self) -> anyhow::Result<()> {
-        let mut errors = Vec::new();
-
-        if !matches!(
-            self.dynamic_range_priority,
-            FujiDynamicRangePriority::Auto
-                | FujiDynamicRangePriority::Strong
-                | FujiDynamicRangePriority::Weak
-                | FujiDynamicRangePriority::Off
-        ) {
-            bail!("Invalid Dynamic Range Priority value")
-        }
-
-        if self.dynamic_range_priority != FujiDynamicRangePriority::Off
-            && (self.dynamic_range.is_some() || self.highlight.is_some() || self.shadow.is_some())
-        {
-            if self.dynamic_range.is_some() {
-                errors.push(anyhow!(
-                    "Dynamic Range Priority is enabled, refusing to set dynamic range"
-                ));
-            }
-
-            if self.highlight.is_some() {
-                errors.push(anyhow!(
-                    "Dynamic Range Priority is enabled, refusing to set highlight tone"
-                ));
-            }
-
-            if self.shadow.is_some() {
-                errors.push(anyhow!(
-                    "Dynamic Range Priority is enabled, refusing to set shadow tone"
-                ));
-            }
-        }
-
-        if errors.is_empty() {
-            return Ok(());
-        }
-
-        bail!(
-            errors
-                .iter()
-                .map(std::string::ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("; ")
-        )
-    }
-
-    fn validate_dynamic_range(&self) -> anyhow::Result<()> {
-        if let Some(dynamic_range) = self.dynamic_range
-            && !matches!(
-                dynamic_range,
-                FujiDynamicRange::Auto
-                    | FujiDynamicRange::HDR100
-                    | FujiDynamicRange::HDR200
-                    | FujiDynamicRange::HDR400
-            )
-        {
-            bail!("Invalid Dynamic Range value")
-        }
-
-        Ok(())
-    }
-
-    pub fn validate(&self) -> anyhow::Result<()> {
-        let mut errors = Vec::new();
-
-        if let Err(e) = self.validate_monochromatic() {
-            errors.push(e.to_string());
-        }
-
-        if let Err(e) = self.validate_white_balance_temperature() {
-            errors.push(e.to_string());
-        }
-
-        if let Err(e) = self.validate_dynamic_range_priority() {
-            errors.push(e.to_string());
-        }
-
-        if let Err(e) = self.validate_dynamic_range() {
-            errors.push(e.to_string());
-        }
-
-        if errors.is_empty() {
-            return Ok(());
-        }
-
-        bail!(errors.join("; "))
     }
 }
 
@@ -413,40 +266,15 @@ where
         let quality = ptp.get_prop(DevicePropCode::FujiCustomSettingImageQuality)?;
         let simulation: FujiFilmSimulation =
             ptp.get_prop(DevicePropCode::FujiCustomSettingFilmSimulation)?;
-
-        let monochromatic_color_temperature = if simulation.is_black_and_white() {
-            Some(ptp.get_prop(DevicePropCode::FujiCustomSettingMonochromaticColorTemperature)?)
-        } else {
-            None
-        };
-
-        let monochromatic_color_tint = if simulation.is_black_and_white() {
-            Some(ptp.get_prop(DevicePropCode::FujiCustomSettingMonochromaticColorTint)?)
-        } else {
-            None
-        };
-
+        let monochromatic_color_temperature =
+            ptp.get_prop(DevicePropCode::FujiCustomSettingMonochromaticColorTemperature)?;
+        let monochromatic_color_tint =
+            ptp.get_prop(DevicePropCode::FujiCustomSettingMonochromaticColorTint)?;
         let dynamic_range_priority =
             ptp.get_prop(DevicePropCode::FujiCustomSettingDynamicRangePriority)?;
-
-        let dynamic_range = if dynamic_range_priority == FujiDynamicRangePriority::Off {
-            Some(ptp.get_prop(DevicePropCode::FujiCustomSettingDynamicRange)?)
-        } else {
-            None
-        };
-
-        let highlight = if dynamic_range_priority == FujiDynamicRangePriority::Off {
-            Some(ptp.get_prop(DevicePropCode::FujiCustomSettingHighlightTone)?)
-        } else {
-            None
-        };
-
-        let shadow = if dynamic_range_priority == FujiDynamicRangePriority::Off {
-            Some(ptp.get_prop(DevicePropCode::FujiCustomSettingShadowTone)?)
-        } else {
-            None
-        };
-
+        let dynamic_range = ptp.get_prop(DevicePropCode::FujiCustomSettingDynamicRange)?;
+        let highlight = ptp.get_prop(DevicePropCode::FujiCustomSettingHighlightTone)?;
+        let shadow = ptp.get_prop(DevicePropCode::FujiCustomSettingShadowTone)?;
         let color = ptp.get_prop(DevicePropCode::FujiCustomSettingColor)?;
         let sharpness = ptp.get_prop(DevicePropCode::FujiCustomSettingSharpness)?;
         let clarity = ptp.get_prop(DevicePropCode::FujiCustomSettingClarity)?;
@@ -457,18 +285,14 @@ where
         let color_chrome_fx_blue =
             ptp.get_prop(DevicePropCode::FujiCustomSettingColorChromeFXBlue)?;
         let smooth_skin_effect = ptp.get_prop(DevicePropCode::FujiCustomSettingSmoothSkinEffect)?;
-        let white_balance = ptp.get_prop(DevicePropCode::FujiCustomSettingWhiteBalance)?;
+        let white_balance =
+            ptp.get_prop::<FujiWhiteBalance>(DevicePropCode::FujiCustomSettingWhiteBalance)?;
         let white_balance_shift_red =
             ptp.get_prop(DevicePropCode::FujiCustomSettingWhiteBalanceShiftRed)?;
         let white_balance_shift_blue =
             ptp.get_prop(DevicePropCode::FujiCustomSettingWhiteBalanceShiftBlue)?;
-
-        let white_balance_temperature = if white_balance == FujiWhiteBalance::Temperature {
-            Some(ptp.get_prop(DevicePropCode::FujiCustomSettingWhiteBalanceTemperature)?)
-        } else {
-            None
-        };
-
+        let white_balance_temperature =
+            ptp.get_prop(DevicePropCode::FujiCustomSettingWhiteBalanceTemperature)?;
         let lens_modulation_optimizer =
             ptp.get_prop(DevicePropCode::FujiCustomSettingLensModulationOptimizer)?;
         let color_space = ptp.get_prop(DevicePropCode::FujiCustomSettingColorSpace)?;
@@ -507,7 +331,7 @@ where
         &self,
         ptp: &mut Ptp,
         slot: FujiCustomSetting,
-        modifier: &mut dyn FnMut(&mut dyn Simulation) -> anyhow::Result<()>,
+        simulation_modifier: &mut dyn FnMut(&mut dyn Simulation) -> anyhow::Result<()>,
     ) -> anyhow::Result<()> {
         let original_simulation = self.get_simulation(ptp, slot)?;
         let original_simulation = original_simulation
@@ -516,190 +340,26 @@ where
             .unwrap();
 
         let mut updated_simulation = original_simulation.clone();
-        modifier(&mut updated_simulation)?;
-        updated_simulation.validate()?;
+        simulation_modifier(&mut updated_simulation)?;
 
-        ptp.set_prop(DevicePropCode::FujiCustomSetting, &slot)?;
-
-        if original_simulation.name != updated_simulation.name {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingName,
-                &updated_simulation.name,
-            )?;
-        }
-        if original_simulation.size != updated_simulation.size {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingImageSize,
-                &updated_simulation.size,
-            )?;
-        }
-        if original_simulation.quality != updated_simulation.quality {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingImageQuality,
-                &updated_simulation.quality,
-            )?;
-        }
-        if original_simulation.simulation != updated_simulation.simulation {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingFilmSimulation,
-                &updated_simulation.simulation,
-            )?;
-        }
-        if original_simulation.monochromatic_color_temperature
-            != updated_simulation.monochromatic_color_temperature
-        {
-            if let Some(monochromatic_color_temperature) =
-                updated_simulation.monochromatic_color_temperature
-            {
-                ptp.set_prop(
-                    DevicePropCode::FujiCustomSettingMonochromaticColorTemperature,
-                    &monochromatic_color_temperature,
-                )?;
-            }
-        }
-        if original_simulation.monochromatic_color_tint
-            != updated_simulation.monochromatic_color_tint
-        {
-            if let Some(monochromatic_color_tint) = updated_simulation.monochromatic_color_tint {
-                ptp.set_prop(
-                    DevicePropCode::FujiCustomSettingMonochromaticColorTint,
-                    &monochromatic_color_tint,
-                )?;
-            }
-        }
-        if original_simulation.dynamic_range_priority != updated_simulation.dynamic_range_priority {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingDynamicRangePriority,
-                &updated_simulation.dynamic_range_priority,
-            )?;
-        }
-        if original_simulation.dynamic_range != updated_simulation.dynamic_range {
-            if let Some(dynamic_range) = updated_simulation.dynamic_range {
-                ptp.set_prop(
-                    DevicePropCode::FujiCustomSettingDynamicRange,
-                    &dynamic_range,
-                )?;
-            }
-        }
-        if original_simulation.highlight != updated_simulation.highlight {
-            if let Some(highlight) = updated_simulation.highlight {
-                ptp.set_prop(DevicePropCode::FujiCustomSettingHighlightTone, &highlight)?;
-            }
-        }
-        if original_simulation.shadow != updated_simulation.shadow {
-            if let Some(shadow) = updated_simulation.shadow {
-                ptp.set_prop(DevicePropCode::FujiCustomSettingShadowTone, &shadow)?;
-            }
-        }
-        if original_simulation.color != updated_simulation.color {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingColor,
-                &updated_simulation.color,
-            )?;
-        }
-        if original_simulation.sharpness != updated_simulation.sharpness {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingSharpness,
-                &updated_simulation.sharpness,
-            )?;
-        }
-        if original_simulation.clarity != updated_simulation.clarity {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingClarity,
-                &updated_simulation.clarity,
-            )?;
-        }
-        if original_simulation.noise_reduction != updated_simulation.noise_reduction {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingHighISONR,
-                &updated_simulation.noise_reduction,
-            )?;
-        }
-        if original_simulation.grain != updated_simulation.grain {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingGrainEffect,
-                &updated_simulation.grain,
-            )?;
-        }
-        if original_simulation.color_chrome_effect != updated_simulation.color_chrome_effect {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingColorChromeEffect,
-                &updated_simulation.color_chrome_effect,
-            )?;
-        }
-        if original_simulation.color_chrome_fx_blue != updated_simulation.color_chrome_fx_blue {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingColorChromeFXBlue,
-                &updated_simulation.color_chrome_fx_blue,
-            )?;
-        }
-        if original_simulation.smooth_skin_effect != updated_simulation.smooth_skin_effect {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingSmoothSkinEffect,
-                &updated_simulation.smooth_skin_effect,
-            )?;
-        }
-        if original_simulation.white_balance != updated_simulation.white_balance {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingWhiteBalance,
-                &updated_simulation.white_balance,
-            )?;
-        }
-        if original_simulation.white_balance_shift_red != updated_simulation.white_balance_shift_red
-        {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingWhiteBalanceShiftRed,
-                &updated_simulation.white_balance_shift_red,
-            )?;
-        }
-        if original_simulation.white_balance_shift_blue
-            != updated_simulation.white_balance_shift_blue
-        {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingWhiteBalanceShiftBlue,
-                &updated_simulation.white_balance_shift_blue,
-            )?;
-        }
-        if original_simulation.white_balance_temperature
-            != updated_simulation.white_balance_temperature
-        {
-            if let Some(white_balance_temperature) = updated_simulation.white_balance_temperature {
-                ptp.set_prop(
-                    DevicePropCode::FujiCustomSettingWhiteBalanceTemperature,
-                    &white_balance_temperature,
-                )?;
-            }
-        }
-        if original_simulation.lens_modulation_optimizer
-            != updated_simulation.lens_modulation_optimizer
-        {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingLensModulationOptimizer,
-                &updated_simulation.lens_modulation_optimizer,
-            )?;
-        }
-        if original_simulation.color_space != updated_simulation.color_space {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingColorSpace,
-                &updated_simulation.color_space,
-            )?;
+        if let Err(error) = self.set_simulation(ptp, slot, &updated_simulation) {
+            error!("Error updating simulation options: {error}. Restoring previous options.");
+            self.set_simulation(ptp, slot, original_simulation)?;
         }
 
         Ok(())
     }
 
-    fn export_simulation(&self, ptp: &mut Ptp, slot: FujiCustomSetting) -> anyhow::Result<Vec<u8>> {
-        let simulation = self.get_simulation(ptp, slot)?;
-        Ok(serde_json::to_vec(&simulation)?)
-    }
-
-    fn import_simulation(
+    fn set_simulation(
         &self,
         ptp: &mut Ptp,
         slot: FujiCustomSetting,
-        simulation: &[u8],
+        simulation: &dyn Simulation,
     ) -> anyhow::Result<()> {
-        let simulation: XTransVSimulation = serde_json::from_slice(simulation)?;
+        let simulation = simulation
+            .as_any()
+            .downcast_ref::<XTransVSimulation>()
+            .unwrap();
 
         ptp.set_prop(DevicePropCode::FujiCustomSetting, &slot)?;
 
@@ -713,34 +373,30 @@ where
             DevicePropCode::FujiCustomSettingFilmSimulation,
             &simulation.simulation,
         )?;
-        if let Some(monochromatic_color_temperature) = simulation.monochromatic_color_temperature {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingMonochromaticColorTemperature,
-                &monochromatic_color_temperature,
-            )?;
-        }
-        if let Some(monochromatic_color_tint) = simulation.monochromatic_color_tint {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingMonochromaticColorTint,
-                &monochromatic_color_tint,
-            )?;
-        }
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingMonochromaticColorTemperature,
+            &simulation.monochromatic_color_temperature,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingMonochromaticColorTint,
+            &simulation.monochromatic_color_tint,
+        )?;
         ptp.set_prop(
             DevicePropCode::FujiCustomSettingDynamicRangePriority,
             &simulation.dynamic_range_priority,
         )?;
-        if let Some(dynamic_range) = simulation.dynamic_range {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingDynamicRange,
-                &dynamic_range,
-            )?;
-        }
-        if let Some(highlight) = simulation.highlight {
-            ptp.set_prop(DevicePropCode::FujiCustomSettingHighlightTone, &highlight)?;
-        }
-        if let Some(shadow) = simulation.shadow {
-            ptp.set_prop(DevicePropCode::FujiCustomSettingShadowTone, &shadow)?;
-        }
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingDynamicRange,
+            &simulation.dynamic_range,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingHighlightTone,
+            &simulation.highlight,
+        )?;
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingShadowTone,
+            &simulation.shadow,
+        )?;
         ptp.set_prop(DevicePropCode::FujiCustomSettingColor, &simulation.color)?;
         ptp.set_prop(
             DevicePropCode::FujiCustomSettingSharpness,
@@ -782,12 +438,10 @@ where
             DevicePropCode::FujiCustomSettingWhiteBalanceShiftBlue,
             &simulation.white_balance_shift_blue,
         )?;
-        if let Some(white_balance_temperature) = simulation.white_balance_temperature {
-            ptp.set_prop(
-                DevicePropCode::FujiCustomSettingWhiteBalanceTemperature,
-                &white_balance_temperature,
-            )?;
-        }
+        ptp.set_prop(
+            DevicePropCode::FujiCustomSettingWhiteBalanceTemperature,
+            &simulation.white_balance_temperature,
+        )?;
         ptp.set_prop(
             DevicePropCode::FujiCustomSettingLensModulationOptimizer,
             &simulation.lens_modulation_optimizer,
@@ -798,5 +452,20 @@ where
         )?;
 
         Ok(())
+    }
+
+    fn export_simulation(&self, ptp: &mut Ptp, slot: FujiCustomSetting) -> anyhow::Result<Vec<u8>> {
+        let simulation = self.get_simulation(ptp, slot)?;
+        Ok(serde_json::to_vec(&simulation)?)
+    }
+
+    fn import_simulation(
+        &self,
+        ptp: &mut Ptp,
+        slot: FujiCustomSetting,
+        simulation: &[u8],
+    ) -> anyhow::Result<()> {
+        let simulation: XTransVSimulation = serde_json::from_slice(simulation)?;
+        self.set_simulation(ptp, slot, &simulation)
     }
 }

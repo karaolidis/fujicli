@@ -23,7 +23,7 @@ fuji_enum! {
         Jpeg = 0x7, "JPEG", ["jpeg", "jpg"],
         Heif = 0x12, "HEIF", ["heif"],
         Tiff8 = 0x9, "TIFF 8-bit", ["tiff8", "tiff8bit"],
-        Tiff10 = 0xb, "TIFF 10-bit", ["tiff10", "tiff10bit"],
+        Tiff16 = 0xb, "TIFF 16-bit", ["tiff16", "tiff16bit"],
     }
 }
 
@@ -82,6 +82,7 @@ fuji_enum! {
         HDR200 = 0xc8, "HDR200", ["200", "hdr200", "dr200"],
         HDR400 = 0x190, "HDR400", ["400", "hdr400", "dr400"],
         HDR800 = 0x320, "HDR800", ["800", "hdr800", "dr800"],
+        HDR800Plus = 0x640, "HDR800+", ["800+", "800plus", "hdr800+", "hdr800plus", "dr800+", "dr800plus"] // Not currently used by fuji devices directly, added for UX.
     }
 }
 
@@ -89,8 +90,7 @@ fuji_enum! {
     #[derive(SerializeDisplay, DeserializeFromStr)]
     FujiDynamicRangePriority, {
         Auto = 0x8000, "Auto", ["auto", "drpauto"],
-        // Used in conjuction with HDR800 to represent HDR800+ in some models
-        Plus = 0x3, "Plus", ["plus"],
+        Plus = 0x3, "Plus", ["plus"], // Used in conjuction with HDR800 to represent HDR800+
         Strong = 0x2, "Strong", ["strong", "drpstrong"],
         Weak = 0x1, "Weak", ["weak", "drpweak"],
         Off = 0x0, "Off", ["off", "drpoff"],
@@ -145,8 +145,7 @@ fuji_enum! {
         WeakLarge = 0x4, "Weak Large", ["weaklarge", "largeweak"],
         StrongSmall = 0x3, "Strong Small", ["strongsmall", "smallstrong"],
         WeakSmall = 0x2, "Weak Small", ["weaksmall", "smallweak"],
-        // TODO: Figure out what's going on here. Even if we immediately get after setting to 0x1, we might get 0x6 or 0x7.
-        #[num_enum(alternatives = [0x6, 0x7])]
+        #[num_enum(alternatives = [0x6, 0x7])] // TODO: Figure out what's going on here. Even if we immediately get after setting to 0x1, we might get 0x6 or 0x7.
         Off = 0x1, "Off", ["off"],
     }
 }
@@ -181,6 +180,7 @@ fuji_enum! {
 fuji_enum! {
     #[derive(SerializeDisplay, DeserializeFromStr, Default)]
     FujiWhiteBalance, {
+        AsShot = 0x0, "As Shot", ["asshot", "original"],
         WhitePriority = 0x8020, "White Priority", ["whitepriority", "white"],
         #[default]
         Auto = 0x2, "Auto", ["auto"],

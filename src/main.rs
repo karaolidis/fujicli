@@ -22,7 +22,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Simulation(simulation_cmd) => {
             cli::simulation::handle(simulation_cmd, cli.json, device_id)?;
         }
-        Commands::Render(_) => todo!(),
+        Commands::Render(render_cmd) => cli::render::handle(render_cmd, device_id)?,
     }
 
     Ok(())

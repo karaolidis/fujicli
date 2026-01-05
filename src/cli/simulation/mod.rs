@@ -115,8 +115,6 @@ macro_rules! update_simulation {
     };
 }
 
-#[allow(clippy::cognitive_complexity)]
-#[allow(clippy::too_many_lines)]
 fn handle_set(
     device_id: Option<&str>,
     slot: FujiCustomSetting,

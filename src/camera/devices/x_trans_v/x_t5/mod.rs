@@ -38,6 +38,12 @@ impl CameraBase for FujifilmXT5 {
     ) -> Option<&dyn crate::camera::features::backup::CameraBackups<Context = Self::Context>> {
         Some(self)
     }
+
+    fn as_renders(
+        &self,
+    ) -> Option<&dyn crate::camera::features::render::CameraRenders<Context = Self::Context>> {
+        Some(self)
+    }
 }
 
 impl XTransV for FujifilmXT5 {}

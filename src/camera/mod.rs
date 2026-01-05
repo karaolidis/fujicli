@@ -13,7 +13,13 @@ use log::{debug, error};
 use ptp::{Ptp, hex::FujiCustomSetting};
 use rusb::{GlobalContext, constants::LIBUSB_CLASS_IMAGE};
 
-use crate::usb::find_endpoint;
+use crate::{camera::features::render::conversion::ConversionProfile, usb::find_endpoint};
+
+const ERROR_DEVICE_NOT_SUPPORTED: &str = "Device not supported";
+const ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS: &str =
+    "This camera does not support simulation management";
+const ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUPS: &str = "This camera does not support backups";
+const ERROR_CAMERA_DOES_NOT_SUPPORT_RENDERS: &str = "This camera does not support rendering images";
 
 const SESSION: u32 = 1;
 
@@ -88,7 +94,7 @@ impl TryFrom<&rusb::Device<GlobalContext>> for Camera {
             return Ok(Self { ptp, r#impl });
         }
 
-        bail!("Device not supported");
+        bail!(ERROR_DEVICE_NOT_SUPPORTED);
     }
 }
 
@@ -139,7 +145,7 @@ impl Camera {
         if let Some(sim) = self.r#impl.as_simulations() {
             Ok(sim.custom_settings_slots())
         } else {
-            bail!("Camera does not support simulations");
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
         }
     }
 
@@ -150,7 +156,7 @@ impl Camera {
         if let Some(sim) = self.r#impl.as_simulations() {
             sim.get_simulation(&mut self.ptp, slot)
         } else {
-            bail!("Camera does not support simulations");
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
         }
     }
 
@@ -162,7 +168,7 @@ impl Camera {
         if let Some(sim) = self.r#impl.as_simulations() {
             sim.update_simulation(&mut self.ptp, slot, modifier)
         } else {
-            bail!("Camera does not support simulations");
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
         }
     }
 
@@ -170,7 +176,7 @@ impl Camera {
         if let Some(simulations) = self.r#impl.as_simulations() {
             simulations.export_simulation(&mut self.ptp, slot)
         } else {
-            bail!("Camera does not support simulations");
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
         }
     }
 
@@ -182,7 +188,7 @@ impl Camera {
         if let Some(simulations) = self.r#impl.as_simulations() {
             simulations.import_simulation(&mut self.ptp, slot, buffer)
         } else {
-            bail!("Camera does not support simulations");
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
         }
     }
 
@@ -190,7 +196,7 @@ impl Camera {
         if let Some(backups) = self.r#impl.as_backups() {
             backups.export_backup(&mut self.ptp)
         } else {
-            bail!("Camera does not support backups");
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUPS);
         }
     }
 
@@ -198,7 +204,22 @@ impl Camera {
         if let Some(backups) = self.r#impl.as_backups() {
             backups.import_backup(&mut self.ptp, buffer)
         } else {
-            bail!("Camera does not support backups");
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUPS);
+        }
+    }
+
+    pub fn render(
+        &mut self,
+        image: &[u8],
+        conversion_profile_modifier: &mut dyn FnMut(
+            &mut dyn ConversionProfile,
+        ) -> anyhow::Result<()>,
+        draft: bool,
+    ) -> anyhow::Result<Vec<u8>> {
+        if let Some(renders) = self.r#impl.as_renders() {
+            renders.render(&mut self.ptp, image, conversion_profile_modifier, draft)
+        } else {
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_RENDERS);
         }
     }
 }

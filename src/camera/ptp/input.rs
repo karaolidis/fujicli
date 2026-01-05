@@ -13,7 +13,7 @@ impl<T: AsRef<str>> CleanAlphanumeric for T {
             .trim()
             .to_lowercase()
             .chars()
-            .filter(char::is_ascii_alphanumeric)
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '-')
             .collect()
     }
 }

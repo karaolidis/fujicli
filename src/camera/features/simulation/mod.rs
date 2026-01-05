@@ -23,7 +23,14 @@ pub trait CameraSimulations: CameraBase {
         &self,
         ptp: &mut Ptp,
         slot: FujiCustomSetting,
-        modifier: &mut dyn FnMut(&mut dyn Simulation) -> anyhow::Result<()>,
+        simulation_modifier: &mut dyn FnMut(&mut dyn Simulation) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()>;
+
+    fn set_simulation(
+        &self,
+        ptp: &mut Ptp,
+        slot: FujiCustomSetting,
+        simulation: &dyn Simulation,
     ) -> anyhow::Result<()>;
 
     fn export_simulation(&self, ptp: &mut Ptp, slot: FujiCustomSetting) -> anyhow::Result<Vec<u8>>;
