@@ -196,7 +196,8 @@ fn handle_export(
     let mut camera = usb::get_camera(device_id)?;
 
     let mut writer = output.get_writer()?;
-    let simulation = camera.export_simulation(slot)?;
+    let simulation = camera.get_simulation(slot)?;
+    let simulation = camera.serialize_simulation(&*simulation)?;
     writer.write_all(&simulation)?;
 
     Ok(())
@@ -212,7 +213,8 @@ fn handle_import(
     let mut reader = input.get_reader()?;
     let mut simulation = Vec::new();
     reader.read_to_end(&mut simulation)?;
-    camera.import_simulation(slot, &simulation)?;
+    let simulation = camera.deserialize_simulation(&simulation)?;
+    camera.set_simulation(slot, &*simulation)?;
 
     Ok(())
 }

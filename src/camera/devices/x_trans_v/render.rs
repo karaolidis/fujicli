@@ -4,12 +4,12 @@ use std::{
     time::Duration,
 };
 
-use log::debug;
+use log::{debug, warn};
 use ptp_cursor::{ExactString, PtpDeserialize, PtpSerialize};
 use serde::{Deserialize, Serialize};
 
 use crate::camera::{
-    devices::x_trans_v::XTransV,
+    devices::x_trans_v::{XTransV, simulation::XTransVSimulation},
     features::{
         render::{CameraRenders, conversion::ConversionProfile},
         simulation::simulation::Simulation,
@@ -60,7 +60,7 @@ pub struct XTransVConversionProfile {
     pub color_chrome_fx_blue: FujiColorChromeFXBlue,
     pub smooth_skin_effect: FujiSmoothSkinEffect,
     pub white_balance_as_shot: FujiWhiteBalanceAsShot,
-    pub white_balance: Option<FujiWhiteBalance>,
+    pub white_balance: FujiWhiteBalance,
     pub white_balance_shift_red: FujiWhiteBalanceShift,
     pub white_balance_shift_blue: FujiWhiteBalanceShift,
     pub white_balance_temperature: Option<FujiWhiteBalanceTemperature>,
@@ -165,14 +165,11 @@ impl PtpDeserialize for XTransVConversionProfile {
         let color_chrome_fx_blue = map_conv_err!(color_chrome_fx_blue.try_into());
         let smooth_skin_effect = map_conv_err!(smooth_skin_effect.try_into());
         let white_balance_as_shot = map_conv_err!(white_balance_as_shot.try_into());
-        let white_balance = match white_balance_as_shot {
-            FujiWhiteBalanceAsShot::False => Some(map_conv_err!(white_balance.try_into())),
-            FujiWhiteBalanceAsShot::True => None,
-        };
+        let white_balance = map_conv_err!(white_balance.try_into());
         let white_balance_shift_red = map_conv_err!(white_balance_shift_red.try_into());
         let white_balance_shift_blue = map_conv_err!(white_balance_shift_blue.try_into());
         let white_balance_temperature = match white_balance {
-            Some(FujiWhiteBalance::Temperature) => {
+            FujiWhiteBalance::Temperature => {
                 Some(map_conv_err!(white_balance_temperature.try_into()))
             }
             _ => None,
@@ -241,10 +238,15 @@ impl PtpSerialize for XTransVConversionProfile {
         u32::from(self.simulation).try_write_ptp(buf)?;
         u32::from(self.grain).try_write_ptp(buf)?;
         u32::from(self.color_chrome_effect).try_write_ptp(buf)?;
+        if self.white_balance_as_shot == FujiWhiteBalanceAsShot::False
+            && self.white_balance == FujiWhiteBalance::AsShot
+        {
+            warn!(
+                "White Balance has been altered but no explicit White Balance mode has been set. Consider setting a White Balance mode."
+            );
+        }
         u32::from(self.white_balance_as_shot).try_write_ptp(buf)?;
-        self.white_balance
-            .map_or(0u32, u32::from)
-            .try_write_ptp(buf)?;
+        u32::from(self.white_balance).try_write_ptp(buf)?;
         i32::from(self.white_balance_shift_red).try_write_ptp(buf)?;
         i32::from(self.white_balance_shift_blue).try_write_ptp(buf)?;
         self.white_balance_temperature
@@ -269,12 +271,51 @@ impl PtpSerialize for XTransVConversionProfile {
 }
 
 impl ConversionProfile for XTransVConversionProfile {
-    fn update_from_simulation(&self, _simulation: &dyn Simulation) -> anyhow::Result<()> {
-        todo!()
+    fn set_from_simulation(&mut self, simulation: &dyn Simulation) -> anyhow::Result<()> {
+        let simulation = simulation
+            .as_any()
+            .downcast_ref::<XTransVSimulation>()
+            .unwrap();
+
+        self.set_size(&simulation.size)?;
+        self.set_quality(&simulation.quality)?;
+        self.set_simulation(&simulation.simulation)?;
+        self.set_monochromatic_color_temperature(&simulation.monochromatic_color_temperature)?;
+        self.set_monochromatic_color_tint(&simulation.monochromatic_color_tint)?;
+        self.set_highlight(&simulation.highlight)?;
+        self.set_shadow(&simulation.shadow)?;
+        self.set_color(&simulation.color)?;
+        self.set_sharpness(&simulation.sharpness)?;
+        self.set_clarity(&simulation.clarity)?;
+        self.set_white_balance(&simulation.white_balance)?;
+        self.set_white_balance_shift_red(&simulation.white_balance_shift_red)?;
+        self.set_white_balance_shift_blue(&simulation.white_balance_shift_blue)?;
+        self.set_white_balance_temperature(&simulation.white_balance_temperature)?;
+        self.set_dynamic_range(&simulation.dynamic_range)?;
+        self.set_dynamic_range_priority(&simulation.dynamic_range_priority)?;
+        self.set_noise_reduction(&simulation.noise_reduction)?;
+        self.set_grain(&simulation.grain)?;
+        self.set_color_chrome_effect(&simulation.color_chrome_effect)?;
+        self.set_color_chrome_fx_blue(&simulation.color_chrome_fx_blue)?;
+        self.set_smooth_skin_effect(&simulation.smooth_skin_effect)?;
+        self.set_lens_modulation_optimizer(&simulation.lens_modulation_optimizer)?;
+        self.set_color_space(&simulation.color_space)?;
+
+        Ok(())
     }
 
     fn set_file_type(&mut self, value: &FujiFileType) -> anyhow::Result<()> {
         self.file_type = *value;
+        Ok(())
+    }
+
+    fn set_exposure_offset(&mut self, value: &FujiExposureOffset) -> anyhow::Result<()> {
+        self.exposure_offset = *value;
+        Ok(())
+    }
+
+    fn set_teleconverter(&mut self, value: &FujiTeleconverter) -> anyhow::Result<()> {
+        self.teleconverter = *value;
         Ok(())
     }
 
@@ -295,11 +336,6 @@ impl ConversionProfile for XTransVConversionProfile {
             self.quality = FujiImageQuality::Normal;
         }
 
-        Ok(())
-    }
-
-    fn set_exposure_offset(&mut self, value: &FujiExposureOffset) -> anyhow::Result<()> {
-        self.exposure_offset = *value;
         Ok(())
     }
 
@@ -376,14 +412,12 @@ impl ConversionProfile for XTransVConversionProfile {
 
     fn set_white_balance(&mut self, value: &FujiWhiteBalance) -> anyhow::Result<()> {
         if *value == FujiWhiteBalance::AsShot {
-            // TODO: Add user warning
             self.white_balance_as_shot = FujiWhiteBalanceAsShot::True;
-            self.white_balance = None;
-            self.white_balance_temperature = None;
         } else {
             self.white_balance_as_shot = FujiWhiteBalanceAsShot::False;
-            self.white_balance = Some(*value);
         }
+
+        self.white_balance = *value;
 
         Ok(())
     }
@@ -441,11 +475,6 @@ impl ConversionProfile for XTransVConversionProfile {
 
     fn set_color_space(&mut self, value: &FujiColorSpace) -> anyhow::Result<()> {
         self.color_space = *value;
-        Ok(())
-    }
-
-    fn set_teleconverter(&mut self, value: &FujiTeleconverter) -> anyhow::Result<()> {
-        self.teleconverter = *value;
         Ok(())
     }
 }

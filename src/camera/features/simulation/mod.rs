@@ -33,12 +33,7 @@ pub trait CameraSimulations: CameraBase {
         simulation: &dyn Simulation,
     ) -> anyhow::Result<()>;
 
-    fn export_simulation(&self, ptp: &mut Ptp, slot: FujiCustomSetting) -> anyhow::Result<Vec<u8>>;
+    fn deserialize_simulation(&self, simulation: &[u8]) -> anyhow::Result<Box<dyn Simulation>>;
 
-    fn import_simulation(
-        &self,
-        ptp: &mut Ptp,
-        slot: FujiCustomSetting,
-        simulation: &[u8],
-    ) -> anyhow::Result<()>;
+    fn serialize_simulation(&self, simulation: &dyn Simulation) -> anyhow::Result<Vec<u8>>;
 }

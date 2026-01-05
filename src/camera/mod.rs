@@ -172,21 +172,32 @@ impl Camera {
         }
     }
 
-    pub fn export_simulation(&mut self, slot: FujiCustomSetting) -> anyhow::Result<Vec<u8>> {
-        if let Some(simulations) = self.r#impl.as_simulations() {
-            simulations.export_simulation(&mut self.ptp, slot)
+    pub fn set_simulation(
+        &mut self,
+        slot: FujiCustomSetting,
+        simulation: &dyn Simulation,
+    ) -> anyhow::Result<()> {
+        if let Some(sim) = self.r#impl.as_simulations() {
+            sim.set_simulation(&mut self.ptp, slot, simulation)
         } else {
             bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
         }
     }
 
-    pub fn import_simulation(
-        &mut self,
-        slot: FujiCustomSetting,
-        buffer: &[u8],
-    ) -> anyhow::Result<()> {
+    pub fn serialize_simulation(&mut self, simulation: &dyn Simulation) -> anyhow::Result<Vec<u8>> {
         if let Some(simulations) = self.r#impl.as_simulations() {
-            simulations.import_simulation(&mut self.ptp, slot, buffer)
+            simulations.serialize_simulation(&*simulation)
+        } else {
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
+        }
+    }
+
+    pub fn deserialize_simulation(
+        &mut self,
+        simulation: &[u8],
+    ) -> anyhow::Result<Box<dyn Simulation>> {
+        if let Some(simulations) = self.r#impl.as_simulations() {
+            simulations.deserialize_simulation(simulation)
         } else {
             bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
         }

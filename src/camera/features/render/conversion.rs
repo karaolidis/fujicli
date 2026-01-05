@@ -24,12 +24,14 @@ macro_rules! setter {
 }
 
 pub trait ConversionProfile: erased_serde::Serialize {
-    fn update_from_simulation(&self, simulation: &dyn Simulation) -> anyhow::Result<()>;
+    fn set_from_simulation(&mut self, simulation: &dyn Simulation) -> anyhow::Result<()>;
 
     setter!(set_file_type, FujiFileType);
+    setter!(set_exposure_offset, FujiExposureOffset);
+    setter!(set_teleconverter, FujiTeleconverter);
+
     setter!(set_size, FujiImageSize);
     setter!(set_quality, FujiImageQuality);
-    setter!(set_exposure_offset, FujiExposureOffset);
     setter!(set_simulation, FujiFilmSimulation);
     setter!(
         set_monochromatic_color_temperature,
@@ -54,7 +56,6 @@ pub trait ConversionProfile: erased_serde::Serialize {
     setter!(set_dynamic_range_priority, FujiDynamicRangePriority);
     setter!(set_lens_modulation_optimizer, FujiLensModulationOptimizer);
     setter!(set_color_space, FujiColorSpace);
-    setter!(set_teleconverter, FujiTeleconverter);
 }
 
 serialize_trait_object!(ConversionProfile);

@@ -455,18 +455,12 @@ where
         Ok(())
     }
 
-    fn export_simulation(&self, ptp: &mut Ptp, slot: FujiCustomSetting) -> anyhow::Result<Vec<u8>> {
-        let simulation = self.get_simulation(ptp, slot)?;
-        Ok(serde_json::to_vec(&simulation)?)
+    fn deserialize_simulation(&self, simulation: &[u8]) -> anyhow::Result<Box<dyn Simulation>> {
+        let simulation: XTransVSimulation = serde_json::from_slice(simulation)?;
+        Ok(Box::new(simulation))
     }
 
-    fn import_simulation(
-        &self,
-        ptp: &mut Ptp,
-        slot: FujiCustomSetting,
-        simulation: &[u8],
-    ) -> anyhow::Result<()> {
-        let simulation: XTransVSimulation = serde_json::from_slice(simulation)?;
-        self.set_simulation(ptp, slot, &simulation)
+    fn serialize_simulation(&self, simulation: &dyn Simulation) -> anyhow::Result<Vec<u8>> {
+        Ok(serde_json::to_vec(&simulation)?)
     }
 }

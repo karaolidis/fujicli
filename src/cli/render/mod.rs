@@ -1,7 +1,5 @@
-use std::path::PathBuf;
-
 use crate::{
-    camera::ptp::hex::{FujiExposureOffset, FujiFileType, FujiFilmSimulation, FujiTeleconverter},
+    camera::ptp::hex::{FujiCustomSetting, FujiExposureOffset, FujiFileType, FujiTeleconverter},
     usb,
 };
 
@@ -15,11 +13,11 @@ use clap::Args;
 pub struct RenderCmd {
     /// Simulation slot number
     #[arg(long, conflicts_with = "simulation_file")]
-    slot: Option<FujiFilmSimulation>,
+    slot: Option<FujiCustomSetting>,
 
     /// Path to exported simulation file
     #[arg(long, conflicts_with = "slot")]
-    simulation_file: Option<PathBuf>,
+    simulation_file: Option<Input>,
 
     #[command(flatten)]
     render_options: RenderOptions,
@@ -71,6 +69,8 @@ fn handle_render(
     output: &Output,
     render_options: &RenderOptions,
     options: &FilmSimulationOptions,
+    slot: &Option<FujiCustomSetting>,
+    simulation_file: &Option<Input>,
 ) -> anyhow::Result<()> {
     let mut camera = usb::get_camera(device_id)?;
 
@@ -111,10 +111,25 @@ fn handle_render(
     let mut image = Vec::new();
     reader.read_to_end(&mut image)?;
 
+    let simulation = if let Some(slot) = slot {
+        Some(camera.get_simulation(*slot)?)
+    } else if let Some(simulation_file) = simulation_file {
+        let mut reader = simulation_file.get_reader()?;
+        let mut simulation = Vec::new();
+        reader.read_to_end(&mut simulation)?;
+        Some(camera.deserialize_simulation(&simulation)?)
+    } else {
+        None
+    };
+
     let rendered = camera.render(
         &image,
         #[allow(clippy::cognitive_complexity)]
         &mut |conversion_profile| {
+            if let Some(simulation) = simulation.as_deref() {
+                conversion_profile.set_from_simulation(simulation)?;
+            }
+
             update_conversion_profile! {
                 conversion_profile,
                 [
@@ -166,5 +181,7 @@ pub fn handle(cmd: RenderCmd, device_id: Option<&str>) -> anyhow::Result<()> {
         &cmd.output,
         &cmd.render_options,
         &cmd.film_simulation_options,
+        &cmd.slot,
+        &cmd.simulation_file,
     )
 }
