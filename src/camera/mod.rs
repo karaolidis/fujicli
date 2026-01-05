@@ -13,13 +13,20 @@ use log::{debug, error};
 use ptp::{Ptp, hex::FujiCustomSetting};
 use rusb::{GlobalContext, constants::LIBUSB_CLASS_IMAGE};
 
-use crate::{camera::features::render::conversion::ConversionProfile, usb::find_endpoint};
+use crate::{
+    camera::{
+        devices::{x_trans, x_trans_ii, x_trans_iii, x_trans_iv},
+        features::render::conversion::ConversionProfile,
+    },
+    usb::find_endpoint,
+};
 
 const ERROR_DEVICE_NOT_SUPPORTED: &str = "Device not supported";
 const ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS: &str =
-    "This camera does not support simulation management";
-const ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUPS: &str = "This camera does not support backups";
-const ERROR_CAMERA_DOES_NOT_SUPPORT_RENDERS: &str = "This camera does not support rendering images";
+    "This camera does not support simulation management yet";
+const ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUPS: &str = "This camera does not support backups yet";
+const ERROR_CAMERA_DOES_NOT_SUPPORT_RENDERS: &str =
+    "This camera does not support rendering images yet";
 
 const SESSION: u32 = 1;
 
@@ -118,7 +125,31 @@ pub struct SupportedCamera {
     pub camera_factory: CameraFactory,
 }
 
-pub const SUPPORTED: &[SupportedCamera] = &[x_trans_v::x_t5::FUJIFILM_XT5];
+pub const SUPPORTED: &[SupportedCamera] = &[
+    x_trans::x_e1::FUJIFILM_X_E1,
+    x_trans::x_m1::FUJIFILM_X_M1,
+    x_trans_ii::x70::FUJIFILM_X70,
+    x_trans_ii::x_e2::FUJIFILM_X_E2,
+    x_trans_ii::x_t1::FUJIFILM_X_T1,
+    x_trans_ii::x_t10::FUJIFILM_X_T10,
+    x_trans_iii::x100f::FUJIFILM_X100F,
+    x_trans_iii::x_e3::FUJIFILM_X_E3,
+    x_trans_iii::x_h1::FUJIFILM_X_H1,
+    x_trans_iii::x_pro2::FUJIFILM_X_PRO2,
+    x_trans_iii::x_t2::FUJIFILM_X_T2,
+    x_trans_iii::x_t20::FUJIFILM_X_T20,
+    x_trans_iv::x100v::FUJIFILM_X100V,
+    x_trans_iv::x_e4::FUJIFILM_X_E4,
+    x_trans_iv::x_pro3::FUJIFILM_X_PRO3,
+    x_trans_iv::x_s10::FUJIFILM_X_S10,
+    x_trans_iv::x_s20::FUJIFILM_X_S20,
+    x_trans_iv::x_t3::FUJIFILM_X_T3,
+    x_trans_iv::x_t4::FUJIFILM_X_T4,
+    x_trans_v::x100vi::FUJIFILM_X100VI,
+    x_trans_v::x_h2::FUJIFILM_X_H2,
+    x_trans_v::x_h2s::FUJIFILM_X_H2S,
+    x_trans_v::x_t5::FUJIFILM_XT5,
+];
 
 impl Camera {
     pub fn name(&self) -> &'static str {
