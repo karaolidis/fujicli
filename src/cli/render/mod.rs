@@ -44,7 +44,7 @@ pub struct RenderOptions {
     file_type: Option<FujiFileType>,
 
     /// Push/Pull exposure compensation
-    #[clap(long)]
+    #[clap(long, allow_hyphen_values(true))]
     exposure_offset: Option<FujiExposureOffset>,
 
     /// Teleconverter
