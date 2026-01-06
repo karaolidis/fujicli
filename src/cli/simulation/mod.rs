@@ -3,6 +3,7 @@ use crate::{
         features::simulation::simulation::SimulationListItem,
         ptp::hex::{FujiCustomSetting, FujiCustomSettingName},
     },
+    cli::GlobalOptions,
     usb,
 };
 
@@ -66,8 +67,15 @@ pub struct SetFilmSimulationOptions {
     pub name: Option<FujiCustomSettingName>,
 }
 
-fn handle_list(json: bool, device_id: Option<&str>) -> anyhow::Result<()> {
-    let mut camera = usb::get_camera(device_id)?;
+fn handle_list(options: &GlobalOptions) -> anyhow::Result<()> {
+    let GlobalOptions {
+        json,
+        device,
+        emulate,
+        ..
+    } = options;
+
+    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
 
     let slots: Vec<SimulationListItem> = camera
         .custom_settings_slots()?
@@ -79,7 +87,7 @@ fn handle_list(json: bool, device_id: Option<&str>) -> anyhow::Result<()> {
         })
         .collect::<anyhow::Result<Vec<SimulationListItem>>>()?;
 
-    if json {
+    if *json {
         println!("{}", serde_json::to_string_pretty(&slots)?);
     } else {
         for slot in slots {
@@ -90,11 +98,19 @@ fn handle_list(json: bool, device_id: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn handle_get(json: bool, device_id: Option<&str>, slot: FujiCustomSetting) -> anyhow::Result<()> {
-    let mut camera = usb::get_camera(device_id)?;
+fn handle_get(options: &GlobalOptions, slot: FujiCustomSetting) -> anyhow::Result<()> {
+    let GlobalOptions {
+        json,
+        device,
+        emulate,
+        ..
+    } = options;
+
+    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
+
     let simulation = camera.get_simulation(slot)?;
 
-    if json {
+    if *json {
         println!("{}", serde_json::to_string_pretty(&simulation)?);
     } else {
         println!("{simulation}");
@@ -116,12 +132,16 @@ macro_rules! update_simulation {
 }
 
 fn handle_set(
-    device_id: Option<&str>,
+    options: &GlobalOptions,
     slot: FujiCustomSetting,
     set_options: &SetFilmSimulationOptions,
-    options: &FilmSimulationOptions,
+    film_options: &FilmSimulationOptions,
 ) -> anyhow::Result<()> {
-    let mut camera = usb::get_camera(device_id)?;
+    let GlobalOptions {
+        device, emulate, ..
+    } = options;
+
+    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
 
     let SetFilmSimulationOptions { name } = set_options;
 
@@ -149,7 +169,7 @@ fn handle_set(
         smooth_skin_effect,
         lens_modulation_optimizer,
         color_space,
-    } = options;
+    } = film_options;
 
     camera.update_simulation(slot, &mut |simulation| {
         update_simulation! {
@@ -189,11 +209,15 @@ fn handle_set(
 }
 
 fn handle_export(
-    device_id: Option<&str>,
+    options: &GlobalOptions,
     slot: FujiCustomSetting,
     output: &Output,
 ) -> anyhow::Result<()> {
-    let mut camera = usb::get_camera(device_id)?;
+    let GlobalOptions {
+        device, emulate, ..
+    } = options;
+
+    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
 
     let mut writer = output.get_writer()?;
     let simulation = camera.get_simulation(slot)?;
@@ -204,11 +228,15 @@ fn handle_export(
 }
 
 fn handle_import(
-    device_id: Option<&str>,
+    options: &GlobalOptions,
     slot: FujiCustomSetting,
     input: &Input,
 ) -> anyhow::Result<()> {
-    let mut camera = usb::get_camera(device_id)?;
+    let GlobalOptions {
+        device, emulate, ..
+    } = options;
+
+    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
 
     let mut reader = input.get_reader()?;
     let mut simulation = Vec::new();
@@ -219,21 +247,21 @@ fn handle_import(
     Ok(())
 }
 
-pub fn handle(cmd: SimulationCmd, json: bool, device_id: Option<&str>) -> anyhow::Result<()> {
+pub fn handle(cmd: SimulationCmd, options: &GlobalOptions) -> anyhow::Result<()> {
     match cmd {
-        SimulationCmd::List => handle_list(json, device_id),
-        SimulationCmd::Get { slot } => handle_get(json, device_id, slot),
+        SimulationCmd::List => handle_list(options),
+        SimulationCmd::Get { slot } => handle_get(options, slot),
         SimulationCmd::Set {
             slot,
             set_film_simulation_options,
             film_simulation_options,
         } => handle_set(
-            device_id,
+            options,
             slot,
             &set_film_simulation_options,
             &film_simulation_options,
         ),
-        SimulationCmd::Export { slot, output_file } => handle_export(device_id, slot, &output_file),
-        SimulationCmd::Import { slot, input_file } => handle_import(device_id, slot, &input_file),
+        SimulationCmd::Export { slot, output_file } => handle_export(options, slot, &output_file),
+        SimulationCmd::Import { slot, input_file } => handle_import(options, slot, &input_file),
     }
 }

@@ -31,12 +31,34 @@ impl Ptp {
         data: Option<&[u8]>,
     ) -> anyhow::Result<Vec<u8>> {
         let transaction_id = self.transaction_id;
+
+        trace!(
+            "PTP tx={transaction_id}: code={code:?}, params={params:?}, data_len={}",
+            data.map(|d| d.len()).unwrap_or(0)
+        );
+
+        trace!("PTP tx={transaction_id}: sending header");
         self.send_header(code, params, transaction_id)?;
+
         if let Some(data) = data {
+            trace!(
+                "PTP tx={transaction_id}: sending data ({} bytes)",
+                data.len()
+            );
             self.write(ContainerType::Data, code, data, transaction_id)?;
         }
+
+        trace!("PTP tx={transaction_id}: waiting for response");
         let response = self.receive_response();
+
+        trace!(
+            "PTP tx={transaction_id}: received response ({} bytes)",
+            response.as_ref().map(|r| r.len()).unwrap_or(0)
+        );
+
         self.transaction_id += 1;
+        trace!("PTP tx={transaction_id}: complete");
+
         response
     }
 
@@ -102,7 +124,7 @@ impl Ptp {
         }
 
         trace!(
-            "Sending PTP command: {:?}, transaction: {:?}, parameters ({} bytes): {:x?}",
+            "Sending PTP command: {:x?}, transaction: {:?}, parameters ({} bytes): {:x?}",
             code,
             transaction_id,
             payload.len(),
@@ -123,7 +145,7 @@ impl Ptp {
                     response = payload;
                 }
                 ContainerType::Response => {
-                    trace!("Response received: code {:?}", container.code);
+                    trace!("Response received: code {:x?}", container.code);
 
                     if self.transaction_id != container.transaction_id {
                         warn!(
@@ -146,7 +168,7 @@ impl Ptp {
                     return Ok(response);
                 }
                 _ => {
-                    warn!("Unexpected container type: {:?}", container.kind);
+                    warn!("Unexpected container type: {:x?}", container.kind);
                 }
             }
         }
@@ -178,7 +200,7 @@ impl Ptp {
         }
 
         trace!(
-            "Write completed for code {:?}, total payload of {} bytes",
+            "Write completed for code {:x?}, total payload of {} bytes",
             code,
             payload.len()
         );

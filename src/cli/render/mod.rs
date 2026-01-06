@@ -1,5 +1,6 @@
 use crate::{
     camera::ptp::hex::{FujiCustomSetting, FujiExposureOffset, FujiFileType, FujiTeleconverter},
+    cli::GlobalOptions,
     usb,
 };
 
@@ -64,15 +65,19 @@ macro_rules! update_conversion_profile {
 }
 
 fn handle_render(
-    device_id: Option<&str>,
+    options: &GlobalOptions,
     input: &Input,
     output: &Output,
     render_options: &RenderOptions,
-    options: &FilmSimulationOptions,
+    film_options: &FilmSimulationOptions,
     slot: Option<FujiCustomSetting>,
     simulation_file: Option<Input>,
 ) -> anyhow::Result<()> {
-    let mut camera = usb::get_camera(device_id)?;
+    let GlobalOptions {
+        device, emulate, ..
+    } = options;
+
+    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
 
     let RenderOptions {
         draft,
@@ -105,7 +110,7 @@ fn handle_render(
         smooth_skin_effect,
         lens_modulation_optimizer,
         color_space,
-    } = options;
+    } = film_options;
 
     let mut reader = input.get_reader()?;
     let mut image = Vec::new();
@@ -174,9 +179,9 @@ fn handle_render(
 }
 
 #[allow(clippy::needless_pass_by_value)]
-pub fn handle(cmd: RenderCmd, device_id: Option<&str>) -> anyhow::Result<()> {
+pub fn handle(cmd: RenderCmd, options: &GlobalOptions) -> anyhow::Result<()> {
     handle_render(
-        device_id,
+        options,
         &cmd.input,
         &cmd.output,
         &cmd.render_options,

@@ -35,73 +35,77 @@ pub struct Camera {
     r#impl: Box<dyn CameraBase<Context = GlobalContext>>,
 }
 
-impl TryFrom<&rusb::Device<GlobalContext>> for Camera {
-    type Error = anyhow::Error;
-
-    fn try_from(device: &rusb::Device<GlobalContext>) -> anyhow::Result<Self> {
+impl Camera {
+    pub fn from_device(
+        device: &rusb::Device<GlobalContext>,
+        emulated_vendor: Option<u16>,
+        emulated_product: Option<u16>,
+    ) -> anyhow::Result<Self> {
         let descriptor = device.device_descriptor()?;
 
-        let vendor = descriptor.vendor_id();
-        let product = descriptor.product_id();
+        let vendor = emulated_vendor.unwrap_or_else(|| descriptor.vendor_id());
+        let product = emulated_product.unwrap_or_else(|| descriptor.product_id());
 
-        for supported_camera in SUPPORTED {
-            if vendor != supported_camera.vendor || product != supported_camera.product {
-                continue;
-            }
+        let Some(camera) = SUPPORTED
+            .iter()
+            .find(|c| c.vendor == vendor && c.product == product)
+        else {
+            bail!(ERROR_DEVICE_NOT_SUPPORTED)
+        };
+        debug!("Found supported camera {:x?}", camera);
 
-            let bus = device.bus_number();
-            let address = device.address();
+        let bus = device.bus_number();
+        let address = device.address();
 
-            let config_descriptor = device.active_config_descriptor()?;
+        let config_descriptor = device.active_config_descriptor()?;
+        let interface_descriptor = config_descriptor
+            .interfaces()
+            .flat_map(|i| i.descriptors())
+            .find(|x| x.class_code() == LIBUSB_CLASS_IMAGE)
+            .ok_or(rusb::Error::NotFound)?;
 
-            let interface_descriptor = config_descriptor
-                .interfaces()
-                .flat_map(|i| i.descriptors())
-                .find(|x| x.class_code() == LIBUSB_CLASS_IMAGE)
-                .ok_or(rusb::Error::NotFound)?;
+        let interface = interface_descriptor.interface_number();
+        debug!("Found interface {interface}");
 
-            let interface = interface_descriptor.interface_number();
-            debug!("Found interface {interface}");
+        let handle = device.open()?;
+        handle.claim_interface(interface)?;
+        debug!("Claimed interface");
 
-            let handle = device.open()?;
-            handle.claim_interface(interface)?;
+        let bulk_in = find_endpoint(
+            &interface_descriptor,
+            rusb::Direction::In,
+            rusb::TransferType::Bulk,
+        )?;
+        debug!("Found Bulk In endpoint");
 
-            let bulk_in = find_endpoint(
-                &interface_descriptor,
-                rusb::Direction::In,
-                rusb::TransferType::Bulk,
-            )?;
+        let bulk_out = find_endpoint(
+            &interface_descriptor,
+            rusb::Direction::Out,
+            rusb::TransferType::Bulk,
+        )?;
+        debug!("Found Bulk Out endpoint");
 
-            let bulk_out = find_endpoint(
-                &interface_descriptor,
-                rusb::Direction::Out,
-                rusb::TransferType::Bulk,
-            )?;
+        let transaction_id = 0;
 
-            let transaction_id = 0;
+        let r#impl = (camera.camera_factory)();
+        let chunk_size = r#impl.chunk_size();
 
-            let r#impl = (supported_camera.camera_factory)();
-            let chunk_size = r#impl.chunk_size();
+        let mut ptp = Ptp {
+            bus,
+            address,
+            interface,
+            bulk_in,
+            bulk_out,
+            handle,
+            transaction_id,
+            chunk_size,
+        };
 
-            let mut ptp = Ptp {
-                bus,
-                address,
-                interface,
-                bulk_in,
-                bulk_out,
-                handle,
-                transaction_id,
-                chunk_size,
-            };
+        debug!("Opening session");
+        let () = ptp.open_session(SESSION)?;
+        debug!("Session opened");
 
-            debug!("Opening session");
-            let () = ptp.open_session(SESSION)?;
-            debug!("Session opened");
-
-            return Ok(Self { ptp, r#impl });
-        }
-
-        bail!(ERROR_DEVICE_NOT_SUPPORTED);
+        Ok(Self { ptp, r#impl })
     }
 }
 

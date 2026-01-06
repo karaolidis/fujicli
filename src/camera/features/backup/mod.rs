@@ -14,11 +14,11 @@ pub trait CameraBackups: CameraBase {
     fn export_backup(&self, ptp: &mut Ptp) -> anyhow::Result<Vec<u8>> {
         const HANDLE: u32 = 0x0;
 
-        debug!("Sending GetObjectInfo command for backup");
+        debug!("Sending GetObjectInfo command");
         let response = ptp.send(CommandCode::GetObjectInfo, &[HANDLE], None)?;
         debug!("Received response with {} bytes", response.len());
 
-        debug!("Sending GetObject command for backup");
+        debug!("Sending GetObject command");
         let response = ptp.send(CommandCode::GetObject, &[HANDLE], None)?;
         debug!("Received response with {} bytes", response.len());
 
@@ -26,7 +26,7 @@ pub trait CameraBackups: CameraBase {
     }
 
     fn import_backup(&self, ptp: &mut Ptp, buffer: &[u8]) -> anyhow::Result<()> {
-        debug!("Sending SendObjectInfo command for backup");
+        debug!("Sending SendObjectInfo command");
         let object_info = FujiBackupObjectInfo::new(buffer.len())?;
         let response = {
             ptp.send(
@@ -37,7 +37,7 @@ pub trait CameraBackups: CameraBase {
         }?;
         debug!("Received response with {} bytes", response.len());
 
-        debug!("Sending SendObject command for backup");
+        debug!("Sending SendObject command");
         let response = ptp.send(CommandCode::SendObject, &[0x0], Some(buffer))?;
         debug!("Received response with {} bytes", response.len());
 

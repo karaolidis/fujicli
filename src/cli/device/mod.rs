@@ -13,7 +13,7 @@ use crate::{
             structs::ObjectInfo,
         },
     },
-    cli::common::file::Input,
+    cli::{GlobalOptions, common::file::Input},
     usb,
 };
 
@@ -35,13 +35,15 @@ pub enum DeviceCmd {
     },
 }
 
-fn handle_list(json: bool) -> anyhow::Result<()> {
+fn handle_list(options: &GlobalOptions) -> anyhow::Result<()> {
+    let GlobalOptions { json, .. } = options;
+
     let cameras: Vec<CameraInfoListItem> = usb::get_connected_cameras()?
         .iter()
         .map(std::convert::Into::into)
         .collect();
 
-    if json {
+    if *json {
         println!("{}", serde_json::to_string_pretty(&cameras)?);
         return Ok(());
     }
@@ -58,12 +60,19 @@ fn handle_list(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn handle_info(json: bool, device_id: Option<&str>) -> anyhow::Result<()> {
-    let mut camera = usb::get_camera(device_id)?;
+fn handle_info(options: &GlobalOptions) -> anyhow::Result<()> {
+    let GlobalOptions {
+        json,
+        device,
+        emulate,
+        ..
+    } = options;
+
+    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
 
     let repr = camera.get_info()?;
 
-    if json {
+    if *json {
         println!("{}", serde_json::to_string_pretty(&repr)?);
         return Ok(());
     }
@@ -85,8 +94,12 @@ macro_rules! try_call {
 
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::cognitive_complexity)]
-fn handle_dump(device_id: Option<&str>, input: Option<Input>) -> anyhow::Result<()> {
-    let mut camera = usb::get_camera(device_id)?;
+fn handle_dump(options: &GlobalOptions, input: Option<Input>) -> anyhow::Result<()> {
+    let GlobalOptions {
+        device, emulate, ..
+    } = options;
+
+    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
 
     let backup = try_call!(camera.export_backup())?;
     try_call!(camera.import_backup(&backup))?;
@@ -322,10 +335,10 @@ fn handle_dump(device_id: Option<&str>, input: Option<Input>) -> anyhow::Result<
     Ok(())
 }
 
-pub fn handle(cmd: DeviceCmd, json: bool, device_id: Option<&str>) -> anyhow::Result<()> {
+pub fn handle(cmd: DeviceCmd, options: &GlobalOptions) -> anyhow::Result<()> {
     match cmd {
-        DeviceCmd::List => handle_list(json),
-        DeviceCmd::Info => handle_info(json, device_id),
-        DeviceCmd::Dump { input } => handle_dump(device_id, input),
+        DeviceCmd::List => handle_list(options),
+        DeviceCmd::Info => handle_info(options),
+        DeviceCmd::Dump { input } => handle_dump(options, input),
     }
 }

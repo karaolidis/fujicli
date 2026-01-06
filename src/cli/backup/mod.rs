@@ -1,4 +1,4 @@
-use crate::usb;
+use crate::{cli::GlobalOptions, usb};
 
 use super::common::file::{Input, Output};
 use clap::Subcommand;
@@ -20,8 +20,12 @@ pub enum BackupCmd {
     },
 }
 
-fn handle_export(device_id: Option<&str>, output: &Output) -> anyhow::Result<()> {
-    let mut camera = usb::get_camera(device_id)?;
+fn handle_export(options: &GlobalOptions, output: &Output) -> anyhow::Result<()> {
+    let GlobalOptions {
+        device, emulate, ..
+    } = options;
+
+    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
 
     let mut writer = output.get_writer()?;
     let backup = camera.export_backup()?;
@@ -30,8 +34,12 @@ fn handle_export(device_id: Option<&str>, output: &Output) -> anyhow::Result<()>
     Ok(())
 }
 
-fn handle_import(device_id: Option<&str>, input: &Input) -> anyhow::Result<()> {
-    let mut camera = usb::get_camera(device_id)?;
+fn handle_import(options: &GlobalOptions, input: &Input) -> anyhow::Result<()> {
+    let GlobalOptions {
+        device, emulate, ..
+    } = options;
+
+    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
 
     let mut reader = input.get_reader()?;
     let mut backup = Vec::new();
@@ -41,9 +49,9 @@ fn handle_import(device_id: Option<&str>, input: &Input) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn handle(cmd: BackupCmd, device_id: Option<&str>) -> anyhow::Result<()> {
+pub fn handle(cmd: BackupCmd, options: &GlobalOptions) -> anyhow::Result<()> {
     match cmd {
-        BackupCmd::Export { output_file } => handle_export(device_id, &output_file),
-        BackupCmd::Import { input_file } => handle_import(device_id, &input_file),
+        BackupCmd::Export { output_file } => handle_export(options, &output_file),
+        BackupCmd::Import { input_file } => handle_import(options, &input_file),
     }
 }

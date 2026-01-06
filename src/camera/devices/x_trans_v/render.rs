@@ -221,7 +221,7 @@ impl PtpSerialize for XTransVConversionProfile {
     fn try_write_ptp(&self, buf: &mut Vec<u8>) -> io::Result<()> {
         Self::EXPECTED_N_PROPS.try_write_ptp(buf)?;
 
-        let profile_code = format!("{:X}", Self::EXPECTED_PROFILE_CODE);
+        let profile_code = format!("{:x}", Self::EXPECTED_PROFILE_CODE);
         let profile_code = ExactString::from(profile_code);
         profile_code.try_write_ptp(buf)?;
 
@@ -499,13 +499,17 @@ where
             ..Default::default()
         };
 
-        ptp.send(
+        debug!("Sending FujiSendObjectInfo command");
+        let response = ptp.send(
             CommandCode::FujiSendObjectInfo,
             &[0x0, 0x0, 0x0],
             Some(&object_info.try_into_ptp()?),
         )?;
+        debug!("Received response with {} bytes", response.len());
 
-        ptp.send(CommandCode::FujiSendObject, &[], Some(image))?;
+        debug!("Sending FujiSendObject command");
+        let response = ptp.send(CommandCode::FujiSendObject, &[], Some(image))?;
+        debug!("Received response with {} bytes", response.len());
 
         let mut profile: XTransVConversionProfile =
             ptp.get_prop(DevicePropCode::FujiRawConversionProfile)?;
@@ -515,13 +519,17 @@ where
         debug!("Updated image conversion profile: {profile:?}");
 
         ptp.set_prop(DevicePropCode::FujiRawConversionProfile, &profile)?;
+
+        debug!("Starting render");
         ptp.set_prop(DevicePropCode::FujiRawConversionRun, &u16::from(!draft))?;
 
         let handle;
         loop {
-            let raw = ptp.send(CommandCode::GetObjectHandles, &[u32::MAX, 0, 0], None)?;
+            debug!("Sending GetObjectHandles command");
+            let response = ptp.send(CommandCode::GetObjectHandles, &[u32::MAX, 0, 0], None)?;
+            debug!("Received response with {} bytes", response.len());
 
-            let response = <Vec<u32>>::try_from_ptp(&raw)?;
+            let response = <Vec<u32>>::try_from_ptp(&response)?;
             if !response.is_empty() {
                 handle = response[0];
                 break;
@@ -530,8 +538,13 @@ where
             sleep(Duration::from_millis(100));
         }
 
+        debug!("Sending GetObject command");
         let buf = ptp.send(CommandCode::GetObject, &[handle], None)?;
-        ptp.send(CommandCode::DeleteObject, &[handle], None)?;
+        debug!("Received response with {} bytes", buf.len());
+
+        debug!("Sending GetObject command");
+        let response = ptp.send(CommandCode::DeleteObject, &[handle], None)?;
+        debug!("Received response with {} bytes", response.len());
 
         Ok(buf)
     }

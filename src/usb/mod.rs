@@ -1,4 +1,5 @@
 use anyhow::{anyhow, bail};
+use log::trace;
 
 use crate::camera::Camera;
 
@@ -18,7 +19,8 @@ pub fn get_connected_cameras() -> anyhow::Result<Vec<Camera>> {
     let mut connected_cameras = Vec::new();
 
     for device in rusb::devices()?.iter() {
-        if let Ok(camera) = Camera::try_from(&device) {
+        trace!("Found USB device {:x?}", device);
+        if let Ok(camera) = Camera::from_device(&device, None, None) {
             connected_cameras.push(camera);
         }
     }
@@ -26,27 +28,41 @@ pub fn get_connected_cameras() -> anyhow::Result<Vec<Camera>> {
     Ok(connected_cameras)
 }
 
-pub fn get_connected_camera_by_id(id: &str) -> anyhow::Result<Camera> {
-    let parts: Vec<&str> = id.split('.').collect();
-    if parts.len() != 2 {
-        bail!("Invalid device id format: {id}");
-    }
+pub fn get_connected_camera_by_id(device: &str, emulate: Option<&str>) -> anyhow::Result<Camera> {
+    let (bus, address): (u8, u8) = {
+        let parts: Vec<&str> = device.split('.').collect();
+        if parts.len() != 2 {
+            bail!("Invalid device id format: {device}");
+        }
+        (parts[0].parse()?, parts[1].parse()?)
+    };
 
-    let bus: u8 = parts[0].parse()?;
-    let address: u8 = parts[1].parse()?;
+    let (emulated_vendor, emulated_product): (Option<u16>, Option<u16>) = match emulate {
+        Some(emulated) => {
+            let parts: Vec<&str> = emulated.split(':').collect();
+            if parts.len() != 2 {
+                bail!("Invalid model format: {emulated}");
+            }
+            (
+                Some(u16::from_str_radix(parts[0], 16)?),
+                Some(u16::from_str_radix(parts[1], 16)?),
+            )
+        }
+        None => (None, None),
+    };
 
     for device in rusb::devices()?.iter() {
         if device.bus_number() == bus && device.address() == address {
-            return Camera::try_from(&device);
+            return Camera::from_device(&device, emulated_vendor, emulated_product);
         }
     }
 
-    bail!("No device found with id: {id}");
+    bail!("No device found with id: {device}");
 }
 
-pub fn get_camera(device_id: Option<&str>) -> anyhow::Result<Camera> {
-    match device_id {
-        Some(id) => get_connected_camera_by_id(id),
+pub fn get_camera(device: Option<&str>, emulate: Option<&str>) -> anyhow::Result<Camera> {
+    match device {
+        Some(device) => get_connected_camera_by_id(device, emulate),
         None => get_connected_cameras()?
             .into_iter()
             .next()
