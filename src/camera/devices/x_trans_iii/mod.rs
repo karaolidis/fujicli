@@ -7,4 +7,5 @@ pub mod x_t20;
 
 use crate::camera::features::base::CameraBase;
 
+#[allow(dead_code)]
 pub trait XTransIII: CameraBase {}

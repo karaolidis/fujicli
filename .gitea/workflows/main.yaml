@@ -1,0 +1,33 @@
+name: Build and Release Binary
+
+on:
+  push:
+    branches:
+      - "**"
+
+jobs:
+  builder:
+    uses: karaolidis/workflows/.gitea/workflows/builder.yaml@main
+    with:
+      registry: git.karaolidis.com
+      username: ${{ github.repository_owner }}
+    secrets:
+      password: ${{ secrets.REGISTRY_PASSWORD }}
+
+  build:
+    runs-on: nix
+    needs: builder
+    container:
+      image: ${{ needs.builder.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Lint
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Compile
+        run: cargo check --release

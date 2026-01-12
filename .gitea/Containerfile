@@ -1,0 +1,5 @@
+FROM ghcr.io/catthehacker/ubuntu:act-latest
+
+RUN apt-get update
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"

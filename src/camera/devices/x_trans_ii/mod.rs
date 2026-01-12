@@ -5,4 +5,5 @@ pub mod x_t10;
 
 use crate::camera::features::base::CameraBase;
 
+#[allow(dead_code)]
 pub trait XTransII: CameraBase {}

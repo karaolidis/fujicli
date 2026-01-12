@@ -1,5 +1,4 @@
 pub mod devices;
-pub mod error;
 pub mod features;
 pub mod ptp;
 
@@ -52,7 +51,7 @@ impl Camera {
         else {
             bail!(ERROR_DEVICE_NOT_SUPPORTED)
         };
-        debug!("Found supported camera {:x?}", camera);
+        debug!("Found supported camera {camera:x?}");
 
         let bus = device.bus_number();
         let address = device.address();

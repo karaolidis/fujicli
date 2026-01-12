@@ -34,7 +34,7 @@ impl Ptp {
 
         trace!(
             "PTP tx={transaction_id}: code={code:?}, params={params:?}, data_len={}",
-            data.map(|d| d.len()).unwrap_or(0)
+            data.map_or(0, <[u8]>::len)
         );
 
         trace!("PTP tx={transaction_id}: sending header");
@@ -53,7 +53,7 @@ impl Ptp {
 
         trace!(
             "PTP tx={transaction_id}: received response ({} bytes)",
-            response.as_ref().map(|r| r.len()).unwrap_or(0)
+            response.as_ref().map(std::vec::Vec::len).unwrap_or(0)
         );
 
         self.transaction_id += 1;
