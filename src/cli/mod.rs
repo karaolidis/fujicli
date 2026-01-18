@@ -36,7 +36,7 @@ pub struct GlobalOptions {
     #[arg(long, short = 'd', global = true)]
     pub device: Option<String>,
 
-    /// Treat device as a different model using <`VENDOR_ID>`:<`PRODUCT_ID`>
+    /// Treat device as a different model using <VENDOR_ID>:<PRODUCT_ID>
     #[arg(long, global = true, requires = "device")]
     pub emulate: Option<String>,
 }
