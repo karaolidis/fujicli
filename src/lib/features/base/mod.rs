@@ -22,11 +22,11 @@ pub trait CameraBase {
         1024 * 1024
     }
 
-    fn as_simulations(&self) -> Option<&dyn CameraSimulations<Context = Self::Context>> {
+    fn as_backups(&self) -> Option<&dyn CameraBackups<Context = Self::Context>> {
         None
     }
 
-    fn as_backups(&self) -> Option<&dyn CameraBackups<Context = Self::Context>> {
+    fn as_simulations(&self) -> Option<&dyn CameraSimulations<Context = Self::Context>> {
         None
     }
 

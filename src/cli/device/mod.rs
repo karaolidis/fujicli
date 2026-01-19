@@ -7,7 +7,7 @@ use strum::IntoEnumIterator;
 
 use crate::cli::{GlobalOptions, common::file::Input};
 use fujicli::{
-    features::base::info::CameraInfoListItem,
+    features::{backup::ptp::FujiBackupObjectInfo, base::info::CameraInfoListItem},
     ptp::{
         hex::{CommandCode, DevicePropCode, FujiCustomSetting, ObjectFormat},
         structs::ObjectInfo,
@@ -99,8 +99,30 @@ fn handle_dump(options: &GlobalOptions, input: Option<Input>) -> anyhow::Result<
 
     let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
 
-    let backup = try_call!(camera.export_backup())?;
-    try_call!(camera.import_backup(&backup))?;
+    const BACKUP_HANDLE: u32 = 0x0;
+    try_call!(
+        camera
+            .ptp
+            .send(CommandCode::GetObjectInfo, &[BACKUP_HANDLE], None)
+    )?;
+    let backup = try_call!(
+        camera
+            .ptp
+            .send(CommandCode::GetObject, &[BACKUP_HANDLE], None)
+    )?;
+
+    let backup_info = FujiBackupObjectInfo::new(backup.len())?;
+
+    try_call!(camera.ptp.send(
+        CommandCode::SendObjectInfo,
+        &[0x0, 0x0],
+        Some(&backup_info.try_into_ptp()?),
+    ))?;
+    try_call!(
+        camera
+            .ptp
+            .send(CommandCode::SendObject, &[0x0], Some(&backup))
+    )?;
 
     let _ = try_call!(camera.ptp.get_info());
     let _ = try_call!(camera.ptp.get_prop_raw(DevicePropCode::FujiUsbMode));
@@ -328,7 +350,16 @@ fn handle_dump(options: &GlobalOptions, input: Option<Input>) -> anyhow::Result<
         }
     }
 
-    try_call!(camera.import_backup(&backup))?;
+    try_call!(camera.ptp.send(
+        CommandCode::SendObjectInfo,
+        &[0x0, 0x0],
+        Some(&backup_info.try_into_ptp()?),
+    ))?;
+    try_call!(
+        camera
+            .ptp
+            .send(CommandCode::SendObject, &[0x0], Some(&backup))
+    )?;
 
     Ok(())
 }

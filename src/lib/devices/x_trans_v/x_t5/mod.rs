@@ -26,15 +26,15 @@ impl CameraBase for FujifilmXT5 {
         16128 * 1024
     }
 
-    fn as_simulations(
-        &self,
-    ) -> Option<&dyn crate::features::simulation::CameraSimulations<Context = Self::Context>> {
-        Some(self)
-    }
-
     fn as_backups(
         &self,
     ) -> Option<&dyn crate::features::backup::CameraBackups<Context = Self::Context>> {
+        Some(self)
+    }
+
+    fn as_simulations(
+        &self,
+    ) -> Option<&dyn crate::features::simulation::CameraSimulations<Context = Self::Context>> {
         Some(self)
     }
 
