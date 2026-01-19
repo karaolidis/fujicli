@@ -7,6 +7,14 @@ authors = [
     "Nikolaos Karaolidis <nick@karaolidis.com>",
 ]
 
+[lib]
+name = "fujicli"
+path = "src/lib/mod.rs"
+
+[[bin]]
+name = "fujicli"
+path = "src/main.rs"
+
 [profile.release]
 panic         = 'abort'
 strip         = true

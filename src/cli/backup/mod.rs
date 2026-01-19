@@ -1,6 +1,7 @@
-use crate::{cli::GlobalOptions, usb};
+use fujicli::usb;
 
 use super::common::file::{Input, Output};
+use crate::cli::GlobalOptions;
 use clap::Subcommand;
 
 #[derive(Subcommand, Debug)]

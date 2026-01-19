@@ -1,6 +1,5 @@
-use crate::{
-    camera::ptp::hex::{FujiCustomSetting, FujiExposureOffset, FujiFileType, FujiTeleconverter},
-    cli::GlobalOptions,
+use fujicli::{
+    ptp::hex::{FujiCustomSetting, FujiExposureOffset, FujiFileType, FujiTeleconverter},
     usb,
 };
 
@@ -8,6 +7,7 @@ use super::common::{
     file::{Input, Output},
     film::FilmSimulationOptions,
 };
+use crate::cli::GlobalOptions;
 use clap::Args;
 
 #[derive(Args, Debug)]

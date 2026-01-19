@@ -5,15 +5,13 @@ use log::{error, info};
 use ptp_cursor::{PtpDeserialize, PtpSerialize};
 use strum::IntoEnumIterator;
 
-use crate::{
-    camera::{
-        features::base::info::CameraInfoListItem,
-        ptp::{
-            hex::{CommandCode, DevicePropCode, FujiCustomSetting, ObjectFormat},
-            structs::ObjectInfo,
-        },
+use crate::cli::{GlobalOptions, common::file::Input};
+use fujicli::{
+    features::base::info::CameraInfoListItem,
+    ptp::{
+        hex::{CommandCode, DevicePropCode, FujiCustomSetting, ObjectFormat},
+        structs::ObjectInfo,
     },
-    cli::{GlobalOptions, common::file::Input},
     usb,
 };
 

@@ -4,10 +4,8 @@
 use clap::Parser;
 use cli::Commands;
 
-mod camera;
 mod cli;
 mod log;
-mod usb;
 
 fn main() -> anyhow::Result<()> {
     let cli = cli::Cli::parse();

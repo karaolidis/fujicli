@@ -1,6 +1,6 @@
 use clap::Args;
 
-use crate::camera::ptp::hex::{
+use fujicli::ptp::hex::{
     FujiClarity, FujiColor, FujiColorChromeEffect, FujiColorChromeFXBlue, FujiColorSpace,
     FujiDynamicRange, FujiDynamicRangePriority, FujiFilmSimulation, FujiGrainEffect, FujiHighISONR,
     FujiHighlightTone, FujiImageQuality, FujiImageSize, FujiLensModulationOptimizer,

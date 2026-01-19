@@ -1,9 +1,6 @@
-use crate::{
-    camera::{
-        features::simulation::simulation::SimulationListItem,
-        ptp::hex::{FujiCustomSetting, FujiCustomSettingName},
-    },
-    cli::GlobalOptions,
+use fujicli::{
+    features::simulation::simulation::SimulationListItem,
+    ptp::hex::{FujiCustomSetting, FujiCustomSettingName},
     usb,
 };
 
@@ -11,6 +8,7 @@ use super::common::{
     file::{Input, Output},
     film::FilmSimulationOptions,
 };
+use crate::cli::GlobalOptions;
 use clap::{Args, Subcommand};
 
 #[derive(Subcommand, Debug)]
