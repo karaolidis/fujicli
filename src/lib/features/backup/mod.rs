@@ -8,15 +8,17 @@ use crate::ptp::{Ptp, hex::CommandCode};
 
 use super::base::CameraBase;
 
+pub const OBJECT_HANDLE: [u32; 1] = [0x0];
+pub const EXPORT_OBJECT_INFO_HANDLE: [u32; 1] = [0x0];
+pub const IMPORT_OBJECT_INFO_HANDLE: [u32; 2] = [0x0, 0x0];
+
 // NOTE: Naively assuming that all cameras backup/restore in the same way.
 // The default functions and blanket impl should be removed if this is not the case.
 pub trait CameraBackups: CameraBase {
     fn export_backup(&self, ptp: &mut Ptp) -> anyhow::Result<Vec<u8>> {
-        const HANDLE: u32 = 0x0;
-
         debug!("Starting backup export");
-        let _ = ptp.send(CommandCode::GetObjectInfo, &[HANDLE], None)?;
-        let response = ptp.send(CommandCode::GetObject, &[HANDLE], None)?;
+        let _ = ptp.send(CommandCode::GetObjectInfo, &EXPORT_OBJECT_INFO_HANDLE, None)?;
+        let response = ptp.send(CommandCode::GetObject, &OBJECT_HANDLE, None)?;
         debug!("Backup export completed");
 
         Ok(response)
@@ -27,10 +29,10 @@ pub trait CameraBackups: CameraBase {
         let object_info = FujiBackupObjectInfo::new(buffer.len())?;
         let _ = ptp.send(
             CommandCode::SendObjectInfo,
-            &[0x0, 0x0],
+            &IMPORT_OBJECT_INFO_HANDLE,
             Some(&object_info.try_into_ptp()?),
         )?;
-        let _ = ptp.send(CommandCode::SendObject, &[0x0], Some(buffer))?;
+        let _ = ptp.send(CommandCode::SendObject, &OBJECT_HANDLE, Some(buffer))?;
         debug!("Backup import completed");
 
         Ok(())
