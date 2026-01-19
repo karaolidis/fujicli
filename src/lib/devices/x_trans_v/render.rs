@@ -499,36 +499,32 @@ where
             ..Default::default()
         };
 
-        debug!("Sending FujiSendObjectInfo command");
-        let response = ptp.send(
+        debug!("Sending image to camera");
+        ptp.send(
             CommandCode::FujiSendObjectInfo,
             &[0x0, 0x0, 0x0],
             Some(&object_info.try_into_ptp()?),
         )?;
-        debug!("Received response with {} bytes", response.len());
+        ptp.send(CommandCode::FujiSendObject, &[], Some(image))?;
+        debug!("Sent image to camera");
 
-        debug!("Sending FujiSendObject command");
-        let response = ptp.send(CommandCode::FujiSendObject, &[], Some(image))?;
-        debug!("Received response with {} bytes", response.len());
-
+        debug!("Fetching image conversion profile");
         let mut profile: XTransVConversionProfile =
             ptp.get_prop(DevicePropCode::FujiRawConversionProfile)?;
-        debug!("Fetched image conversion profile: {profile:?}");
+        debug!("Fetched image conversion profile");
 
+        debug!("Updating image conversion profile");
         conversion_profile_modifier(&mut profile)?;
-        debug!("Updated image conversion profile: {profile:?}");
-
         ptp.set_prop(DevicePropCode::FujiRawConversionProfile, &profile)?;
+        debug!("Updated image conversion profile");
 
-        debug!("Starting render");
+        debug!("Starting image render");
         ptp.set_prop(DevicePropCode::FujiRawConversionRun, &u16::from(!draft))?;
 
         let handle;
         loop {
-            debug!("Sending GetObjectHandles command");
+            debug!("Fetching rendered object handles");
             let response = ptp.send(CommandCode::GetObjectHandles, &[u32::MAX, 0, 0], None)?;
-            debug!("Received response with {} bytes", response.len());
-
             let response = <Vec<u32>>::try_from_ptp(&response)?;
             if !response.is_empty() {
                 handle = response[0];
@@ -538,13 +534,13 @@ where
             sleep(Duration::from_millis(100));
         }
 
-        debug!("Sending GetObject command");
+        debug!("Fetching rendered image");
         let buf = ptp.send(CommandCode::GetObject, &[handle], None)?;
-        debug!("Received response with {} bytes", buf.len());
+        debug!("Fetched rendered image");
 
-        debug!("Sending GetObject command");
-        let response = ptp.send(CommandCode::DeleteObject, &[handle], None)?;
-        debug!("Received response with {} bytes", response.len());
+        debug!("Cleaning up rendered image on camera");
+        let _ = ptp.send(CommandCode::DeleteObject, &[handle], None)?;
+        debug!("Cleaned up rendered image on camera");
 
         Ok(buf)
     }

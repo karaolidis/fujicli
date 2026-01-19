@@ -20,9 +20,10 @@ pub fn get_connected_cameras() -> anyhow::Result<Vec<Camera>> {
 
     for device in rusb::devices()?.iter() {
         trace!("Found USB device {device:x?}");
-        if let Ok(camera) = Camera::from_device(&device, None, None) {
-            connected_cameras.push(camera);
-        }
+        match Camera::from_device(&device, None, None) {
+            Ok(camera) => connected_cameras.push(camera),
+            Err(e) => trace!("Ignoring USB device {device:x?}: {e}"),
+        };
     }
 
     Ok(connected_cameras)

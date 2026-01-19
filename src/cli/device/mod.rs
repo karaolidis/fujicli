@@ -83,8 +83,8 @@ macro_rules! try_call {
     ($call:expr $(,)?) => {{
         let result = $call;
         match &result {
-            Ok(val) => info!("{}: {:?}", stringify!($call), val),
-            Err(e) => error!("{}: {}", stringify!($call), e),
+            Ok(value) => info!("{}: {:?}", stringify!($call), value),
+            Err(error) => error!("{}: {}", stringify!($call), error),
         }
         result
     }};

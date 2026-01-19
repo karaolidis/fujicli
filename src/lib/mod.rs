@@ -99,9 +99,7 @@ impl Camera {
             chunk_size,
         };
 
-        debug!("Opening session");
-        let () = ptp.open_session(SESSION)?;
-        debug!("Session opened");
+        ptp.open_session(SESSION)?;
 
         Ok(Self { ptp, r#impl })
     }
@@ -109,11 +107,9 @@ impl Camera {
 
 impl Drop for Camera {
     fn drop(&mut self) {
-        debug!("Closing session");
-        if let Err(e) = self.ptp.close_session(SESSION) {
-            error!("Error closing session: {e}");
+        if let Err(error) = self.ptp.close_session(SESSION) {
+            error!("Error closing session: {error}");
         }
-        debug!("Session closed");
     }
 }
 
