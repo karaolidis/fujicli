@@ -1,3 +1,5 @@
+pub mod simulation;
+
 use super::XTransIV;
 use crate::{SupportedCamera, features::base::CameraBase};
 use rusb::GlobalContext;
@@ -16,6 +18,18 @@ impl CameraBase for FujifilmXS20 {
 
     fn camera_definition(&self) -> &'static SupportedCamera {
         &FUJIFILM_X_S20
+    }
+
+    fn as_backups(
+        &self,
+    ) -> Option<&dyn crate::features::backup::CameraBackups<Context = Self::Context>> {
+        Some(self)
+    }
+
+    fn as_simulations(
+        &self,
+    ) -> Option<&dyn crate::features::simulation::CameraSimulations<Context = Self::Context>> {
+        Some(self)
     }
 }
 
