@@ -1,14 +1,43 @@
 # fujicli
 
-A CLI to manage Fujifilm devices, simulations, backups, and rendering.
+```
+A CLI to manage Fujifilm devices, simulations, backups, and rendering
+
+Usage: fujicli [OPTIONS] <COMMAND>
+
+Commands:
+  device      Manage devices
+  simulation  Manage film simulations
+  backup      Manage backups
+  render      Render images using in-camera processor
+  help        Print this message or the help of the given subcommand(s)
+
+Options:
+  -j, --json               Format output using json
+  -v, --verbose...         Log extra debugging information (multiple instances increase verbosity)
+  -d, --device <DEVICE>    Manually specify target device using USB <BUS>.<ADDRESS>
+      --emulate <EMULATE>  Treat device as a different model using <VENDOR_ID>:<PRODUCT_ID>
+  -h, --help               Print help
+  -V, --version            Print version
+```
 
 ## Status
 
 This tool has only been extensively tested with the **Fujifilm X-T5**, as it is the sole camera I own. While the underlying PTP commands may be compatible with other models, **compatibility is not guaranteed**.
 
-**Use this software at your own risk.** I am not responsible for any damage, loss of data, or other adverse outcomes - physical or psychological - to your camera or equipment resulting from the use of this program.
+**Use this software at your own risk.** I am not responsible for any damage, loss of data, or other adverse outcomes -- physical or psychological -- to your camera or equipment resulting from the use of this program.
 
 This project is currently under heavy development. Contributions are welcome. If you own a different Fujifilm camera, testing and reporting compatibility is highly appreciated.
+
+## GitHub Mirror
+
+The canonical source for `fujicli` lives on my [self-hosted Gitea instance](https://git.karaolidis.com/karaolidis/fujicli). A [GitHub mirror](https://github.com/karaolidis/fujicli) exists purely for visibility and community collaboration. In practice, this means:
+
+- Stars, issues, and  pull requests on GitHub are welcome
+- Changes may be reviewed and merged on the primary Gitea repo first
+- GitHub may lag slightly behind the canonical repo during heavy development
+
+If you're contributing, testing new camera models, or reporting bugs, GitHub is totally fine. If you're looking for the absolute latest commits, the self-hosted repo is the source of truth.
 
 ## OS Notes
 
@@ -29,7 +58,9 @@ Usually no driver changes are required.
 
 ### Linux
 
-It just works, because Linux is simply better. If you do hit permission issues, add a udev rule for Fujifilm devices (vendor ID `0x04cb`).
+It just works, because Linux is simply better ;).
+
+If you do hit permission issues, add a udev rule for Fujifilm devices (vendor ID `0x04cb`).
 
 ## Camera Support
 
@@ -76,9 +107,19 @@ If your camera isn't listed, or a feature is missing, you can help expedite supp
 
 	`fujicli device dump -vvv > dump.log 2>&1`
 
-- Send `dump.log` to the maintainers. This helps map PTP properties and behaviors.
+- Open an issue, or send `dump.log` to the maintainers. This helps map PTP properties and behaviors.
 
 - Rendering is especially involved and typically needs extra per-camera reverse engineering; dumps are invaluable but additional iteration is expected.
+
+### Emulation Mode (`--emulate`)
+
+The `--emulate` flag forces `fujicli` to treat the connected camera as a different Fujifilm model by overriding its USB vendor/product ID. This is primarily intended for development, reverse-engineering, and compatibility testing.
+
+- Emulation does not magically add support for unsupported cameras
+- It may expose incorrect or unsupported PTP properties
+- Some commands (especially rendering) can and will behave unpredictably
+
+If you're not actively debugging or contributing, you probably don't want this flag.
 
 ## Resources
 
