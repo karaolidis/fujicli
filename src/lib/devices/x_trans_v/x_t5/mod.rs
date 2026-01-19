@@ -1,3 +1,6 @@
+pub mod render;
+pub mod simulation;
+
 use rusb::GlobalContext;
 
 use crate::{SupportedCamera, features::base::CameraBase};

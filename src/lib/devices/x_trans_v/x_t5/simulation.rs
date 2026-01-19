@@ -4,6 +4,7 @@ use log::error;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    devices::x_trans_v::x_t5::FujifilmXT5,
     features::simulation::{CameraSimulations, simulation::Simulation},
     ptp::{
         Ptp,
@@ -18,13 +19,9 @@ use crate::{
     },
 };
 
-use super::XTransV;
-
-// NOTE: Naively assuming that all cameras using the same sensor
-// also have the same simulation feature set.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct XTransVSimulation {
+pub struct XT5Simulation {
     pub name: FujiCustomSettingName,
     pub size: FujiImageSize,
     pub quality: FujiImageQuality,
@@ -52,7 +49,7 @@ pub struct XTransVSimulation {
     pub color_space: FujiColorSpace,
 }
 
-impl fmt::Display for XTransVSimulation {
+impl fmt::Display for XT5Simulation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Name: {}", self.name)?;
         writeln!(f, "Size: {}", self.size)?;
@@ -101,7 +98,7 @@ impl fmt::Display for XTransVSimulation {
     }
 }
 
-impl Simulation for XTransVSimulation {
+impl Simulation for XT5Simulation {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -249,10 +246,7 @@ impl Simulation for XTransVSimulation {
     }
 }
 
-impl<T> CameraSimulations for T
-where
-    T: XTransV,
-{
+impl CameraSimulations for FujifilmXT5 {
     fn get_simulation(
         &self,
         ptp: &mut Ptp,
@@ -296,7 +290,7 @@ where
             ptp.get_prop(DevicePropCode::FujiCustomSettingLensModulationOptimizer)?;
         let color_space = ptp.get_prop(DevicePropCode::FujiCustomSettingColorSpace)?;
 
-        let sim = XTransVSimulation {
+        let sim = XT5Simulation {
             name,
             size,
             quality,
@@ -335,7 +329,7 @@ where
         let original_simulation = self.get_simulation(ptp, slot)?;
         let original_simulation = original_simulation
             .as_any()
-            .downcast_ref::<XTransVSimulation>()
+            .downcast_ref::<XT5Simulation>()
             .unwrap();
 
         let mut updated_simulation = original_simulation.clone();
@@ -355,10 +349,7 @@ where
         slot: FujiCustomSetting,
         simulation: &dyn Simulation,
     ) -> anyhow::Result<()> {
-        let simulation = simulation
-            .as_any()
-            .downcast_ref::<XTransVSimulation>()
-            .unwrap();
+        let simulation = simulation.as_any().downcast_ref::<XT5Simulation>().unwrap();
 
         ptp.set_prop(DevicePropCode::FujiCustomSetting, &slot)?;
 
@@ -456,7 +447,7 @@ where
     }
 
     fn deserialize_simulation(&self, simulation: &[u8]) -> anyhow::Result<Box<dyn Simulation>> {
-        let simulation: XTransVSimulation = serde_json::from_slice(simulation)?;
+        let simulation: XT5Simulation = serde_json::from_slice(simulation)?;
         Ok(Box::new(simulation))
     }
 

@@ -35,7 +35,6 @@ pub trait CameraBase {
     }
 
     // NOTE: Naively assuming that all cameras can get the same info in the same way.
-    // The default function should be removed if this is not the case.
     fn get_info(&self, ptp: &mut Ptp) -> anyhow::Result<Box<dyn CameraInfo>> {
         let info = ptp.get_info()?;
 

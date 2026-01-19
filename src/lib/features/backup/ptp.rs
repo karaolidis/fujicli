@@ -4,8 +4,7 @@ use ptp_cursor::PtpSerialize;
 
 use crate::ptp::{hex::ObjectFormat, structs::ObjectInfo};
 
-// NOTE: Naively assuming that all cameras support backup/restore
-// using the same structs.
+// NOTE: Naively assuming that all cameras support backup/restore using the same structs.
 pub struct FujiBackupObjectInfo {
     compressed_size: u32,
 }

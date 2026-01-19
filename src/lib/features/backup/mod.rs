@@ -13,7 +13,6 @@ pub const EXPORT_OBJECT_INFO_HANDLE: [u32; 1] = [0x0];
 pub const IMPORT_OBJECT_INFO_HANDLE: [u32; 2] = [0x0, 0x0];
 
 // NOTE: Naively assuming that all cameras backup/restore in the same way.
-// The default functions and blanket impl should be removed if this is not the case.
 pub trait CameraBackups: CameraBase {
     fn export_backup(&self, ptp: &mut Ptp) -> anyhow::Result<Vec<u8>> {
         debug!("Starting backup export");

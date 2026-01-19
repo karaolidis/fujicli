@@ -9,7 +9,7 @@ use ptp_cursor::{ExactString, PtpDeserialize, PtpSerialize};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    devices::x_trans_v::{XTransV, simulation::XTransVSimulation},
+    devices::x_trans_v::x_t5::{FujifilmXT5, simulation::XT5Simulation},
     features::{
         render::{CameraRenders, conversion::ConversionProfile},
         simulation::simulation::Simulation,
@@ -28,17 +28,14 @@ use crate::{
     },
 };
 
-// NOTE: Naively assuming that all sensors share the same conversion profile.
-// This is almost certainly false.
-
-impl XTransVConversionProfile {
+impl XT5ConversionProfile {
     const EXPECTED_N_PROPS: i16 = 29;
     const EXPECTED_PROFILE_CODE: u32 = 0xff17_9502;
     const PADDING: usize = 0x1EE;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct XTransVConversionProfile {
+pub struct XT5ConversionProfile {
     pub unknown_0: i32,
     pub file_type: FujiFileType,
     pub size: FujiImageSize,
@@ -80,7 +77,7 @@ macro_rules! map_conv_err {
     };
 }
 
-impl PtpDeserialize for XTransVConversionProfile {
+impl PtpDeserialize for XT5ConversionProfile {
     fn try_from_ptp(buf: &[u8]) -> io::Result<Self> {
         let mut cur = Cursor::new(buf);
         let value = Self::try_read_ptp(&mut cur)?;
@@ -211,7 +208,7 @@ impl PtpDeserialize for XTransVConversionProfile {
     }
 }
 
-impl PtpSerialize for XTransVConversionProfile {
+impl PtpSerialize for XT5ConversionProfile {
     fn try_into_ptp(&self) -> io::Result<Vec<u8>> {
         let mut buf = Vec::new();
         self.try_write_ptp(&mut buf)?;
@@ -270,12 +267,9 @@ impl PtpSerialize for XTransVConversionProfile {
     }
 }
 
-impl ConversionProfile for XTransVConversionProfile {
+impl ConversionProfile for XT5ConversionProfile {
     fn set_from_simulation(&mut self, simulation: &dyn Simulation) -> anyhow::Result<()> {
-        let simulation = simulation
-            .as_any()
-            .downcast_ref::<XTransVSimulation>()
-            .unwrap();
+        let simulation = simulation.as_any().downcast_ref::<XT5Simulation>().unwrap();
 
         self.set_size(&simulation.size)?;
         self.set_quality(&simulation.quality)?;
@@ -479,10 +473,7 @@ impl ConversionProfile for XTransVConversionProfile {
     }
 }
 
-impl<T> CameraRenders for T
-where
-    T: XTransV,
-{
+impl CameraRenders for FujifilmXT5 {
     fn render(
         &self,
         ptp: &mut crate::ptp::Ptp,
@@ -509,7 +500,7 @@ where
         debug!("Sent image to camera");
 
         debug!("Fetching image conversion profile");
-        let mut profile: XTransVConversionProfile =
+        let mut profile: XT5ConversionProfile =
             ptp.get_prop(DevicePropCode::FujiRawConversionProfile)?;
         debug!("Fetched image conversion profile");
 
