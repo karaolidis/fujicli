@@ -2,6 +2,7 @@ use std::{any::Any, fmt};
 
 use log::error;
 use serde::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
 
 use crate::{
     devices::x_trans_iv::x_s20::FujifilmXS20,
@@ -240,6 +241,10 @@ impl Simulation for XS20Simulation {
 }
 
 impl CameraSimulations for FujifilmXS20 {
+    fn custom_settings_slots(&self) -> Vec<FujiCustomSetting> {
+        FujiCustomSetting::iter().take(4).collect()
+    }
+
     fn get_simulation(
         &self,
         ptp: &mut Ptp,
