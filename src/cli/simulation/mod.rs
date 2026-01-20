@@ -50,7 +50,7 @@ pub enum SimulationCmd {
         slot: fuji::CustomSetting,
 
         /// Input file (use '-' to read from stdin)
-        input_file: Input,
+        input: Input,
     },
 }
 
@@ -256,6 +256,6 @@ pub fn handle(cmd: SimulationCmd, options: &GlobalOptions) -> anyhow::Result<()>
             &film_simulation_options,
         ),
         SimulationCmd::Export { slot, output_file } => handle_export(options, slot, &output_file),
-        SimulationCmd::Import { slot, input_file } => handle_import(options, slot, &input_file),
+        SimulationCmd::Import { slot, input } => handle_import(options, slot, &input),
     }
 }

@@ -1,33 +1,51 @@
-use fujicli::{ptp::fuji, usb};
+use fujicli::{features::image::extract_simulation, ptp::fuji, usb};
 
 use super::common::{
     file::{Input, Output},
     film::FilmSimulationOptions,
 };
 use crate::cli::GlobalOptions;
-use clap::Args;
+use clap::{Args, Subcommand};
 
-#[derive(Args, Debug)]
-pub struct RenderCmd {
-    /// Simulation slot number
-    #[arg(long, conflicts_with = "simulation_file")]
-    slot: Option<fuji::CustomSetting>,
+#[derive(Subcommand, Debug)]
+pub enum ImageCmd {
+    /// Render image
+    #[command(alias = "r")]
+    Render {
+        /// Simulation slot number
+        #[arg(long, conflicts_with = "simulation_file", conflicts_with = "like")]
+        slot: Option<fuji::CustomSetting>,
 
-    /// Path to exported simulation file
-    #[arg(long, conflicts_with = "slot")]
-    simulation_file: Option<Input>,
+        /// Path to exported simulation file
+        #[arg(long, conflicts_with = "slot", conflicts_with = "like")]
+        simulation_file: Option<Input>,
 
-    #[command(flatten)]
-    render_options: RenderOptions,
+        /// Path to image to mimic simulation settings from (use '-' to read from stdin)
+        #[arg(long, conflicts_with = "slot", conflicts_with = "simulation_file")]
+        like: Option<Input>,
 
-    #[command(flatten)]
-    film_simulation_options: FilmSimulationOptions,
+        #[command(flatten)]
+        render_options: RenderOptions,
 
-    /// RAF input file (use '-' to read from stdin)
-    input: Input,
+        #[command(flatten)]
+        film_simulation_options: FilmSimulationOptions,
 
-    /// Output file (use '-' to write to stdout)
-    output: Output,
+        /// RAF input file (use '-' to read from stdin)
+        input: Input,
+
+        /// Output file (use '-' to write to stdout)
+        output: Output,
+    },
+
+    /// Extract simulation from image
+    #[command(alias = "e")]
+    Extract {
+        /// Input file (use '-' to read from stdin)
+        input: Input,
+
+        /// Output file (use '-' to write to stdout)
+        output: Output,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -61,6 +79,7 @@ macro_rules! update_conversion_profile {
     };
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_render(
     options: &GlobalOptions,
     input: &Input,
@@ -69,6 +88,7 @@ fn handle_render(
     film_options: &FilmSimulationOptions,
     slot: Option<fuji::CustomSetting>,
     simulation_file: Option<Input>,
+    like: Option<Input>,
 ) -> anyhow::Result<()> {
     let GlobalOptions {
         device, emulate, ..
@@ -120,6 +140,11 @@ fn handle_render(
         let mut simulation = Vec::new();
         reader.read_to_end(&mut simulation)?;
         Some(camera.deserialize_simulation(&simulation)?)
+    } else if let Some(like) = like {
+        let mut reader = like.get_reader()?;
+        let mut like_image = Vec::new();
+        reader.read_to_end(&mut like_image)?;
+        Some(extract_simulation(&like_image)?)
     } else {
         None
     };
@@ -175,15 +200,41 @@ fn handle_render(
     Ok(())
 }
 
+fn handle_extract(input: &Input, output: &Output) -> anyhow::Result<()> {
+    let mut reader = input.get_reader()?;
+    let mut image = Vec::new();
+    reader.read_to_end(&mut image)?;
+
+    let simulation = extract_simulation(&image)?;
+
+    let serialized = simulation.serialize()?;
+    let mut writer = output.get_writer()?;
+    writer.write_all(&serialized)?;
+
+    Ok(())
+}
+
 #[allow(clippy::needless_pass_by_value)]
-pub fn handle(cmd: RenderCmd, options: &GlobalOptions) -> anyhow::Result<()> {
-    handle_render(
-        options,
-        &cmd.input,
-        &cmd.output,
-        &cmd.render_options,
-        &cmd.film_simulation_options,
-        cmd.slot,
-        cmd.simulation_file,
-    )
+pub fn handle(cmd: ImageCmd, options: &GlobalOptions) -> anyhow::Result<()> {
+    match cmd {
+        ImageCmd::Render {
+            slot,
+            simulation_file,
+            like,
+            input,
+            output,
+            render_options,
+            film_simulation_options,
+        } => handle_render(
+            options,
+            &input,
+            &output,
+            &render_options,
+            &film_simulation_options,
+            slot,
+            simulation_file,
+            like,
+        ),
+        ImageCmd::Extract { input, output } => handle_extract(&input, &output),
+    }
 }

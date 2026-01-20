@@ -1,14 +1,14 @@
 pub mod backup;
 pub mod common;
 pub mod device;
-pub mod render;
+pub mod image;
 pub mod simulation;
 
 use clap::{ArgAction, Args, Parser, Subcommand};
 
 use backup::BackupCmd;
 use device::DeviceCmd;
-use render::RenderCmd;
+use image::ImageCmd;
 use simulation::SimulationCmd;
 
 #[derive(Parser, Debug)]
@@ -57,6 +57,6 @@ pub enum Commands {
     Backup(BackupCmd),
 
     /// Render images using in-camera processor
-    #[command(alias = "r")]
-    Render(RenderCmd),
+    #[command(alias = "i", subcommand)]
+    Image(ImageCmd),
 }

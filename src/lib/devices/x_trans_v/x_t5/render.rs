@@ -1,10 +1,6 @@
-use std::{
-    io::{self, Cursor, Write},
-    thread::sleep,
-    time::Duration,
-};
+use std::io::{self, Cursor, Write};
 
-use log::{debug, warn};
+use log::warn;
 use ptp_cursor::{ExactString, PtpDeserialize, PtpSerialize};
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +10,7 @@ use crate::{
         render::{CameraRenderManager, ConversionProfile},
         simulation::Simulation,
     },
-    ptp::{CommandCode, DevicePropCode, ObjectFormat, ObjectInfo, Ptp, fuji},
+    ptp::{DevicePropCode, Ptp, fuji},
 };
 
 impl XT5ConversionProfile {
@@ -258,7 +254,10 @@ impl PtpSerialize for XT5ConversionProfile {
 
 impl ConversionProfile for XT5ConversionProfile {
     fn set_from_simulation(&mut self, simulation: &dyn Simulation) -> anyhow::Result<()> {
-        let simulation = simulation.as_any().downcast_ref::<XT5Simulation>().unwrap();
+        let simulation = simulation
+            .as_any()
+            .downcast_ref::<XT5Simulation>()
+            .expect("Simulation type mismatch");
 
         self.set_size(&simulation.size)?;
         self.set_quality(&simulation.quality)?;
@@ -478,56 +477,13 @@ impl CameraRenderManager for FujifilmXT5 {
         ) -> anyhow::Result<()>,
         draft: bool,
     ) -> anyhow::Result<Vec<u8>> {
-        let object_info = ObjectInfo {
-            object_format: ObjectFormat::FujiRAF,
-            compressed_size: u32::try_from(image.len())?,
-            filename: String::from("FUP_FILE.dat"),
-            ..Default::default()
-        };
+        self.send_image(ptp, image)?;
 
-        debug!("Sending image to camera");
-        ptp.send(
-            CommandCode::FujiSendObjectInfo,
-            &[0x0, 0x0, 0x0],
-            Some(&object_info.try_into_ptp()?),
-        )?;
-        ptp.send(CommandCode::FujiSendObject, &[], Some(image))?;
-        debug!("Sent image to camera");
-
-        debug!("Fetching image conversion profile");
         let mut profile: XT5ConversionProfile =
             ptp.get_prop(DevicePropCode::FujiRawConversionProfile)?;
-        debug!("Fetched image conversion profile");
-
-        debug!("Updating image conversion profile");
         conversion_profile_modifier(&mut profile)?;
         ptp.set_prop(DevicePropCode::FujiRawConversionProfile, &profile)?;
-        debug!("Updated image conversion profile");
 
-        debug!("Starting image render");
-        ptp.set_prop(DevicePropCode::FujiRawConversionRun, &u16::from(!draft))?;
-
-        let handle;
-        loop {
-            debug!("Fetching rendered object handles");
-            let response = ptp.send(CommandCode::GetObjectHandles, &[u32::MAX, 0, 0], None)?;
-            let response = <Vec<u32>>::try_from_ptp(&response)?;
-            if !response.is_empty() {
-                handle = response[0];
-                break;
-            }
-
-            sleep(Duration::from_millis(100));
-        }
-
-        debug!("Fetching rendered image");
-        let buf = ptp.send(CommandCode::GetObject, &[handle], None)?;
-        debug!("Fetched rendered image");
-
-        debug!("Cleaning up rendered image on camera");
-        let _ = ptp.send(CommandCode::DeleteObject, &[handle], None)?;
-        debug!("Cleaned up rendered image on camera");
-
-        Ok(buf)
+        self.render_image(ptp, draft)
     }
 }

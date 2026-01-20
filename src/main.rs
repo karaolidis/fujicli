@@ -19,7 +19,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Simulation(simulation_cmd) => {
             cli::simulation::handle(simulation_cmd, &options)?;
         }
-        Commands::Render(render_cmd) => cli::render::handle(render_cmd, &options)?,
+        Commands::Image(render_cmd) => cli::image::handle(render_cmd, &options)?,
     }
 
     Ok(())

@@ -7,7 +7,7 @@ use strum::IntoEnumIterator;
 
 use crate::cli::{GlobalOptions, common::file::Input};
 use fujicli::{
-    features::{backup, base::info::CameraInfoListItem},
+    features::{backup, base::info::CameraInfoListItem, render},
     ptp::{CommandCode, DevicePropCode, ObjectFormat, ObjectInfo, fuji},
     usb,
 };
@@ -22,7 +22,7 @@ pub enum DeviceCmd {
     #[command(alias = "i")]
     Info,
 
-    /// Dump camera details for debugging purposes
+    /// Dump camera details
     #[command(alias = "d")]
     Dump {
         /// Optional RAF input file to test rendering (use '-' to read from stdin)
@@ -272,7 +272,7 @@ fn handle_dump(options: &GlobalOptions, input: Option<Input>) -> anyhow::Result<
 
             if try_call!(camera.ptp.send(
                 CommandCode::FujiSendObjectInfo,
-                &[0x0, 0x0, 0x0],
+                &render::OUTGOING_OBJECT_HANDLE,
                 Some(&object_info.try_into_ptp()?),
             ))
             .is_err()
@@ -322,7 +322,7 @@ fn handle_dump(options: &GlobalOptions, input: Option<Input>) -> anyhow::Result<
             loop {
                 let Ok(raw) = try_call!(camera.ptp.send(
                     CommandCode::GetObjectHandles,
-                    &[u32::MAX, 0, 0],
+                    &render::INCOMING_OBJECT_HANDLE,
                     None
                 )) else {
                     break 'render;

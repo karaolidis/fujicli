@@ -69,3 +69,64 @@ pub trait CameraBase {
         Ok(Box::new(repr))
     }
 }
+
+macro_rules! impl_camera_base {
+    (
+        $camera:ty,
+        $def:expr,
+        [ $( $cap:ident ),* $(,)? ]
+        $(, $chunk:expr )?
+    ) => {
+        impl crate::features::base::CameraBase for $camera {
+            type Context = rusb::GlobalContext;
+
+            fn camera_definition(&self) -> &'static crate::SupportedCamera {
+                $def
+            }
+
+            $(
+                fn chunk_size(&self) -> usize {
+                    $chunk
+                }
+            )?
+
+            $(
+                crate::features::base::impl_camera_base!(@cap self, $cap);
+            )*
+        }
+    };
+
+    (@cap $self:ident, CameraBackupManager) => {
+        fn as_backup_manager(
+            &$self,
+        ) -> Option<&dyn crate::features::backup::CameraBackupManager<Context = rusb::GlobalContext>> {
+            Some($self)
+        }
+    };
+
+    (@cap $self:ident, CameraSimulationParser) => {
+        fn as_simulation_parser(
+            &$self,
+        ) -> Option<&dyn crate::features::simulation::CameraSimulationParser> {
+            Some($self)
+        }
+    };
+
+    (@cap $self:ident, CameraSimulationManager) => {
+        fn as_simulation_manager(
+            &$self,
+        ) -> Option<&dyn crate::features::simulation::CameraSimulationManager<Context = rusb::GlobalContext>> {
+            Some($self)
+        }
+    };
+
+    (@cap $self:ident, CameraRenderManager) => {
+        fn as_render_manager(
+            &$self,
+        ) -> Option<&dyn crate::features::render::CameraRenderManager<Context = rusb::GlobalContext>> {
+            Some($self)
+        }
+    };
+}
+
+pub(crate) use impl_camera_base;

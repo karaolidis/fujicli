@@ -1,6 +1,5 @@
 use super::XTransV;
 use crate::devices::define_camera;
-use rusb::GlobalContext;
 
 define_camera!(
     "FUJIFILM X-H2S",
@@ -8,7 +7,6 @@ define_camera!(
     FUJIFILM_X_H2S,
     0x04cb,
     0x02f0,
-    context = GlobalContext,
-    sensor = XTransV,
-    capabilities = [],
+    XTransV,
+    [],
 );

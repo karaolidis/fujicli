@@ -10,14 +10,14 @@ pub enum BackupCmd {
     #[command(alias = "e")]
     Export {
         /// Output file (use '-' to write to stdout)
-        output_file: Output,
+        output: Output,
     },
 
     /// Import backup
     #[command(alias = "i")]
     Import {
         /// Input file (use '-' to read from stdin)
-        input_file: Input,
+        input: Input,
     },
 }
 
@@ -52,7 +52,7 @@ fn handle_import(options: &GlobalOptions, input: &Input) -> anyhow::Result<()> {
 
 pub fn handle(cmd: BackupCmd, options: &GlobalOptions) -> anyhow::Result<()> {
     match cmd {
-        BackupCmd::Export { output_file } => handle_export(options, &output_file),
-        BackupCmd::Import { input_file } => handle_import(options, &input_file),
+        BackupCmd::Export { output } => handle_export(options, &output),
+        BackupCmd::Import { input } => handle_import(options, &input),
     }
 }

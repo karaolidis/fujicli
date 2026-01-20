@@ -1,6 +1,6 @@
 pub mod manager;
 
-pub use manager::CameraRenderManager;
+pub use manager::{CameraRenderManager, INCOMING_OBJECT_HANDLE, OUTGOING_OBJECT_HANDLE};
 
 use erased_serde::serialize_trait_object;
 
