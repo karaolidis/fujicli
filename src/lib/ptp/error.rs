@@ -1,6 +1,6 @@
 use std::{fmt, io};
 
-use crate::ptp::hex::ResponseCode;
+use crate::ptp::ResponseCode;
 
 #[derive(Debug)]
 pub enum Error {

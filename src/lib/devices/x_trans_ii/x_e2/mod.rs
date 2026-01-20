@@ -1,22 +1,14 @@
 use super::XTransII;
-use crate::{SupportedCamera, features::base::CameraBase};
+use crate::devices::define_camera;
 use rusb::GlobalContext;
 
-pub const FUJIFILM_X_E2: SupportedCamera = SupportedCamera {
-    name: "FUJIFILM X-E2",
-    vendor: 0x04cb,
-    product: 0x02b5,
-    camera_factory: || Box::new(FujifilmXE2 {}),
-};
-
-pub struct FujifilmXE2 {}
-
-impl CameraBase for FujifilmXE2 {
-    type Context = GlobalContext;
-
-    fn camera_definition(&self) -> &'static SupportedCamera {
-        &FUJIFILM_X_E2
-    }
-}
-
-impl XTransII for FujifilmXE2 {}
+define_camera!(
+    "FUJIFILM X-E2",
+    FujifilmXE2,
+    FUJIFILM_X_E2,
+    0x04cb,
+    0x02b5,
+    context = GlobalContext,
+    sensor = XTransII,
+    capabilities = [],
+);

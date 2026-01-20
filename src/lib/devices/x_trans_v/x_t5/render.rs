@@ -11,21 +11,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     devices::x_trans_v::x_t5::{FujifilmXT5, simulation::XT5Simulation},
     features::{
-        render::{CameraRenders, conversion::ConversionProfile},
-        simulation::simulation::Simulation,
+        render::{CameraRenderManager, ConversionProfile},
+        simulation::Simulation,
     },
-    ptp::{
-        hex::{
-            CommandCode, DevicePropCode, FujiClarity, FujiColor, FujiColorChromeEffect,
-            FujiColorChromeFXBlue, FujiColorSpace, FujiDynamicRange, FujiDynamicRangePriority,
-            FujiExposureOffset, FujiFileType, FujiFilmSimulation, FujiGrainEffect, FujiHighISONR,
-            FujiHighlightTone, FujiImageQuality, FujiImageSize, FujiLensModulationOptimizer,
-            FujiMonochromaticColorShift, FujiShadowTone, FujiSharpness, FujiSmoothSkinEffect,
-            FujiTeleconverter, FujiWhiteBalance, FujiWhiteBalanceAsShot, FujiWhiteBalanceShift,
-            FujiWhiteBalanceTemperature, ObjectFormat,
-        },
-        structs::ObjectInfo,
-    },
+    ptp::{CommandCode, DevicePropCode, ObjectFormat, ObjectInfo, Ptp, fuji},
 };
 
 impl XT5ConversionProfile {
@@ -37,33 +26,33 @@ impl XT5ConversionProfile {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct XT5ConversionProfile {
     pub unknown_0: i32,
-    pub file_type: FujiFileType,
-    pub size: FujiImageSize,
-    pub quality: FujiImageQuality,
-    pub exposure_offset: FujiExposureOffset,
-    pub simulation: FujiFilmSimulation,
-    pub monochromatic_color_temperature: FujiMonochromaticColorShift,
-    pub monochromatic_color_tint: FujiMonochromaticColorShift,
-    pub dynamic_range_priority: FujiDynamicRangePriority,
-    pub dynamic_range: FujiDynamicRange,
-    pub highlight: FujiHighlightTone,
-    pub shadow: FujiShadowTone,
-    pub color: FujiColor,
-    pub sharpness: FujiSharpness,
-    pub clarity: FujiClarity,
-    pub noise_reduction: FujiHighISONR,
-    pub grain: FujiGrainEffect,
-    pub color_chrome_effect: FujiColorChromeEffect,
-    pub color_chrome_fx_blue: FujiColorChromeFXBlue,
-    pub smooth_skin_effect: FujiSmoothSkinEffect,
-    pub white_balance_as_shot: FujiWhiteBalanceAsShot,
-    pub white_balance: FujiWhiteBalance,
-    pub white_balance_shift_red: FujiWhiteBalanceShift,
-    pub white_balance_shift_blue: FujiWhiteBalanceShift,
-    pub white_balance_temperature: Option<FujiWhiteBalanceTemperature>,
-    pub lens_modulation_optimizer: FujiLensModulationOptimizer,
-    pub color_space: FujiColorSpace,
-    pub teleconverter: FujiTeleconverter,
+    pub file_type: fuji::FileType,
+    pub size: fuji::ImageSize,
+    pub quality: fuji::ImageQuality,
+    pub exposure_offset: fuji::ExposureOffset,
+    pub simulation: fuji::FilmSimulation,
+    pub monochromatic_color_temperature: fuji::MonochromaticColorShift,
+    pub monochromatic_color_tint: fuji::MonochromaticColorShift,
+    pub dynamic_range_priority: fuji::DynamicRangePriority,
+    pub dynamic_range: fuji::DynamicRange,
+    pub highlight: fuji::HighlightTone,
+    pub shadow: fuji::ShadowTone,
+    pub color: fuji::Color,
+    pub sharpness: fuji::Sharpness,
+    pub clarity: fuji::Clarity,
+    pub noise_reduction: fuji::NoiseReduction,
+    pub grain: fuji::GrainEffect,
+    pub color_chrome_effect: fuji::ColorChromeEffect,
+    pub color_chrome_fx_blue: fuji::ColorChromeFXBlue,
+    pub smooth_skin_effect: fuji::SmoothSkinEffect,
+    pub white_balance_as_shot: fuji::WhiteBalanceAsShot,
+    pub white_balance: fuji::WhiteBalance,
+    pub white_balance_shift_red: fuji::WhiteBalanceShift,
+    pub white_balance_shift_blue: fuji::WhiteBalanceShift,
+    pub white_balance_temperature: Option<fuji::WhiteBalanceTemperature>,
+    pub lens_modulation_optimizer: fuji::LensModulationOptimizer,
+    pub color_space: fuji::ColorSpace,
+    pub teleconverter: fuji::Teleconverter,
 }
 
 macro_rules! map_conv_err {
@@ -145,7 +134,7 @@ impl PtpDeserialize for XT5ConversionProfile {
         let size = map_conv_err!(size.try_into());
         let quality = map_conv_err!(quality.try_into());
         let exposure_offset = map_conv_err!(exposure_offset.try_into());
-        let simulation: FujiFilmSimulation = map_conv_err!(simulation.try_into());
+        let simulation = map_conv_err!(simulation.try_into());
         let monochromatic_color_temperature =
             map_conv_err!(monochromatic_color_temperature.try_into());
         let monochromatic_color_tint = map_conv_err!(monochromatic_color_tint.try_into());
@@ -166,7 +155,7 @@ impl PtpDeserialize for XT5ConversionProfile {
         let white_balance_shift_red = map_conv_err!(white_balance_shift_red.try_into());
         let white_balance_shift_blue = map_conv_err!(white_balance_shift_blue.try_into());
         let white_balance_temperature = match white_balance {
-            FujiWhiteBalance::Temperature => {
+            fuji::WhiteBalance::Temperature => {
                 Some(map_conv_err!(white_balance_temperature.try_into()))
             }
             _ => None,
@@ -235,8 +224,8 @@ impl PtpSerialize for XT5ConversionProfile {
         u32::from(self.simulation).try_write_ptp(buf)?;
         u32::from(self.grain).try_write_ptp(buf)?;
         u32::from(self.color_chrome_effect).try_write_ptp(buf)?;
-        if self.white_balance_as_shot == FujiWhiteBalanceAsShot::False
-            && self.white_balance == FujiWhiteBalance::AsShot
+        if self.white_balance_as_shot == fuji::WhiteBalanceAsShot::False
+            && self.white_balance == fuji::WhiteBalance::AsShot
         {
             warn!(
                 "White Balance has been altered but no explicit White Balance mode has been set. Consider setting a White Balance mode."
@@ -298,49 +287,52 @@ impl ConversionProfile for XT5ConversionProfile {
         Ok(())
     }
 
-    fn set_file_type(&mut self, value: &FujiFileType) -> anyhow::Result<()> {
+    fn set_file_type(&mut self, value: &fuji::FileType) -> anyhow::Result<()> {
         self.file_type = *value;
         Ok(())
     }
 
-    fn set_exposure_offset(&mut self, value: &FujiExposureOffset) -> anyhow::Result<()> {
+    fn set_exposure_offset(&mut self, value: &fuji::ExposureOffset) -> anyhow::Result<()> {
         self.exposure_offset = *value;
         Ok(())
     }
 
-    fn set_teleconverter(&mut self, value: &FujiTeleconverter) -> anyhow::Result<()> {
+    fn set_teleconverter(&mut self, value: &fuji::Teleconverter) -> anyhow::Result<()> {
         self.teleconverter = *value;
         Ok(())
     }
 
-    fn set_size(&mut self, value: &FujiImageSize) -> anyhow::Result<()> {
+    fn set_size(&mut self, value: &fuji::ImageSize) -> anyhow::Result<()> {
         self.size = *value;
         Ok(())
     }
 
-    fn set_quality(&mut self, value: &FujiImageQuality) -> anyhow::Result<()> {
-        if matches!(value, FujiImageQuality::FineRaw | FujiImageQuality::Fine) {
-            self.quality = FujiImageQuality::Fine;
+    fn set_quality(&mut self, value: &fuji::ImageQuality) -> anyhow::Result<()> {
+        if matches!(
+            value,
+            fuji::ImageQuality::FineRaw | fuji::ImageQuality::Fine
+        ) {
+            self.quality = fuji::ImageQuality::Fine;
         }
 
         if matches!(
             value,
-            FujiImageQuality::NormalRaw | FujiImageQuality::Normal
+            fuji::ImageQuality::NormalRaw | fuji::ImageQuality::Normal
         ) {
-            self.quality = FujiImageQuality::Normal;
+            self.quality = fuji::ImageQuality::Normal;
         }
 
         Ok(())
     }
 
-    fn set_simulation(&mut self, value: &FujiFilmSimulation) -> anyhow::Result<()> {
+    fn set_simulation(&mut self, value: &fuji::FilmSimulation) -> anyhow::Result<()> {
         self.simulation = *value;
         Ok(())
     }
 
     fn set_monochromatic_color_temperature(
         &mut self,
-        value: &FujiMonochromaticColorShift,
+        value: &fuji::MonochromaticColorShift,
     ) -> anyhow::Result<()> {
         self.monochromatic_color_temperature = *value;
         Ok(())
@@ -348,67 +340,67 @@ impl ConversionProfile for XT5ConversionProfile {
 
     fn set_monochromatic_color_tint(
         &mut self,
-        value: &FujiMonochromaticColorShift,
+        value: &fuji::MonochromaticColorShift,
     ) -> anyhow::Result<()> {
         self.monochromatic_color_tint = *value;
         Ok(())
     }
 
-    fn set_highlight(&mut self, value: &FujiHighlightTone) -> anyhow::Result<()> {
+    fn set_highlight(&mut self, value: &fuji::HighlightTone) -> anyhow::Result<()> {
         self.highlight = *value;
         Ok(())
     }
 
-    fn set_shadow(&mut self, value: &FujiShadowTone) -> anyhow::Result<()> {
+    fn set_shadow(&mut self, value: &fuji::ShadowTone) -> anyhow::Result<()> {
         self.shadow = *value;
         Ok(())
     }
 
-    fn set_color(&mut self, value: &FujiColor) -> anyhow::Result<()> {
+    fn set_color(&mut self, value: &fuji::Color) -> anyhow::Result<()> {
         self.color = *value;
         Ok(())
     }
 
-    fn set_sharpness(&mut self, value: &FujiSharpness) -> anyhow::Result<()> {
+    fn set_sharpness(&mut self, value: &fuji::Sharpness) -> anyhow::Result<()> {
         self.sharpness = *value;
         Ok(())
     }
 
-    fn set_clarity(&mut self, value: &FujiClarity) -> anyhow::Result<()> {
+    fn set_clarity(&mut self, value: &fuji::Clarity) -> anyhow::Result<()> {
         self.clarity = *value;
         Ok(())
     }
 
-    fn set_noise_reduction(&mut self, value: &FujiHighISONR) -> anyhow::Result<()> {
+    fn set_noise_reduction(&mut self, value: &fuji::NoiseReduction) -> anyhow::Result<()> {
         self.noise_reduction = *value;
         Ok(())
     }
 
-    fn set_grain(&mut self, value: &FujiGrainEffect) -> anyhow::Result<()> {
+    fn set_grain(&mut self, value: &fuji::GrainEffect) -> anyhow::Result<()> {
         self.grain = *value;
         Ok(())
     }
 
-    fn set_color_chrome_effect(&mut self, value: &FujiColorChromeEffect) -> anyhow::Result<()> {
+    fn set_color_chrome_effect(&mut self, value: &fuji::ColorChromeEffect) -> anyhow::Result<()> {
         self.color_chrome_effect = *value;
         Ok(())
     }
 
-    fn set_color_chrome_fx_blue(&mut self, value: &FujiColorChromeFXBlue) -> anyhow::Result<()> {
+    fn set_color_chrome_fx_blue(&mut self, value: &fuji::ColorChromeFXBlue) -> anyhow::Result<()> {
         self.color_chrome_fx_blue = *value;
         Ok(())
     }
 
-    fn set_smooth_skin_effect(&mut self, value: &FujiSmoothSkinEffect) -> anyhow::Result<()> {
+    fn set_smooth_skin_effect(&mut self, value: &fuji::SmoothSkinEffect) -> anyhow::Result<()> {
         self.smooth_skin_effect = *value;
         Ok(())
     }
 
-    fn set_white_balance(&mut self, value: &FujiWhiteBalance) -> anyhow::Result<()> {
-        if *value == FujiWhiteBalance::AsShot {
-            self.white_balance_as_shot = FujiWhiteBalanceAsShot::True;
+    fn set_white_balance(&mut self, value: &fuji::WhiteBalance) -> anyhow::Result<()> {
+        if *value == fuji::WhiteBalance::AsShot {
+            self.white_balance_as_shot = fuji::WhiteBalanceAsShot::True;
         } else {
-            self.white_balance_as_shot = FujiWhiteBalanceAsShot::False;
+            self.white_balance_as_shot = fuji::WhiteBalanceAsShot::False;
         }
 
         self.white_balance = *value;
@@ -416,34 +408,37 @@ impl ConversionProfile for XT5ConversionProfile {
         Ok(())
     }
 
-    fn set_white_balance_shift_red(&mut self, value: &FujiWhiteBalanceShift) -> anyhow::Result<()> {
-        self.white_balance_as_shot = FujiWhiteBalanceAsShot::False;
+    fn set_white_balance_shift_red(
+        &mut self,
+        value: &fuji::WhiteBalanceShift,
+    ) -> anyhow::Result<()> {
+        self.white_balance_as_shot = fuji::WhiteBalanceAsShot::False;
         self.white_balance_shift_red = *value;
         Ok(())
     }
 
     fn set_white_balance_shift_blue(
         &mut self,
-        value: &FujiWhiteBalanceShift,
+        value: &fuji::WhiteBalanceShift,
     ) -> anyhow::Result<()> {
-        self.white_balance_as_shot = FujiWhiteBalanceAsShot::False;
+        self.white_balance_as_shot = fuji::WhiteBalanceAsShot::False;
         self.white_balance_shift_blue = *value;
         Ok(())
     }
 
     fn set_white_balance_temperature(
         &mut self,
-        value: &FujiWhiteBalanceTemperature,
+        value: &fuji::WhiteBalanceTemperature,
     ) -> anyhow::Result<()> {
-        self.white_balance_as_shot = FujiWhiteBalanceAsShot::False;
+        self.white_balance_as_shot = fuji::WhiteBalanceAsShot::False;
         self.white_balance_temperature = Some(*value);
         Ok(())
     }
 
-    fn set_dynamic_range(&mut self, value: &FujiDynamicRange) -> anyhow::Result<()> {
-        if *value == FujiDynamicRange::HDR800Plus {
-            self.dynamic_range = FujiDynamicRange::HDR800;
-            self.dynamic_range_priority = FujiDynamicRangePriority::Plus;
+    fn set_dynamic_range(&mut self, value: &fuji::DynamicRange) -> anyhow::Result<()> {
+        if *value == fuji::DynamicRange::HDR800Plus {
+            self.dynamic_range = fuji::DynamicRange::HDR800;
+            self.dynamic_range_priority = fuji::DynamicRangePriority::Plus;
         } else {
             self.dynamic_range = *value;
         }
@@ -453,7 +448,7 @@ impl ConversionProfile for XT5ConversionProfile {
 
     fn set_dynamic_range_priority(
         &mut self,
-        value: &FujiDynamicRangePriority,
+        value: &fuji::DynamicRangePriority,
     ) -> anyhow::Result<()> {
         self.dynamic_range_priority = *value;
         Ok(())
@@ -461,22 +456,22 @@ impl ConversionProfile for XT5ConversionProfile {
 
     fn set_lens_modulation_optimizer(
         &mut self,
-        value: &FujiLensModulationOptimizer,
+        value: &fuji::LensModulationOptimizer,
     ) -> anyhow::Result<()> {
         self.lens_modulation_optimizer = *value;
         Ok(())
     }
 
-    fn set_color_space(&mut self, value: &FujiColorSpace) -> anyhow::Result<()> {
+    fn set_color_space(&mut self, value: &fuji::ColorSpace) -> anyhow::Result<()> {
         self.color_space = *value;
         Ok(())
     }
 }
 
-impl CameraRenders for FujifilmXT5 {
+impl CameraRenderManager for FujifilmXT5 {
     fn render(
         &self,
-        ptp: &mut crate::ptp::Ptp,
+        ptp: &mut Ptp,
         image: &[u8],
         conversion_profile_modifier: &mut dyn FnMut(
             &mut dyn ConversionProfile,

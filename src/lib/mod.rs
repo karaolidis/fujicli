@@ -1,5 +1,6 @@
 pub mod devices;
 pub mod features;
+pub mod input;
 pub mod ptp;
 pub mod usb;
 
@@ -7,23 +8,26 @@ use anyhow::bail;
 use devices::x_trans_v;
 use features::{
     base::{CameraBase, info::CameraInfo},
-    simulation::simulation::Simulation,
+    simulation::Simulation,
 };
 use log::{debug, error};
-use ptp::{Ptp, hex::FujiCustomSetting};
+use ptp::{Ptp, fuji};
 use rusb::{GlobalContext, constants::LIBUSB_CLASS_IMAGE};
 
 use crate::{
     devices::{x_trans, x_trans_ii, x_trans_iii, x_trans_iv},
-    features::render::conversion::ConversionProfile,
+    features::render::ConversionProfile,
     usb::find_endpoint,
 };
 
 const ERROR_DEVICE_NOT_SUPPORTED: &str = "Device not supported";
-const ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS: &str =
+const ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUP_MANAGEMENT: &str =
+    "This camera does not support backups yet";
+const ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_PARSING: &str =
+    "This camera does not support simulation parsing yet";
+const ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_MANAGEMENT: &str =
     "This camera does not support simulation management yet";
-const ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUPS: &str = "This camera does not support backups yet";
-const ERROR_CAMERA_DOES_NOT_SUPPORT_RENDERS: &str =
+const ERROR_CAMERA_DOES_NOT_SUPPORT_RENDER_MANAGEMENT: &str =
     "This camera does not support rendering images yet";
 
 const SESSION: u32 = 1;
@@ -146,7 +150,7 @@ pub const SUPPORTED: &[SupportedCamera] = &[
     x_trans_v::x100vi::FUJIFILM_X100VI,
     x_trans_v::x_h2::FUJIFILM_X_H2,
     x_trans_v::x_h2s::FUJIFILM_X_H2S,
-    x_trans_v::x_t5::FUJIFILM_XT5,
+    x_trans_v::x_t5::FUJIFILM_X_T5,
 ];
 
 impl Camera {
@@ -170,78 +174,78 @@ impl Camera {
         self.r#impl.get_info(&mut self.ptp)
     }
 
-    pub fn custom_settings_slots(&self) -> anyhow::Result<Vec<FujiCustomSetting>> {
-        if let Some(sim) = self.r#impl.as_simulations() {
+    pub fn export_backup(&mut self) -> anyhow::Result<Vec<u8>> {
+        if let Some(backups) = self.r#impl.as_backup_manager() {
+            backups.export_backup(&mut self.ptp)
+        } else {
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUP_MANAGEMENT);
+        }
+    }
+
+    pub fn import_backup(&mut self, buffer: &[u8]) -> anyhow::Result<()> {
+        if let Some(backups) = self.r#impl.as_backup_manager() {
+            backups.import_backup(&mut self.ptp, buffer)
+        } else {
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUP_MANAGEMENT);
+        }
+    }
+
+    pub fn serialize_simulation(&self, simulation: &dyn Simulation) -> anyhow::Result<Vec<u8>> {
+        if let Some(simulations) = self.r#impl.as_simulation_parser() {
+            simulations.serialize_simulation(simulation)
+        } else {
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_PARSING);
+        }
+    }
+
+    pub fn deserialize_simulation(&self, simulation: &[u8]) -> anyhow::Result<Box<dyn Simulation>> {
+        if let Some(simulations) = self.r#impl.as_simulation_parser() {
+            simulations.deserialize_simulation(simulation)
+        } else {
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_PARSING);
+        }
+    }
+
+    pub fn custom_settings_slots(&self) -> anyhow::Result<Vec<fuji::CustomSetting>> {
+        if let Some(sim) = self.r#impl.as_simulation_manager() {
             Ok(sim.custom_settings_slots())
         } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_MANAGEMENT);
         }
     }
 
     pub fn get_simulation(
         &mut self,
-        slot: FujiCustomSetting,
+        slot: fuji::CustomSetting,
     ) -> anyhow::Result<Box<dyn Simulation>> {
-        if let Some(sim) = self.r#impl.as_simulations() {
+        if let Some(sim) = self.r#impl.as_simulation_manager() {
             sim.get_simulation(&mut self.ptp, slot)
         } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_MANAGEMENT);
         }
     }
 
     pub fn update_simulation(
         &mut self,
-        slot: FujiCustomSetting,
+        slot: fuji::CustomSetting,
         modifier: &mut dyn FnMut(&mut dyn Simulation) -> anyhow::Result<()>,
     ) -> anyhow::Result<()> {
-        if let Some(sim) = self.r#impl.as_simulations() {
+        if let Some(sim) = self.r#impl.as_simulation_manager() {
             sim.update_simulation(&mut self.ptp, slot, modifier)
         } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_MANAGEMENT);
         }
     }
 
     pub fn set_simulation(
         &mut self,
-        slot: FujiCustomSetting,
+        slot: fuji::CustomSetting,
         simulation: &dyn Simulation,
     ) -> anyhow::Result<()> {
-        if let Some(sim) = self.r#impl.as_simulations() {
+        if let Some(sim) = self.r#impl.as_simulation_manager() {
             sim.set_simulation(&mut self.ptp, slot, simulation)
         } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
-        }
-    }
-
-    pub fn serialize_simulation(&self, simulation: &dyn Simulation) -> anyhow::Result<Vec<u8>> {
-        if let Some(simulations) = self.r#impl.as_simulations() {
-            simulations.serialize_simulation(simulation)
-        } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
-        }
-    }
-
-    pub fn deserialize_simulation(&self, simulation: &[u8]) -> anyhow::Result<Box<dyn Simulation>> {
-        if let Some(simulations) = self.r#impl.as_simulations() {
-            simulations.deserialize_simulation(simulation)
-        } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATIONS);
-        }
-    }
-
-    pub fn export_backup(&mut self) -> anyhow::Result<Vec<u8>> {
-        if let Some(backups) = self.r#impl.as_backups() {
-            backups.export_backup(&mut self.ptp)
-        } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUPS);
-        }
-    }
-
-    pub fn import_backup(&mut self, buffer: &[u8]) -> anyhow::Result<()> {
-        if let Some(backups) = self.r#impl.as_backups() {
-            backups.import_backup(&mut self.ptp, buffer)
-        } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUPS);
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_MANAGEMENT);
         }
     }
 
@@ -253,10 +257,10 @@ impl Camera {
         ) -> anyhow::Result<()>,
         draft: bool,
     ) -> anyhow::Result<Vec<u8>> {
-        if let Some(renders) = self.r#impl.as_renders() {
+        if let Some(renders) = self.r#impl.as_render_manager() {
             renders.render(&mut self.ptp, image, conversion_profile_modifier, draft)
         } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_RENDERS);
+            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_RENDER_MANAGEMENT);
         }
     }
 }

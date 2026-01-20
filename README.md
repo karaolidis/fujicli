@@ -90,7 +90,7 @@ The following cameras are currently recognized. Feature support varies per model
 | FUJIFILM X100VI | X-Trans V   | ?         |         |             |           |
 | FUJIFILM X-H2   | X-Trans V   | ?         |         |             |           |
 | FUJIFILM X-H2S  | X-Trans V   | ?         |         |             |           |
-| FUJIFILM XT-5   | X-Trans V   | ✓         | ✓       | ✓           | ✓         |
+| FUJIFILM X-T5   | X-Trans V   | ✓         | ✓       | ✓           | ✓         |
 
 ### Legend
 

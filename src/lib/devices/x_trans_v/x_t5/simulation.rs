@@ -5,48 +5,38 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     devices::x_trans_v::x_t5::FujifilmXT5,
-    features::simulation::{CameraSimulations, simulation::Simulation},
-    ptp::{
-        Ptp,
-        hex::{
-            DevicePropCode, FujiClarity, FujiColor, FujiColorChromeEffect, FujiColorChromeFXBlue,
-            FujiColorSpace, FujiCustomSetting, FujiCustomSettingName, FujiDynamicRange,
-            FujiDynamicRangePriority, FujiFilmSimulation, FujiGrainEffect, FujiHighISONR,
-            FujiHighlightTone, FujiImageQuality, FujiImageSize, FujiLensModulationOptimizer,
-            FujiMonochromaticColorShift, FujiShadowTone, FujiSharpness, FujiSmoothSkinEffect,
-            FujiWhiteBalance, FujiWhiteBalanceShift, FujiWhiteBalanceTemperature,
-        },
-    },
+    features::simulation::{CameraSimulationManager, CameraSimulationParser, Simulation},
+    ptp::{DevicePropCode, Ptp, fuji},
 };
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct XT5Simulation {
-    pub name: FujiCustomSettingName,
-    pub size: FujiImageSize,
-    pub quality: FujiImageQuality,
+    pub name: fuji::CustomSettingName,
+    pub size: fuji::ImageSize,
+    pub quality: fuji::ImageQuality,
     #[allow(clippy::struct_field_names)]
-    pub simulation: FujiFilmSimulation,
-    pub monochromatic_color_temperature: FujiMonochromaticColorShift,
-    pub monochromatic_color_tint: FujiMonochromaticColorShift,
-    pub dynamic_range_priority: FujiDynamicRangePriority,
-    pub dynamic_range: FujiDynamicRange,
-    pub highlight: FujiHighlightTone,
-    pub shadow: FujiShadowTone,
-    pub color: FujiColor,
-    pub sharpness: FujiSharpness,
-    pub clarity: FujiClarity,
-    pub noise_reduction: FujiHighISONR,
-    pub grain: FujiGrainEffect,
-    pub color_chrome_effect: FujiColorChromeEffect,
-    pub color_chrome_fx_blue: FujiColorChromeFXBlue,
-    pub smooth_skin_effect: FujiSmoothSkinEffect,
-    pub white_balance: FujiWhiteBalance,
-    pub white_balance_shift_red: FujiWhiteBalanceShift,
-    pub white_balance_shift_blue: FujiWhiteBalanceShift,
-    pub white_balance_temperature: FujiWhiteBalanceTemperature,
-    pub lens_modulation_optimizer: FujiLensModulationOptimizer,
-    pub color_space: FujiColorSpace,
+    pub simulation: fuji::FilmSimulation,
+    pub monochromatic_color_temperature: fuji::MonochromaticColorShift,
+    pub monochromatic_color_tint: fuji::MonochromaticColorShift,
+    pub dynamic_range_priority: fuji::DynamicRangePriority,
+    pub dynamic_range: fuji::DynamicRange,
+    pub highlight: fuji::HighlightTone,
+    pub shadow: fuji::ShadowTone,
+    pub color: fuji::Color,
+    pub sharpness: fuji::Sharpness,
+    pub clarity: fuji::Clarity,
+    pub noise_reduction: fuji::NoiseReduction,
+    pub grain: fuji::GrainEffect,
+    pub color_chrome_effect: fuji::ColorChromeEffect,
+    pub color_chrome_fx_blue: fuji::ColorChromeFXBlue,
+    pub smooth_skin_effect: fuji::SmoothSkinEffect,
+    pub white_balance: fuji::WhiteBalance,
+    pub white_balance_shift_red: fuji::WhiteBalanceShift,
+    pub white_balance_shift_blue: fuji::WhiteBalanceShift,
+    pub white_balance_temperature: fuji::WhiteBalanceTemperature,
+    pub lens_modulation_optimizer: fuji::LensModulationOptimizer,
+    pub color_space: fuji::ColorSpace,
 }
 
 impl fmt::Display for XT5Simulation {
@@ -103,33 +93,33 @@ impl Simulation for XT5Simulation {
         self
     }
 
-    fn get_name(&self) -> anyhow::Result<FujiCustomSettingName> {
+    fn get_name(&self) -> anyhow::Result<fuji::CustomSettingName> {
         Ok(self.name.clone())
     }
 
-    fn set_name(&mut self, value: &FujiCustomSettingName) -> anyhow::Result<()> {
+    fn set_name(&mut self, value: &fuji::CustomSettingName) -> anyhow::Result<()> {
         self.name = value.clone();
         Ok(())
     }
 
-    fn set_size(&mut self, value: &FujiImageSize) -> anyhow::Result<()> {
+    fn set_size(&mut self, value: &fuji::ImageSize) -> anyhow::Result<()> {
         self.size = *value;
         Ok(())
     }
 
-    fn set_quality(&mut self, value: &FujiImageQuality) -> anyhow::Result<()> {
+    fn set_quality(&mut self, value: &fuji::ImageQuality) -> anyhow::Result<()> {
         self.quality = *value;
         Ok(())
     }
 
-    fn set_simulation(&mut self, value: &FujiFilmSimulation) -> anyhow::Result<()> {
+    fn set_simulation(&mut self, value: &fuji::FilmSimulation) -> anyhow::Result<()> {
         self.simulation = *value;
         Ok(())
     }
 
     fn set_monochromatic_color_temperature(
         &mut self,
-        value: &FujiMonochromaticColorShift,
+        value: &fuji::MonochromaticColorShift,
     ) -> anyhow::Result<()> {
         self.monochromatic_color_temperature = *value;
         Ok(())
@@ -137,7 +127,7 @@ impl Simulation for XT5Simulation {
 
     fn set_monochromatic_color_tint(
         &mut self,
-        value: &FujiMonochromaticColorShift,
+        value: &fuji::MonochromaticColorShift,
     ) -> anyhow::Result<()> {
         self.monochromatic_color_tint = *value;
         Ok(())
@@ -145,80 +135,83 @@ impl Simulation for XT5Simulation {
 
     fn set_dynamic_range_priority(
         &mut self,
-        value: &FujiDynamicRangePriority,
+        value: &fuji::DynamicRangePriority,
     ) -> anyhow::Result<()> {
         self.dynamic_range_priority = *value;
         Ok(())
     }
 
-    fn set_dynamic_range(&mut self, value: &FujiDynamicRange) -> anyhow::Result<()> {
+    fn set_dynamic_range(&mut self, value: &fuji::DynamicRange) -> anyhow::Result<()> {
         self.dynamic_range = *value;
         Ok(())
     }
 
-    fn set_highlight(&mut self, value: &FujiHighlightTone) -> anyhow::Result<()> {
+    fn set_highlight(&mut self, value: &fuji::HighlightTone) -> anyhow::Result<()> {
         self.highlight = *value;
         Ok(())
     }
 
-    fn set_shadow(&mut self, value: &FujiShadowTone) -> anyhow::Result<()> {
+    fn set_shadow(&mut self, value: &fuji::ShadowTone) -> anyhow::Result<()> {
         self.shadow = *value;
         Ok(())
     }
 
-    fn set_color(&mut self, value: &FujiColor) -> anyhow::Result<()> {
+    fn set_color(&mut self, value: &fuji::Color) -> anyhow::Result<()> {
         self.color = *value;
         Ok(())
     }
 
-    fn set_sharpness(&mut self, value: &FujiSharpness) -> anyhow::Result<()> {
+    fn set_sharpness(&mut self, value: &fuji::Sharpness) -> anyhow::Result<()> {
         self.sharpness = *value;
         Ok(())
     }
 
-    fn set_clarity(&mut self, value: &FujiClarity) -> anyhow::Result<()> {
+    fn set_clarity(&mut self, value: &fuji::Clarity) -> anyhow::Result<()> {
         self.clarity = *value;
         Ok(())
     }
 
-    fn set_noise_reduction(&mut self, value: &FujiHighISONR) -> anyhow::Result<()> {
+    fn set_noise_reduction(&mut self, value: &fuji::NoiseReduction) -> anyhow::Result<()> {
         self.noise_reduction = *value;
         Ok(())
     }
 
-    fn set_grain(&mut self, value: &FujiGrainEffect) -> anyhow::Result<()> {
+    fn set_grain(&mut self, value: &fuji::GrainEffect) -> anyhow::Result<()> {
         self.grain = *value;
         Ok(())
     }
 
-    fn set_color_chrome_effect(&mut self, value: &FujiColorChromeEffect) -> anyhow::Result<()> {
+    fn set_color_chrome_effect(&mut self, value: &fuji::ColorChromeEffect) -> anyhow::Result<()> {
         self.color_chrome_effect = *value;
         Ok(())
     }
 
-    fn set_color_chrome_fx_blue(&mut self, value: &FujiColorChromeFXBlue) -> anyhow::Result<()> {
+    fn set_color_chrome_fx_blue(&mut self, value: &fuji::ColorChromeFXBlue) -> anyhow::Result<()> {
         self.color_chrome_fx_blue = *value;
         Ok(())
     }
 
-    fn set_smooth_skin_effect(&mut self, value: &FujiSmoothSkinEffect) -> anyhow::Result<()> {
+    fn set_smooth_skin_effect(&mut self, value: &fuji::SmoothSkinEffect) -> anyhow::Result<()> {
         self.smooth_skin_effect = *value;
         Ok(())
     }
 
-    fn set_white_balance(&mut self, value: &FujiWhiteBalance) -> anyhow::Result<()> {
+    fn set_white_balance(&mut self, value: &fuji::WhiteBalance) -> anyhow::Result<()> {
         self.white_balance = *value;
         Ok(())
     }
 
-    fn set_white_balance_shift_red(&mut self, value: &FujiWhiteBalanceShift) -> anyhow::Result<()> {
+    fn set_white_balance_shift_red(
+        &mut self,
+        value: &fuji::WhiteBalanceShift,
+    ) -> anyhow::Result<()> {
         self.white_balance_shift_red = *value;
         Ok(())
     }
 
     fn set_white_balance_shift_blue(
         &mut self,
-        value: &FujiWhiteBalanceShift,
+        value: &fuji::WhiteBalanceShift,
     ) -> anyhow::Result<()> {
         self.white_balance_shift_blue = *value;
         Ok(())
@@ -226,7 +219,7 @@ impl Simulation for XT5Simulation {
 
     fn set_white_balance_temperature(
         &mut self,
-        value: &FujiWhiteBalanceTemperature,
+        value: &fuji::WhiteBalanceTemperature,
     ) -> anyhow::Result<()> {
         self.white_balance_temperature = *value;
         Ok(())
@@ -234,30 +227,30 @@ impl Simulation for XT5Simulation {
 
     fn set_lens_modulation_optimizer(
         &mut self,
-        value: &FujiLensModulationOptimizer,
+        value: &fuji::LensModulationOptimizer,
     ) -> anyhow::Result<()> {
         self.lens_modulation_optimizer = *value;
         Ok(())
     }
 
-    fn set_color_space(&mut self, value: &FujiColorSpace) -> anyhow::Result<()> {
+    fn set_color_space(&mut self, value: &fuji::ColorSpace) -> anyhow::Result<()> {
         self.color_space = *value;
         Ok(())
     }
 }
 
-impl CameraSimulations for FujifilmXT5 {
+impl CameraSimulationManager for FujifilmXT5 {
     fn get_simulation(
         &self,
         ptp: &mut Ptp,
-        slot: FujiCustomSetting,
+        slot: fuji::CustomSetting,
     ) -> anyhow::Result<Box<dyn Simulation>> {
         ptp.set_prop(DevicePropCode::FujiCustomSetting, &slot)?;
 
         let name = ptp.get_prop(DevicePropCode::FujiCustomSettingName)?;
         let size = ptp.get_prop(DevicePropCode::FujiCustomSettingImageSize)?;
         let quality = ptp.get_prop(DevicePropCode::FujiCustomSettingImageQuality)?;
-        let simulation: FujiFilmSimulation =
+        let simulation: fuji::FilmSimulation =
             ptp.get_prop(DevicePropCode::FujiCustomSettingFilmSimulation)?;
         let monochromatic_color_temperature =
             ptp.get_prop(DevicePropCode::FujiCustomSettingMonochromaticColorTemperature)?;
@@ -279,7 +272,7 @@ impl CameraSimulations for FujifilmXT5 {
             ptp.get_prop(DevicePropCode::FujiCustomSettingColorChromeFXBlue)?;
         let smooth_skin_effect = ptp.get_prop(DevicePropCode::FujiCustomSettingSmoothSkinEffect)?;
         let white_balance =
-            ptp.get_prop::<FujiWhiteBalance>(DevicePropCode::FujiCustomSettingWhiteBalance)?;
+            ptp.get_prop::<fuji::WhiteBalance>(DevicePropCode::FujiCustomSettingWhiteBalance)?;
         let white_balance_shift_red =
             ptp.get_prop(DevicePropCode::FujiCustomSettingWhiteBalanceShiftRed)?;
         let white_balance_shift_blue =
@@ -323,7 +316,7 @@ impl CameraSimulations for FujifilmXT5 {
     fn update_simulation(
         &self,
         ptp: &mut Ptp,
-        slot: FujiCustomSetting,
+        slot: fuji::CustomSetting,
         simulation_modifier: &mut dyn FnMut(&mut dyn Simulation) -> anyhow::Result<()>,
     ) -> anyhow::Result<()> {
         let original_simulation = self.get_simulation(ptp, slot)?;
@@ -346,7 +339,7 @@ impl CameraSimulations for FujifilmXT5 {
     fn set_simulation(
         &self,
         ptp: &mut Ptp,
-        slot: FujiCustomSetting,
+        slot: fuji::CustomSetting,
         simulation: &dyn Simulation,
     ) -> anyhow::Result<()> {
         let simulation = simulation.as_any().downcast_ref::<XT5Simulation>().unwrap();
@@ -445,7 +438,9 @@ impl CameraSimulations for FujifilmXT5 {
 
         Ok(())
     }
+}
 
+impl CameraSimulationParser for FujifilmXT5 {
     fn deserialize_simulation(&self, simulation: &[u8]) -> anyhow::Result<Box<dyn Simulation>> {
         let simulation: XT5Simulation = serde_json::from_slice(simulation)?;
         Ok(Box::new(simulation))

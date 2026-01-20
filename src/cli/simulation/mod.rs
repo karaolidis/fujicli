@@ -1,8 +1,4 @@
-use fujicli::{
-    features::simulation::simulation::SimulationListItem,
-    ptp::hex::{FujiCustomSetting, FujiCustomSettingName},
-    usb,
-};
+use fujicli::{features::simulation::SimulationListItem, ptp::fuji, usb};
 
 use super::common::{
     file::{Input, Output},
@@ -21,14 +17,14 @@ pub enum SimulationCmd {
     #[command(alias = "g")]
     Get {
         /// Simulation slot number
-        slot: FujiCustomSetting,
+        slot: fuji::CustomSetting,
     },
 
     /// Set simulation parameters
     #[command(alias = "s")]
     Set {
         /// Simulation slot number
-        slot: FujiCustomSetting,
+        slot: fuji::CustomSetting,
 
         #[command(flatten)]
         set_film_simulation_options: SetFilmSimulationOptions,
@@ -41,7 +37,7 @@ pub enum SimulationCmd {
     #[command(alias = "e")]
     Export {
         /// Simulation slot number
-        slot: FujiCustomSetting,
+        slot: fuji::CustomSetting,
 
         /// Output file (use '-' to write to stdout)
         output_file: Output,
@@ -51,7 +47,7 @@ pub enum SimulationCmd {
     #[command(alias = "i")]
     Import {
         /// Simulation slot number
-        slot: FujiCustomSetting,
+        slot: fuji::CustomSetting,
 
         /// Input file (use '-' to read from stdin)
         input_file: Input,
@@ -62,7 +58,7 @@ pub enum SimulationCmd {
 pub struct SetFilmSimulationOptions {
     /// The name of the slot
     #[clap(long)]
-    pub name: Option<FujiCustomSettingName>,
+    pub name: Option<fuji::CustomSettingName>,
 }
 
 fn handle_list(options: &GlobalOptions) -> anyhow::Result<()> {
@@ -96,7 +92,7 @@ fn handle_list(options: &GlobalOptions) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn handle_get(options: &GlobalOptions, slot: FujiCustomSetting) -> anyhow::Result<()> {
+fn handle_get(options: &GlobalOptions, slot: fuji::CustomSetting) -> anyhow::Result<()> {
     let GlobalOptions {
         json,
         device,
@@ -131,7 +127,7 @@ macro_rules! update_simulation {
 
 fn handle_set(
     options: &GlobalOptions,
-    slot: FujiCustomSetting,
+    slot: fuji::CustomSetting,
     set_options: &SetFilmSimulationOptions,
     film_options: &FilmSimulationOptions,
 ) -> anyhow::Result<()> {
@@ -208,7 +204,7 @@ fn handle_set(
 
 fn handle_export(
     options: &GlobalOptions,
-    slot: FujiCustomSetting,
+    slot: fuji::CustomSetting,
     output: &Output,
 ) -> anyhow::Result<()> {
     let GlobalOptions {
@@ -227,7 +223,7 @@ fn handle_export(
 
 fn handle_import(
     options: &GlobalOptions,
-    slot: FujiCustomSetting,
+    slot: fuji::CustomSetting,
     input: &Input,
 ) -> anyhow::Result<()> {
     let GlobalOptions {

@@ -1,16 +1,19 @@
+pub mod container;
 pub mod error;
-pub mod hex;
-pub mod input;
+pub mod fuji;
+pub mod props;
 pub mod structs;
+
+pub use container::*;
+pub use props::*;
+pub use structs::*;
 
 use std::{cmp::min, io::Cursor, time::Duration};
 
 use anyhow::anyhow;
-use hex::{CommandCode, ContainerCode, ContainerType, DevicePropCode, ResponseCode};
 use log::{debug, error, trace, warn};
 use ptp_cursor::{PtpDeserialize, PtpSerialize};
 use rusb::GlobalContext;
-use structs::{ContainerInfo, DeviceInfo};
 
 pub struct Ptp {
     pub bus: u8,
@@ -105,54 +108,6 @@ impl Ptp {
 
         response
     }
-
-    pub fn open_session(&mut self, session_id: u32) -> anyhow::Result<()> {
-        debug!("Opening PTP session");
-        self.send(CommandCode::OpenSession, &[session_id], None)?;
-        Ok(())
-    }
-
-    pub fn close_session(&mut self, _: u32) -> anyhow::Result<()> {
-        debug!("Closing PTP session");
-        self.send(CommandCode::CloseSession, &[], None)?;
-        Ok(())
-    }
-
-    pub fn get_info(&mut self) -> anyhow::Result<DeviceInfo> {
-        debug!("Retrieving device info");
-        let response = self.send(CommandCode::GetDeviceInfo, &[], None)?;
-        let info = DeviceInfo::try_from_ptp(&response)?;
-        Ok(info)
-    }
-
-    pub fn get_prop_raw(&mut self, prop: DevicePropCode) -> anyhow::Result<Vec<u8>> {
-        debug!("Getting device prop: {prop:?}");
-        let response = self.send(CommandCode::GetDevicePropValue, &[prop.into()], None)?;
-        Ok(response)
-    }
-
-    pub fn set_prop_raw(&mut self, prop: DevicePropCode, value: &[u8]) -> anyhow::Result<Vec<u8>> {
-        debug!("Setting device prop: {prop:?}");
-        let response = self.send(CommandCode::SetDevicePropValue, &[prop.into()], Some(value))?;
-        Ok(response)
-    }
-
-    pub fn get_prop<T: PtpDeserialize>(&mut self, code: DevicePropCode) -> anyhow::Result<T> {
-        let bytes = self.get_prop_raw(code)?;
-        let value = T::try_from_ptp(&bytes)?;
-        Ok(value)
-    }
-
-    pub fn set_prop<T: PtpSerialize>(
-        &mut self,
-        code: DevicePropCode,
-        value: &T,
-    ) -> anyhow::Result<()> {
-        let bytes = value.try_into_ptp()?;
-        self.set_prop_raw(code, &bytes)?;
-        Ok(())
-    }
-
     fn write(
         &self,
         kind: ContainerType,
@@ -217,6 +172,53 @@ impl Ptp {
         }
 
         Ok((container_info, payload))
+    }
+
+    pub fn open_session(&mut self, session_id: u32) -> anyhow::Result<()> {
+        debug!("Opening PTP session");
+        self.send(CommandCode::OpenSession, &[session_id], None)?;
+        Ok(())
+    }
+
+    pub fn close_session(&mut self, _: u32) -> anyhow::Result<()> {
+        debug!("Closing PTP session");
+        self.send(CommandCode::CloseSession, &[], None)?;
+        Ok(())
+    }
+
+    pub fn get_info(&mut self) -> anyhow::Result<DeviceInfo> {
+        debug!("Retrieving device info");
+        let response = self.send(CommandCode::GetDeviceInfo, &[], None)?;
+        let info = DeviceInfo::try_from_ptp(&response)?;
+        Ok(info)
+    }
+
+    pub fn get_prop_raw(&mut self, prop: DevicePropCode) -> anyhow::Result<Vec<u8>> {
+        debug!("Getting device prop: {prop:?}");
+        let response = self.send(CommandCode::GetDevicePropValue, &[prop.into()], None)?;
+        Ok(response)
+    }
+
+    pub fn set_prop_raw(&mut self, prop: DevicePropCode, value: &[u8]) -> anyhow::Result<Vec<u8>> {
+        debug!("Setting device prop: {prop:?}");
+        let response = self.send(CommandCode::SetDevicePropValue, &[prop.into()], Some(value))?;
+        Ok(response)
+    }
+
+    pub fn get_prop<T: PtpDeserialize>(&mut self, code: DevicePropCode) -> anyhow::Result<T> {
+        let bytes = self.get_prop_raw(code)?;
+        let value = T::try_from_ptp(&bytes)?;
+        Ok(value)
+    }
+
+    pub fn set_prop<T: PtpSerialize>(
+        &mut self,
+        code: DevicePropCode,
+        value: &T,
+    ) -> anyhow::Result<()> {
+        let bytes = value.try_into_ptp()?;
+        self.set_prop_raw(code, &bytes)?;
+        Ok(())
     }
 }
 

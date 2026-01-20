@@ -1,7 +1,4 @@
-use fujicli::{
-    ptp::hex::{FujiCustomSetting, FujiExposureOffset, FujiFileType, FujiTeleconverter},
-    usb,
-};
+use fujicli::{ptp::fuji, usb};
 
 use super::common::{
     file::{Input, Output},
@@ -14,7 +11,7 @@ use clap::Args;
 pub struct RenderCmd {
     /// Simulation slot number
     #[arg(long, conflicts_with = "simulation_file")]
-    slot: Option<FujiCustomSetting>,
+    slot: Option<fuji::CustomSetting>,
 
     /// Path to exported simulation file
     #[arg(long, conflicts_with = "slot")]
@@ -41,15 +38,15 @@ pub struct RenderOptions {
 
     /// Output file format
     #[clap(long)]
-    file_type: Option<FujiFileType>,
+    file_type: Option<fuji::FileType>,
 
     /// Push/Pull exposure compensation
     #[clap(long, allow_hyphen_values(true))]
-    exposure_offset: Option<FujiExposureOffset>,
+    exposure_offset: Option<fuji::ExposureOffset>,
 
     /// Teleconverter
     #[clap(long)]
-    teleconverter: Option<FujiTeleconverter>,
+    teleconverter: Option<fuji::Teleconverter>,
 }
 
 macro_rules! update_conversion_profile {
@@ -70,7 +67,7 @@ fn handle_render(
     output: &Output,
     render_options: &RenderOptions,
     film_options: &FilmSimulationOptions,
-    slot: Option<FujiCustomSetting>,
+    slot: Option<fuji::CustomSetting>,
     simulation_file: Option<Input>,
 ) -> anyhow::Result<()> {
     let GlobalOptions {

@@ -1,22 +1,14 @@
 use super::XTransIII;
-use crate::{SupportedCamera, features::base::CameraBase};
+use crate::devices::define_camera;
 use rusb::GlobalContext;
 
-pub const FUJIFILM_X100F: SupportedCamera = SupportedCamera {
-    name: "FUJIFILM X100F",
-    vendor: 0x04cb,
-    product: 0x02d1,
-    camera_factory: || Box::new(FujifilmX100F {}),
-};
-
-pub struct FujifilmX100F {}
-
-impl CameraBase for FujifilmX100F {
-    type Context = GlobalContext;
-
-    fn camera_definition(&self) -> &'static SupportedCamera {
-        &FUJIFILM_X100F
-    }
-}
-
-impl XTransIII for FujifilmX100F {}
+define_camera!(
+    "FUJIFILM X100F",
+    FujifilmX100F,
+    FUJIFILM_X100F,
+    0x04cb,
+    0x02d1,
+    context = GlobalContext,
+    sensor = XTransIII,
+    capabilities = [],
+);

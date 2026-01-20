@@ -3,7 +3,7 @@ use std::fmt;
 use erased_serde::serialize_trait_object;
 use serde::Serialize;
 
-use crate::{Camera, ptp::hex::FujiUsbMode};
+use crate::{Camera, ptp::fuji};
 
 pub trait CameraInfo: fmt::Display + erased_serde::Serialize {}
 serialize_trait_object!(CameraInfo);
@@ -15,7 +15,7 @@ pub struct DefaultCameraInfo {
     pub model: String,
     pub device_version: String,
     pub serial_number: String,
-    pub mode: FujiUsbMode,
+    pub mode: fuji::UsbMode,
     pub battery: u32,
 }
 

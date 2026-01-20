@@ -7,14 +7,8 @@ use strum::IntoEnumIterator;
 
 use crate::cli::{GlobalOptions, common::file::Input};
 use fujicli::{
-    features::{
-        backup::{self, ptp::FujiBackupObjectInfo},
-        base::info::CameraInfoListItem,
-    },
-    ptp::{
-        hex::{CommandCode, DevicePropCode, FujiCustomSetting, ObjectFormat},
-        structs::ObjectInfo,
-    },
+    features::{backup, base::info::CameraInfoListItem},
+    ptp::{CommandCode, DevicePropCode, ObjectFormat, ObjectInfo, fuji},
     usb,
 };
 
@@ -113,7 +107,7 @@ fn handle_dump(options: &GlobalOptions, input: Option<Input>) -> anyhow::Result<
             .send(CommandCode::GetObject, &backup::OBJECT_HANDLE, None)
     )?;
 
-    let backup_info = FujiBackupObjectInfo::new(backup.len())?;
+    let backup_info = fuji::BackupObjectInfo::new(backup.len())?;
 
     try_call!(camera.ptp.send(
         CommandCode::SendObjectInfo,
@@ -130,7 +124,7 @@ fn handle_dump(options: &GlobalOptions, input: Option<Input>) -> anyhow::Result<
     let _ = try_call!(camera.ptp.get_prop_raw(DevicePropCode::FujiUsbMode));
     let _ = try_call!(camera.ptp.get_prop_raw(DevicePropCode::FujiBatteryInfo2));
 
-    for slot in FujiCustomSetting::iter() {
+    for slot in fuji::CustomSetting::iter() {
         if try_call!(
             camera
                 .ptp

@@ -6,11 +6,13 @@ use log::debug;
 
 use crate::{
     SupportedCamera,
-    features::render::CameraRenders,
-    ptp::{Ptp, hex::DevicePropCode},
+    features::{
+        backup::CameraBackupManager,
+        render::CameraRenderManager,
+        simulation::{manager::CameraSimulationManager, parser::CameraSimulationParser},
+    },
+    ptp::{DevicePropCode, Ptp},
 };
-
-use super::{backup::CameraBackups, simulation::CameraSimulations};
 
 pub trait CameraBase {
     type Context: rusb::UsbContext;
@@ -22,15 +24,21 @@ pub trait CameraBase {
         1024 * 1024
     }
 
-    fn as_backups(&self) -> Option<&dyn CameraBackups<Context = Self::Context>> {
+    fn as_backup_manager(&self) -> Option<&dyn CameraBackupManager<Context = Self::Context>> {
         None
     }
 
-    fn as_simulations(&self) -> Option<&dyn CameraSimulations<Context = Self::Context>> {
+    fn as_simulation_parser(&self) -> Option<&dyn CameraSimulationParser> {
         None
     }
 
-    fn as_renders(&self) -> Option<&dyn CameraRenders<Context = Self::Context>> {
+    fn as_simulation_manager(
+        &self,
+    ) -> Option<&dyn CameraSimulationManager<Context = Self::Context>> {
+        None
+    }
+
+    fn as_render_manager(&self) -> Option<&dyn CameraRenderManager<Context = Self::Context>> {
         None
     }
 

@@ -5,6 +5,40 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use ptp_cursor::{PtpDeserialize, PtpSerialize, Read};
 use ptp_macro::{PtpDeserialize, PtpSerialize};
 
+#[derive(Debug, Clone, Copy, PtpSerialize, PtpDeserialize)]
+pub struct ContainerInfo {
+    pub total_len: u32,
+    pub kind: ContainerType,
+    pub code: ContainerCode,
+    pub transaction_id: u32,
+}
+
+impl ContainerInfo {
+    pub const SIZE: usize =
+        size_of::<u32>() + size_of::<u16>() + size_of::<u16>() + size_of::<u32>();
+
+    pub fn new(
+        kind: ContainerType,
+        code: CommandCode,
+        transaction_id: u32,
+        payload_len: usize,
+    ) -> anyhow::Result<Self> {
+        let total_len = u32::try_from(Self::SIZE + payload_len)?;
+        let code = ContainerCode::Command(code);
+
+        Ok(Self {
+            total_len,
+            kind,
+            code,
+            transaction_id,
+        })
+    }
+
+    pub const fn payload_len(&self) -> usize {
+        self.total_len as usize - Self::SIZE
+    }
+}
+
 #[repr(u16)]
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive, PtpSerialize, PtpDeserialize,
