@@ -108,6 +108,7 @@ impl Ptp {
 
         response
     }
+
     fn write(
         &self,
         kind: ContainerType,

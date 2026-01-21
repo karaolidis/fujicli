@@ -105,15 +105,7 @@ The following cameras are currently recognized. Feature support varies per model
 
 ## Help Add Your Camera
 
-If your camera isn't listed, or a feature is missing, you can help expedite support:
-
-- Run a detailed device dump and share the log:
-
-	`fujicli device dump -vvv > dump.log 2>&1`
-
-- Open an issue, or send `dump.log` to the maintainers. This helps map PTP properties and behaviors.
-
-- Rendering is especially involved and typically needs extra per-camera reverse engineering; dumps are invaluable but additional iteration is expected.
+If your camera isn't listed, or a feature is missing, you can help expedite support. See [support/REVERSING.md](support/REVERSING.md) for detailed instructions.
 
 ### Emulation Mode (`--emulate`)
 

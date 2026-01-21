@@ -9,6 +9,7 @@
     };
 
     rustfmt.enable = true;
+    shellcheck.enable = true;
   };
 
   settings.global.excludes = [ ".envrc" ];

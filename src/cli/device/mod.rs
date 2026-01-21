@@ -18,7 +18,7 @@ pub enum DeviceCmd {
     /// Reverse engineer device communication
     ///
     /// Only run this if you have a full device backup and know what
-    /// you are doing. Misuse can corrupt your camera.
+    /// you are doing. Misuse can corrupt your camera or void your warranty.
     #[command(alias = "r", subcommand, hide = true)]
     Reverse(ReverseCmd),
 }

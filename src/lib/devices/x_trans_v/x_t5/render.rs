@@ -248,6 +248,9 @@ impl PtpSerialize for XT5ConversionProfile {
         i32::from(self.clarity).try_write_ptp(buf)?;
         u32::from(self.teleconverter).try_write_ptp(buf)?;
 
+        // Yes, X RAW Studio sends 32 more bits that it never receives. These are typically 0 or 1, but I can't tell what they do.
+        0x0i32.try_write_ptp(buf)?;
+
         Ok(())
     }
 }
