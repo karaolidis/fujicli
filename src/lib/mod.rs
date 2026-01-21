@@ -2,9 +2,8 @@ pub mod devices;
 pub mod features;
 pub mod input;
 pub mod ptp;
-pub mod usb;
 
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use devices::x_trans_v;
 use features::{
     base::{CameraBase, info::CameraInfo},
@@ -16,8 +15,7 @@ use rusb::{GlobalContext, constants::LIBUSB_CLASS_IMAGE};
 
 use crate::{
     devices::{x_trans, x_trans_ii, x_trans_iii, x_trans_iv},
-    features::render::ConversionProfile,
-    usb::find_endpoint,
+    features::{base::UNKNOWN_CAMERA, render::ConversionProfile},
 };
 
 const ERROR_DEVICE_NOT_SUPPORTED: &str = "Device not supported";
@@ -37,24 +35,50 @@ pub struct Camera {
     r#impl: Box<dyn CameraBase<Context = GlobalContext>>,
 }
 
+pub enum CameraMode {
+    Supported,
+    Emulated { vendor: u16, product: u16 },
+    Unknown,
+}
+
 impl Camera {
-    pub fn from_device(
+    pub fn probe(device: &rusb::Device<GlobalContext>) -> anyhow::Result<bool> {
+        let descriptor = device.device_descriptor()?;
+
+        let vendor = descriptor.vendor_id();
+        let product = descriptor.product_id();
+
+        let supported = SUPPORTED
+            .iter()
+            .any(|c| c.vendor == vendor && c.product == product);
+
+        Ok(supported)
+    }
+
+    pub fn open_with(
+        mode: CameraMode,
         device: &rusb::Device<GlobalContext>,
-        emulated_vendor: Option<u16>,
-        emulated_product: Option<u16>,
     ) -> anyhow::Result<Self> {
         let descriptor = device.device_descriptor()?;
 
-        let vendor = emulated_vendor.unwrap_or_else(|| descriptor.vendor_id());
-        let product = emulated_product.unwrap_or_else(|| descriptor.product_id());
-
-        let Some(camera) = SUPPORTED
-            .iter()
-            .find(|c| c.vendor == vendor && c.product == product)
-        else {
-            bail!(ERROR_DEVICE_NOT_SUPPORTED)
+        let (vendor, product) = match mode {
+            CameraMode::Supported | CameraMode::Unknown => {
+                (descriptor.vendor_id(), descriptor.product_id())
+            }
+            CameraMode::Emulated { vendor, product } => (vendor, product),
         };
-        debug!("Found supported camera {camera:x?}");
+
+        let factory = match mode {
+            CameraMode::Supported | CameraMode::Emulated { .. } => SUPPORTED
+                .iter()
+                .find(|c| c.vendor == vendor && c.product == product)
+                .map(|c| {
+                    debug!("Found supported camera: {}", c.name);
+                    c.camera_factory
+                })
+                .ok_or_else(|| anyhow!(ERROR_DEVICE_NOT_SUPPORTED))?,
+            CameraMode::Unknown => UNKNOWN_CAMERA.camera_factory,
+        };
 
         let bus = device.bus_number();
         let address = device.address();
@@ -73,23 +97,24 @@ impl Camera {
         handle.claim_interface(interface)?;
         debug!("Claimed interface");
 
-        let bulk_in = find_endpoint(
-            &interface_descriptor,
-            rusb::Direction::In,
-            rusb::TransferType::Bulk,
-        )?;
+        let find_endpoint = |direction: rusb::Direction,
+                             transfer_type: rusb::TransferType|
+         -> Result<u8, rusb::Error> {
+            interface_descriptor
+                .endpoint_descriptors()
+                .find(|ep| ep.direction() == direction && ep.transfer_type() == transfer_type)
+                .map(|x| x.address())
+                .ok_or(rusb::Error::NotFound)
+        };
+
+        let bulk_in = find_endpoint(rusb::Direction::In, rusb::TransferType::Bulk)?;
         debug!("Found Bulk In endpoint");
 
-        let bulk_out = find_endpoint(
-            &interface_descriptor,
-            rusb::Direction::Out,
-            rusb::TransferType::Bulk,
-        )?;
+        let bulk_out = find_endpoint(rusb::Direction::Out, rusb::TransferType::Bulk)?;
         debug!("Found Bulk Out endpoint");
 
         let transaction_id = 0;
-
-        let r#impl = (camera.camera_factory)();
+        let r#impl = (factory)();
         let chunk_size = r#impl.chunk_size();
 
         let mut ptp = Ptp {
@@ -106,6 +131,22 @@ impl Camera {
         ptp.open_session(SESSION)?;
 
         Ok(Self { ptp, r#impl })
+    }
+
+    pub fn open(device: &rusb::Device<GlobalContext>) -> anyhow::Result<Self> {
+        Self::open_with(CameraMode::Supported, device)
+    }
+
+    pub fn open_as(
+        device: &rusb::Device<GlobalContext>,
+        vendor: u16,
+        product: u16,
+    ) -> anyhow::Result<Self> {
+        Self::open_with(CameraMode::Emulated { vendor, product }, device)
+    }
+
+    pub fn open_unknown(device: &rusb::Device<GlobalContext>) -> anyhow::Result<Self> {
+        Self::open_with(CameraMode::Unknown, device)
     }
 }
 

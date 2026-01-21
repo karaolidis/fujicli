@@ -1,16 +1,9 @@
-use std::{thread::sleep, time::Duration};
+mod reverse;
 
 use clap::Subcommand;
-use log::{error, info};
-use ptp_cursor::{PtpDeserialize, PtpSerialize};
-use strum::IntoEnumIterator;
 
-use crate::cli::{GlobalOptions, common::file::Input};
-use fujicli::{
-    features::{backup, base::info::CameraInfoListItem, render},
-    ptp::{CommandCode, DevicePropCode, ObjectFormat, ObjectInfo, fuji},
-    usb,
-};
+use crate::cli::{GlobalOptions, common::usb, device::reverse::ReverseCmd};
+use fujicli::features::base::info::CameraInfoListItem;
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum DeviceCmd {
@@ -22,23 +15,24 @@ pub enum DeviceCmd {
     #[command(alias = "i")]
     Info,
 
-    /// Dump camera details
-    #[command(alias = "d")]
-    Dump {
-        /// Optional RAF input file to test rendering (use '-' to read from stdin)
-        input: Option<Input>,
-    },
+    /// Reverse engineer device communication
+    ///
+    /// Only run this if you have a full device backup and know what
+    /// you are doing. Misuse can corrupt your camera.
+    #[command(alias = "r", subcommand, hide = true)]
+    Reverse(ReverseCmd),
 }
 
-fn handle_list(options: &GlobalOptions) -> anyhow::Result<()> {
+#[allow(clippy::needless_pass_by_value)]
+fn handle_list(options: GlobalOptions) -> anyhow::Result<()> {
     let GlobalOptions { json, .. } = options;
 
-    let cameras: Vec<CameraInfoListItem> = usb::get_connected_cameras()?
+    let cameras: Vec<CameraInfoListItem> = usb::get_all_cameras()?
         .iter()
         .map(std::convert::Into::into)
         .collect();
 
-    if *json {
+    if json {
         println!("{}", serde_json::to_string_pretty(&cameras)?);
         return Ok(());
     }
@@ -55,7 +49,8 @@ fn handle_list(options: &GlobalOptions) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn handle_info(options: &GlobalOptions) -> anyhow::Result<()> {
+#[allow(clippy::needless_pass_by_value)]
+fn handle_info(options: GlobalOptions) -> anyhow::Result<()> {
     let GlobalOptions {
         json,
         device,
@@ -63,11 +58,11 @@ fn handle_info(options: &GlobalOptions) -> anyhow::Result<()> {
         ..
     } = options;
 
-    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
+    let mut camera = usb::get_camera(device, emulate)?;
 
     let repr = camera.get_info()?;
 
-    if *json {
+    if json {
         println!("{}", serde_json::to_string_pretty(&repr)?);
         return Ok(());
     }
@@ -76,294 +71,10 @@ fn handle_info(options: &GlobalOptions) -> anyhow::Result<()> {
     Ok(())
 }
 
-macro_rules! try_call {
-    ($call:expr $(,)?) => {{
-        let result = $call;
-        match &result {
-            Ok(value) => info!("{}: {:?}", stringify!($call), value),
-            Err(error) => error!("{}: {}", stringify!($call), error),
-        }
-        result
-    }};
-}
-
-#[allow(clippy::too_many_lines)]
-#[allow(clippy::cognitive_complexity)]
-fn handle_dump(options: &GlobalOptions, input: Option<Input>) -> anyhow::Result<()> {
-    let GlobalOptions {
-        device, emulate, ..
-    } = options;
-
-    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
-
-    try_call!(camera.ptp.send(
-        CommandCode::GetObjectInfo,
-        &backup::EXPORT_OBJECT_INFO_HANDLE,
-        None
-    ))?;
-    let backup = try_call!(
-        camera
-            .ptp
-            .send(CommandCode::GetObject, &backup::OBJECT_HANDLE, None)
-    )?;
-
-    let backup_info = fuji::BackupObjectInfo::new(backup.len())?;
-
-    try_call!(camera.ptp.send(
-        CommandCode::SendObjectInfo,
-        &[0x0, 0x0],
-        Some(&backup_info.try_into_ptp()?),
-    ))?;
-    try_call!(
-        camera
-            .ptp
-            .send(CommandCode::SendObject, &[0x0], Some(&backup))
-    )?;
-
-    let _ = try_call!(camera.ptp.get_info());
-    let _ = try_call!(camera.ptp.get_prop_raw(DevicePropCode::FujiUsbMode));
-    let _ = try_call!(camera.ptp.get_prop_raw(DevicePropCode::FujiBatteryInfo2));
-
-    for slot in fuji::CustomSetting::iter() {
-        if try_call!(
-            camera
-                .ptp
-                .set_prop(DevicePropCode::FujiCustomSetting, &slot)
-        )
-        .is_err()
-        {
-            continue;
-        }
-
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingName)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingImageSize)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingImageQuality)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingDynamicRange)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingDynamicRangePriority)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingFilmSimulation)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingMonochromaticColorTemperature)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingMonochromaticColorTint)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingGrainEffect)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingColorChromeEffect)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingColorChromeFXBlue)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingSmoothSkinEffect)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingWhiteBalance)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingWhiteBalanceShiftRed)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingWhiteBalanceShiftBlue)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingWhiteBalanceTemperature)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingHighlightTone)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingShadowTone)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingColor)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingSharpness)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingHighISONR)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingClarity)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingLensModulationOptimizer)
-        );
-        let _ = try_call!(
-            camera
-                .ptp
-                .get_prop_raw(DevicePropCode::FujiCustomSettingColorSpace)
-        );
-    }
-
-    'render: {
-        if let Some(input) = input {
-            let mut reader = input.get_reader()?;
-            let mut image = Vec::new();
-            reader.read_to_end(&mut image)?;
-
-            let object_info = ObjectInfo {
-                object_format: ObjectFormat::FujiRAF,
-                compressed_size: u32::try_from(image.len())?,
-                filename: String::from("FUP_FILE.dat"),
-                ..Default::default()
-            };
-
-            if try_call!(camera.ptp.send(
-                CommandCode::FujiSendObjectInfo,
-                &render::OUTGOING_OBJECT_HANDLE,
-                Some(&object_info.try_into_ptp()?),
-            ))
-            .is_err()
-            {
-                break 'render;
-            }
-
-            if try_call!(
-                camera
-                    .ptp
-                    .send(CommandCode::FujiSendObject, &[], Some(&image))
-            )
-            .is_err()
-            {
-                break 'render;
-            }
-
-            let Ok(profile) = try_call!(
-                camera
-                    .ptp
-                    .get_prop_raw(DevicePropCode::FujiRawConversionProfile)
-            ) else {
-                break 'render;
-            };
-
-            if try_call!(
-                camera
-                    .ptp
-                    .set_prop(DevicePropCode::FujiRawConversionProfile, &profile)
-            )
-            .is_err()
-            {
-                break 'render;
-            }
-
-            if try_call!(
-                camera
-                    .ptp
-                    .set_prop(DevicePropCode::FujiRawConversionRun, &1u16)
-            )
-            .is_err()
-            {
-                break 'render;
-            }
-
-            let handle;
-            loop {
-                let Ok(raw) = try_call!(camera.ptp.send(
-                    CommandCode::GetObjectHandles,
-                    &render::INCOMING_OBJECT_HANDLE,
-                    None
-                )) else {
-                    break 'render;
-                };
-
-                let response = <Vec<u32>>::try_from_ptp(&raw)?;
-                if !response.is_empty() {
-                    handle = response[0];
-                    break;
-                }
-
-                sleep(Duration::from_millis(100));
-            }
-
-            if try_call!(camera.ptp.send(CommandCode::GetObject, &[handle], None)).is_err() {
-                break 'render;
-            }
-            if try_call!(camera.ptp.send(CommandCode::DeleteObject, &[handle], None)).is_err() {
-                break 'render;
-            }
-        }
-    }
-
-    try_call!(camera.ptp.send(
-        CommandCode::SendObjectInfo,
-        &backup::IMPORT_OBJECT_INFO_HANDLE,
-        Some(&backup_info.try_into_ptp()?),
-    ))?;
-    try_call!(camera.ptp.send(
-        CommandCode::SendObject,
-        &backup::OBJECT_HANDLE,
-        Some(&backup)
-    ))?;
-
-    Ok(())
-}
-
-pub fn handle(cmd: DeviceCmd, options: &GlobalOptions) -> anyhow::Result<()> {
+pub fn handle(cmd: DeviceCmd, options: GlobalOptions) -> anyhow::Result<()> {
     match cmd {
         DeviceCmd::List => handle_list(options),
         DeviceCmd::Info => handle_info(options),
-        DeviceCmd::Dump { input } => handle_dump(options, input),
+        DeviceCmd::Reverse(cmd) => reverse::handle(cmd, options),
     }
 }

@@ -1,10 +1,10 @@
-use fujicli::{features::simulation::SimulationListItem, ptp::fuji, usb};
+use fujicli::{features::simulation::SimulationListItem, ptp::fuji};
 
 use super::common::{
     file::{Input, Output},
     film::FilmSimulationOptions,
 };
-use crate::cli::GlobalOptions;
+use crate::cli::{GlobalOptions, common::usb};
 use clap::{Args, Subcommand};
 
 #[derive(Subcommand, Debug)]
@@ -61,7 +61,8 @@ pub struct SetFilmSimulationOptions {
     pub name: Option<fuji::CustomSettingName>,
 }
 
-fn handle_list(options: &GlobalOptions) -> anyhow::Result<()> {
+#[allow(clippy::needless_pass_by_value)]
+fn handle_list(options: GlobalOptions) -> anyhow::Result<()> {
     let GlobalOptions {
         json,
         device,
@@ -69,7 +70,7 @@ fn handle_list(options: &GlobalOptions) -> anyhow::Result<()> {
         ..
     } = options;
 
-    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
+    let mut camera = usb::get_camera(device, emulate)?;
 
     let slots: Vec<SimulationListItem> = camera
         .custom_settings_slots()?
@@ -81,7 +82,7 @@ fn handle_list(options: &GlobalOptions) -> anyhow::Result<()> {
         })
         .collect::<anyhow::Result<Vec<SimulationListItem>>>()?;
 
-    if *json {
+    if json {
         println!("{}", serde_json::to_string_pretty(&slots)?);
     } else {
         for slot in slots {
@@ -92,7 +93,8 @@ fn handle_list(options: &GlobalOptions) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn handle_get(options: &GlobalOptions, slot: fuji::CustomSetting) -> anyhow::Result<()> {
+#[allow(clippy::needless_pass_by_value)]
+fn handle_get(options: GlobalOptions, slot: fuji::CustomSetting) -> anyhow::Result<()> {
     let GlobalOptions {
         json,
         device,
@@ -100,11 +102,11 @@ fn handle_get(options: &GlobalOptions, slot: fuji::CustomSetting) -> anyhow::Res
         ..
     } = options;
 
-    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
+    let mut camera = usb::get_camera(device, emulate)?;
 
     let simulation = camera.get_simulation(slot)?;
 
-    if *json {
+    if json {
         println!("{}", serde_json::to_string_pretty(&simulation)?);
     } else {
         println!("{simulation}");
@@ -125,8 +127,9 @@ macro_rules! update_simulation {
     };
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn handle_set(
-    options: &GlobalOptions,
+    options: GlobalOptions,
     set_options: &SetFilmSimulationOptions,
     film_options: &FilmSimulationOptions,
     slot: fuji::CustomSetting,
@@ -135,7 +138,7 @@ fn handle_set(
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
+    let mut camera = usb::get_camera(device, emulate)?;
 
     let SetFilmSimulationOptions { name } = set_options;
 
@@ -202,8 +205,9 @@ fn handle_set(
     Ok(())
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn handle_export(
-    options: &GlobalOptions,
+    options: GlobalOptions,
     slot: fuji::CustomSetting,
     output: Output,
 ) -> anyhow::Result<()> {
@@ -211,7 +215,7 @@ fn handle_export(
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
+    let mut camera = usb::get_camera(device, emulate)?;
 
     let mut writer = output.get_writer()?;
     let simulation = camera.get_simulation(slot)?;
@@ -221,8 +225,9 @@ fn handle_export(
     Ok(())
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn handle_import(
-    options: &GlobalOptions,
+    options: GlobalOptions,
     slot: fuji::CustomSetting,
     input: Input,
 ) -> anyhow::Result<()> {
@@ -230,7 +235,7 @@ fn handle_import(
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
+    let mut camera = usb::get_camera(device, emulate)?;
 
     let mut reader = input.get_reader()?;
     let mut simulation = Vec::new();
@@ -241,7 +246,7 @@ fn handle_import(
     Ok(())
 }
 
-pub fn handle(cmd: SimulationCmd, options: &GlobalOptions) -> anyhow::Result<()> {
+pub fn handle(cmd: SimulationCmd, options: GlobalOptions) -> anyhow::Result<()> {
     match cmd {
         SimulationCmd::List => handle_list(options),
         SimulationCmd::Get { slot } => handle_get(options, slot),

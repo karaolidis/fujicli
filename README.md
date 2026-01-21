@@ -9,7 +9,7 @@ Commands:
   device      Manage devices
   simulation  Manage film simulations
   backup      Manage backups
-  render      Render images using in-camera processor
+  image       Manage and render images
   help        Print this message or the help of the given subcommand(s)
 
 Options:

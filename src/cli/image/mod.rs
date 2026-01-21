@@ -1,10 +1,10 @@
-use fujicli::{features::image::extract_simulation, ptp::fuji, usb};
+use fujicli::{features::image::extract_simulation, ptp::fuji};
 
 use super::common::{
     file::{Input, Output},
     film::FilmSimulationOptions,
 };
-use crate::cli::GlobalOptions;
+use crate::cli::{GlobalOptions, common::usb};
 use clap::{Args, Subcommand};
 
 #[derive(Subcommand, Debug)]
@@ -80,8 +80,9 @@ macro_rules! update_conversion_profile {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::needless_pass_by_value)]
 fn handle_render(
-    options: &GlobalOptions,
+    options: GlobalOptions,
     render_options: &RenderOptions,
     film_options: &FilmSimulationOptions,
     input: Input,
@@ -94,7 +95,7 @@ fn handle_render(
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
+    let mut camera = usb::get_camera(device, emulate)?;
 
     let RenderOptions {
         draft,
@@ -141,8 +142,8 @@ fn handle_render(
         reader.read_to_end(&mut simulation)?;
         Some(camera.deserialize_simulation(&simulation)?)
     } else if let Some(like) = like {
-        let like = like.as_path()?;
-        Some(extract_simulation(&*like)?)
+        let like = like.into_path()?;
+        Some(extract_simulation(&like)?)
     } else {
         None
     };
@@ -198,10 +199,11 @@ fn handle_render(
     Ok(())
 }
 
+#[allow(clippy::needless_pass_by_value)]
 fn handle_extract(input: Input, output: Output) -> anyhow::Result<()> {
-    let input = input.as_path()?;
+    let input = input.into_path()?;
 
-    let simulation = extract_simulation(&*input)?;
+    let simulation = extract_simulation(&input)?;
 
     let serialized = simulation.serialize()?;
     let mut writer = output.get_writer()?;
@@ -211,7 +213,7 @@ fn handle_extract(input: Input, output: Output) -> anyhow::Result<()> {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-pub fn handle(cmd: ImageCmd, options: &GlobalOptions) -> anyhow::Result<()> {
+pub fn handle(cmd: ImageCmd, options: GlobalOptions) -> anyhow::Result<()> {
     match cmd {
         ImageCmd::Render {
             slot,

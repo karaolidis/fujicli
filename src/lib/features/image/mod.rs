@@ -11,7 +11,7 @@ use log::debug;
 
 use crate::features::simulation::Simulation;
 
-pub const MAKER_NOTES_TAG: &'static str = "MakerNotes";
+pub const MAKER_NOTES_TAG: &str = "MakerNotes";
 
 pub fn extract_simulation(image: &Path) -> anyhow::Result<Box<dyn Simulation>> {
     let mut exiftool = ExifTool::new()?;
@@ -86,7 +86,7 @@ pub enum FujiExifMakerNoteTag {
     Saturation = 0x1003, // Both Color and monochrome/sepia film simulations, motherfucker
     Contrast1 = 0x1004,  // What
     ColorTemperature = 0x1005,
-    Contrast2 = 0x1006, // What
+    Contrast2 = 0x1006,       // What
     NoiseReduction1 = 0x100b, // for older cameras maybe?
     NoiseReduction2 = 0x100e,
     Clarity = 0x100f,
@@ -99,7 +99,7 @@ pub enum FujiExifMakerNoteTag {
     MonochromaticColorTint = 0x104b,
     GrainEffectSize = 0x104c,
     ColorChromeFXBlue = 0x104e,
-    FilmMode = 0x1401, // Film Simulation
+    FilmMode = 0x1401,                // Film Simulation
     DevelopmentDynamicRange = 0x1403, // This is the one we want for XT-5
     SmoothSkinEffect = 0x104a,
     WhiteBalanceShiftRed = 0x144a,

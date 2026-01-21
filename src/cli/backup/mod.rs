@@ -1,10 +1,8 @@
-use fujicli::usb;
-
 use super::common::file::{Input, Output};
-use crate::cli::GlobalOptions;
+use crate::cli::{GlobalOptions, common::usb};
 use clap::Subcommand;
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 pub enum BackupCmd {
     /// Export backup
     #[command(alias = "e")]
@@ -21,12 +19,13 @@ pub enum BackupCmd {
     },
 }
 
-fn handle_export(options: &GlobalOptions, output: Output) -> anyhow::Result<()> {
+#[allow(clippy::needless_pass_by_value)]
+fn handle_export(options: GlobalOptions, output: Output) -> anyhow::Result<()> {
     let GlobalOptions {
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
+    let mut camera = usb::get_camera(device, emulate)?;
 
     let mut writer = output.get_writer()?;
     let backup = camera.export_backup()?;
@@ -35,12 +34,13 @@ fn handle_export(options: &GlobalOptions, output: Output) -> anyhow::Result<()> 
     Ok(())
 }
 
-fn handle_import(options: &GlobalOptions, input: Input) -> anyhow::Result<()> {
+#[allow(clippy::needless_pass_by_value)]
+fn handle_import(options: GlobalOptions, input: Input) -> anyhow::Result<()> {
     let GlobalOptions {
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device.as_deref(), emulate.as_deref())?;
+    let mut camera = usb::get_camera(device, emulate)?;
 
     let mut reader = input.get_reader()?;
     let mut backup = Vec::new();
@@ -50,7 +50,7 @@ fn handle_import(options: &GlobalOptions, input: Input) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn handle(cmd: BackupCmd, options: &GlobalOptions) -> anyhow::Result<()> {
+pub fn handle(cmd: BackupCmd, options: GlobalOptions) -> anyhow::Result<()> {
     match cmd {
         BackupCmd::Export { output } => handle_export(options, output),
         BackupCmd::Import { input } => handle_import(options, input),

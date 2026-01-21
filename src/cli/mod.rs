@@ -11,6 +11,8 @@ use device::DeviceCmd;
 use image::ImageCmd;
 use simulation::SimulationCmd;
 
+use crate::cli::common::usb::{Identity, Location};
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None, author)]
 pub struct Cli {
@@ -34,12 +36,12 @@ pub struct GlobalOptions {
 
     /// Manually specify target device using USB <BUS>.<ADDRESS>
     #[arg(long, short = 'd', global = true)]
-    pub device: Option<String>,
+    pub device: Option<Location>,
 
     #[allow(clippy::doc_markdown)]
     /// Treat device as a different model using <VENDOR_ID>:<PRODUCT_ID>
-    #[arg(long, global = true, requires = "device")]
-    pub emulate: Option<String>,
+    #[arg(long, global = true)]
+    pub emulate: Option<Identity>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -56,7 +58,7 @@ pub enum Commands {
     #[command(alias = "b", subcommand)]
     Backup(BackupCmd),
 
-    /// Render images using in-camera processor
+    /// Manage and render images
     #[command(alias = "i", subcommand)]
     Image(ImageCmd),
 }

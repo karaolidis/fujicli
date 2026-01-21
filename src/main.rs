@@ -14,12 +14,12 @@ fn main() -> anyhow::Result<()> {
     log::init(options.verbose)?;
 
     match cli.command {
-        Commands::Device(device_cmd) => cli::device::handle(device_cmd, &options)?,
-        Commands::Backup(backup_cmd) => cli::backup::handle(backup_cmd, &options)?,
+        Commands::Device(device_cmd) => cli::device::handle(device_cmd, options)?,
+        Commands::Backup(backup_cmd) => cli::backup::handle(backup_cmd, options)?,
         Commands::Simulation(simulation_cmd) => {
-            cli::simulation::handle(simulation_cmd, &options)?;
+            cli::simulation::handle(simulation_cmd, options)?;
         }
-        Commands::Image(render_cmd) => cli::image::handle(render_cmd, &options)?,
+        Commands::Image(render_cmd) => cli::image::handle(render_cmd, options)?,
     }
 
     Ok(())

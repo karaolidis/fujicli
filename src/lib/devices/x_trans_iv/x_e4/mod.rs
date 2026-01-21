@@ -1,5 +1,5 @@
 use super::XTransIV;
-use crate::devices::define_camera;
+use crate::features::base::define_camera;
 
 define_camera!(
     "FUJIFILM X-E4",

@@ -34,7 +34,7 @@ impl Input {
         }
     }
 
-    pub fn as_path(self) -> anyhow::Result<Box<dyn Deref<Target = Path>>> {
+    pub fn into_path(self) -> anyhow::Result<Box<dyn Deref<Target = Path>>> {
         match self {
             Self::Path(p) => Ok(Box::new(p)),
             Self::Stdin => {

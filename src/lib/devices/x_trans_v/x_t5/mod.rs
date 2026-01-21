@@ -2,7 +2,7 @@ pub mod render;
 pub mod simulation;
 
 use super::XTransV;
-use crate::devices::define_camera;
+use crate::features::base::define_camera;
 
 define_camera!(
     "FUJIFILM X-T5",

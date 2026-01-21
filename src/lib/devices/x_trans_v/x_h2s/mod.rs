@@ -1,5 +1,5 @@
 use super::XTransV;
-use crate::devices::define_camera;
+use crate::features::base::define_camera;
 
 define_camera!(
     "FUJIFILM X-H2S",
