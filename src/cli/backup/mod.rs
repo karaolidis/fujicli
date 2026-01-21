@@ -21,7 +21,7 @@ pub enum BackupCmd {
     },
 }
 
-fn handle_export(options: &GlobalOptions, output: &Output) -> anyhow::Result<()> {
+fn handle_export(options: &GlobalOptions, output: Output) -> anyhow::Result<()> {
     let GlobalOptions {
         device, emulate, ..
     } = options;
@@ -35,7 +35,7 @@ fn handle_export(options: &GlobalOptions, output: &Output) -> anyhow::Result<()>
     Ok(())
 }
 
-fn handle_import(options: &GlobalOptions, input: &Input) -> anyhow::Result<()> {
+fn handle_import(options: &GlobalOptions, input: Input) -> anyhow::Result<()> {
     let GlobalOptions {
         device, emulate, ..
     } = options;
@@ -52,7 +52,7 @@ fn handle_import(options: &GlobalOptions, input: &Input) -> anyhow::Result<()> {
 
 pub fn handle(cmd: BackupCmd, options: &GlobalOptions) -> anyhow::Result<()> {
     match cmd {
-        BackupCmd::Export { output } => handle_export(options, &output),
-        BackupCmd::Import { input } => handle_import(options, &input),
+        BackupCmd::Export { output } => handle_export(options, output),
+        BackupCmd::Import { input } => handle_import(options, input),
     }
 }

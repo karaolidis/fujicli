@@ -39,7 +39,11 @@ The canonical source for `fujicli` lives on my [self-hosted Gitea instance](http
 
 If you're contributing, testing new camera models, or reporting bugs, GitHub is totally fine. If you're looking for the absolute latest commits, the self-hosted repo is the source of truth.
 
-## OS Notes
+## Requirements
+
+If you are on NixOS, simply use the flake package. Otherwise:
+
+- `exiftool` is required to extract simulation data from files.
 
 ### Windows
 

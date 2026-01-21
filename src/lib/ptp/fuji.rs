@@ -525,7 +525,7 @@ fuji_enum! {
         ClassicNegative = 0x11, "Classic Negative", ["classicneg", "classicnegative"],
         NostalgicNegative = 0x13, "Nostalgic Negative", ["nostalgicneg", "nostalgicnegative"],
         EternaBleachBypass = 0x12, "Eterna Bleach Bypass", ["eternabb", "eternableach", "eternableachbypass"],
-        RealaAce = 0x14, "Reala Ace", ["realaace"],
+        RealaAce = 0x14, "Reala Ace", ["realaace", "reala"],
     }
 }
 
@@ -594,7 +594,7 @@ fuji_enum! {
         Custom1 = 0x8008, "Custom 1", ["custom1", "c1"],
         Custom2 = 0x8009, "Custom 2", ["custom2", "c2"],
         Custom3 = 0x800A, "Custom 3", ["custom3", "c3"],
-        Temperature = 0x8007, "Temperature", ["temperature", "k", "kelvin"],
+        Temperature = 0x8007, "Temperature", ["temperature", "temp", "k", "kelvin"],
         Daylight = 0x4, "Daylight", ["daylight", "sunny"],
         Shade = 0x8006, "Shade", ["shade", "cloudy"],
         Fluorescent1 = 0x8001, "Fluorescent 1", ["fluorescent1"],

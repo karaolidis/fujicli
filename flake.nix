@@ -32,6 +32,13 @@
 
             src = ./.;
             cargoLock.lockFile = ./Cargo.lock;
+
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+
+            postInstall = ''
+              wrapProgram $out/bin/fujicli \
+                --prefix PATH : "${pkgs.lib.makeBinPath [ pkgs.exiftool ]}"
+            '';
           };
         };
     }

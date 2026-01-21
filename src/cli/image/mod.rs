@@ -82,10 +82,10 @@ macro_rules! update_conversion_profile {
 #[allow(clippy::too_many_arguments)]
 fn handle_render(
     options: &GlobalOptions,
-    input: &Input,
-    output: &Output,
     render_options: &RenderOptions,
     film_options: &FilmSimulationOptions,
+    input: Input,
+    output: Output,
     slot: Option<fuji::CustomSetting>,
     simulation_file: Option<Input>,
     like: Option<Input>,
@@ -141,10 +141,8 @@ fn handle_render(
         reader.read_to_end(&mut simulation)?;
         Some(camera.deserialize_simulation(&simulation)?)
     } else if let Some(like) = like {
-        let mut reader = like.get_reader()?;
-        let mut like_image = Vec::new();
-        reader.read_to_end(&mut like_image)?;
-        Some(extract_simulation(&like_image)?)
+        let like = like.as_path()?;
+        Some(extract_simulation(&*like)?)
     } else {
         None
     };
@@ -200,12 +198,10 @@ fn handle_render(
     Ok(())
 }
 
-fn handle_extract(input: &Input, output: &Output) -> anyhow::Result<()> {
-    let mut reader = input.get_reader()?;
-    let mut image = Vec::new();
-    reader.read_to_end(&mut image)?;
+fn handle_extract(input: Input, output: Output) -> anyhow::Result<()> {
+    let input = input.as_path()?;
 
-    let simulation = extract_simulation(&image)?;
+    let simulation = extract_simulation(&*input)?;
 
     let serialized = simulation.serialize()?;
     let mut writer = output.get_writer()?;
@@ -227,14 +223,14 @@ pub fn handle(cmd: ImageCmd, options: &GlobalOptions) -> anyhow::Result<()> {
             film_simulation_options,
         } => handle_render(
             options,
-            &input,
-            &output,
             &render_options,
             &film_simulation_options,
+            input,
+            output,
             slot,
             simulation_file,
             like,
         ),
-        ImageCmd::Extract { input, output } => handle_extract(&input, &output),
+        ImageCmd::Extract { input, output } => handle_extract(input, output),
     }
 }

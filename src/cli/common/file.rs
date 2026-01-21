@@ -1,4 +1,12 @@
-use std::{fs::File, io, path::PathBuf, str::FromStr};
+use std::{
+    fs::File,
+    io,
+    ops::Deref,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
+
+use tempfile::NamedTempFile;
 
 #[derive(Debug, Clone)]
 pub enum Input {
@@ -23,6 +31,17 @@ impl Input {
         match self {
             Self::Stdin => Ok(Box::new(io::stdin())),
             Self::Path(path) => Ok(Box::new(File::open(path)?)),
+        }
+    }
+
+    pub fn as_path(self) -> anyhow::Result<Box<dyn Deref<Target = Path>>> {
+        match self {
+            Self::Path(p) => Ok(Box::new(p)),
+            Self::Stdin => {
+                let mut tempfile = NamedTempFile::new()?;
+                io::copy(&mut io::stdin(), &mut tempfile)?;
+                Ok(Box::new(tempfile.into_temp_path()))
+            }
         }
     }
 }

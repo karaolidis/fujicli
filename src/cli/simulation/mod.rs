@@ -40,7 +40,7 @@ pub enum SimulationCmd {
         slot: fuji::CustomSetting,
 
         /// Output file (use '-' to write to stdout)
-        output_file: Output,
+        output: Output,
     },
 
     /// Import simulation
@@ -127,9 +127,9 @@ macro_rules! update_simulation {
 
 fn handle_set(
     options: &GlobalOptions,
-    slot: fuji::CustomSetting,
     set_options: &SetFilmSimulationOptions,
     film_options: &FilmSimulationOptions,
+    slot: fuji::CustomSetting,
 ) -> anyhow::Result<()> {
     let GlobalOptions {
         device, emulate, ..
@@ -205,7 +205,7 @@ fn handle_set(
 fn handle_export(
     options: &GlobalOptions,
     slot: fuji::CustomSetting,
-    output: &Output,
+    output: Output,
 ) -> anyhow::Result<()> {
     let GlobalOptions {
         device, emulate, ..
@@ -224,7 +224,7 @@ fn handle_export(
 fn handle_import(
     options: &GlobalOptions,
     slot: fuji::CustomSetting,
-    input: &Input,
+    input: Input,
 ) -> anyhow::Result<()> {
     let GlobalOptions {
         device, emulate, ..
@@ -251,11 +251,11 @@ pub fn handle(cmd: SimulationCmd, options: &GlobalOptions) -> anyhow::Result<()>
             film_simulation_options,
         } => handle_set(
             options,
-            slot,
             &set_film_simulation_options,
             &film_simulation_options,
+            slot,
         ),
-        SimulationCmd::Export { slot, output_file } => handle_export(options, slot, &output_file),
-        SimulationCmd::Import { slot, input } => handle_import(options, slot, &input),
+        SimulationCmd::Export { slot, output } => handle_export(options, slot, output),
+        SimulationCmd::Import { slot, input } => handle_import(options, slot, input),
     }
 }
