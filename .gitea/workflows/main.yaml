@@ -6,28 +6,50 @@ on:
       - "**"
 
 jobs:
-  builder:
-    uses: karaolidis/workflows/.gitea/workflows/builder.yaml@main
-    with:
-      registry: git.karaolidis.com
-      username: ${{ github.repository_owner }}
-    secrets:
-      password: ${{ secrets.REGISTRY_PASSWORD }}
-
   build:
-    runs-on: nix
-    needs: builder
-    container:
-      image: ${{ needs.builder.outputs.tag }}
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_PERMIT_COPY_RENAME: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy, rustfmt
 
       - name: Format
         run: cargo fmt --all -- --check
 
       - name: Lint
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-features --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --all-features --all-targets
 
       - name: Compile
-        run: cargo check --release
+        run: cargo check --all-features --all-targets
+
+  release:
+    if: gitea.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: build
+    env:
+      RUSTUP_PERMIT_COPY_RENAME: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Build
+        run: cargo build --release --all-features --all-targets
+
+      - name: Release
+        uses: akkuman/gitea-release-action@main
+        with:
+          name: "Release ${{ gitea.sha }}"
+          tag_name: "release-${{ gitea.sha }}"
+          files: target/release/fujicli
