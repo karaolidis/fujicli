@@ -15,30 +15,31 @@ and dispatches everything through traits the codegen implements.
 
 ## Build Pipeline
 
-[build.rs](../../build.rs) is the entrypoint. It:
+[crates/fujicore/build.rs](../../crates/fujicore/build.rs) is the entrypoint.
+It:
 
-1. Tells cargo to rerun if `fml/` or `crates/codegen/` change.
+1. Tells cargo to rerun if `fml/` or `crates/fujicodegen/` change.
 2. Shells out to `cue export ./fml --out json`. If `cue` isn't on `PATH`, the
    error tells the user how to install it.
-3. Passes the JSON to `codegen::generate(json, &generated)`.
+3. Passes the JSON to `fujicodegen::generate(json, &generated)`.
 
-`codegen::generate` (see [lib.rs](../../crates/codegen/src/lib.rs)):
+`fujicodegen::generate` (see [lib.rs](../../crates/fujicodegen/src/lib.rs)):
 
 ```
-options     -> src/lib/generated/options.rs      (~3.4 KLOC for current schema)
-cameras     -> src/lib/generated/cameras.rs      (one ZST + registry entry per camera)
-simulations -> src/lib/generated/simulations.rs  (SimulationBase + per-camera structs)
-renders     -> src/lib/generated/renders.rs      (RenderBase + per-camera profiles)
-cli         -> src/lib/generated/cli.rs          (SimulationArgs + RenderArgs + PROP_CODES)
-mod         -> src/lib/generated/mod.rs          (module roots)
+options     -> crates/fujicore/src/generated/options.rs      (~3.4 KLOC for current schema)
+cameras     -> crates/fujicore/src/generated/cameras.rs      (one ZST + registry entry per camera)
+simulations -> crates/fujicore/src/generated/simulations.rs  (SimulationBase + per-camera structs)
+renders     -> crates/fujicore/src/generated/renders.rs      (RenderBase + per-camera profiles)
+cli         -> crates/fujicore/src/generated/cli.rs          (SimulationArgs + RenderArgs + PROP_CODES)
+mod         -> crates/fujicore/src/generated/mod.rs          (module roots)
 ```
 
 Output is formatted through `prettyplease` before being written, so any
 diagnostic dump of the file is human-readable.
 
-`src/lib/generated/` is gitignored. Builds wipe and rewrite it; `cargo build` on
-a fresh checkout always regenerates from `fml/`. Don't edit the files directly,
-changes are lost on the next build.
+`crates/fujicore/src/generated/` is gitignored. Builds wipe and rewrite it;
+`cargo build` on a fresh checkout always regenerates from `fml/`. Don't edit the
+files directly, changes are lost on the next build.
 
 ## Why the Analyses Live in Their Own Module
 

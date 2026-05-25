@@ -26,7 +26,7 @@ Plus a separate pass on transformations for invertibility detection
 
 Every `Leaf` carries `scope: Scope` (`Current` or `Original`, defaulting to
 `Current`). The codegen helpers in
-[`schema/grammar.rs`](../../crates/codegen/src/schema/grammar.rs) take a
+[`schema/grammar.rs`](../../crates/fujicodegen/src/schema/grammar.rs) take a
 `Scopes { current: &TokenStream, original: Option<&TokenStream> }` and route
 each leaf to the right accessor via `Scopes::pick(scope)`. An `Original` leaf in
 a context with no original accessor fires `unreachable!()` - CUE typing should
@@ -51,8 +51,8 @@ per-pass sections below note where scope changes behaviour.
 
 ## DNF Normalization
 
-[`ast/dnf.rs`](../../crates/codegen/src/ast/dnf.rs) turns any `Predicate` into a
-disjunction of conjunctions of _literals_. A literal (`Leaf`) carries its
+[`ast/dnf.rs`](../../crates/fujicodegen/src/ast/dnf.rs) turns any `Predicate`
+into a disjunction of conjunctions of _literals_. A literal (`Leaf`) carries its
 polarity explicitly - `NotEquals`, `NotIn`, etc. - so the structural negation
 `Not(...)` is gone from the normal form.
 
@@ -87,15 +87,15 @@ substitution, presence DAG, repair) all benefit from seeing every disjunct
 explicitly, and minimization would muddle that.
 
 Conjunction equality is **multiset** equality
-([`util::multiset`](../../crates/codegen/src/util/multiset.rs)) so `A && B && A`
-!= `A && B`, but `A && B` == `B && A`. Hashing matches.
+([`util::multiset`](../../crates/fujicodegen/src/util/multiset.rs)) so
+`A && B && A` != `A && B`, but `A && B` == `B && A`. Hashing matches.
 
 Scope is part of `Leaf::PartialEq` (and `Hash`), so a `Current` leaf and an
 `Original` leaf compare unequal even if their other fields match.
 
 ## Alias Substitution
 
-[`schema/alias.rs`](../../crates/codegen/src/schema/alias.rs) normalizes a
+[`schema/alias.rs`](../../crates/fujicodegen/src/schema/alias.rs) normalizes a
 `Transformation` into a `NormalizedTransformation`:
 
 ```rust
@@ -145,7 +145,7 @@ substitution.
 
 ## The Presence DAG
 
-[`schema/presence.rs`](../../crates/codegen/src/schema/presence.rs) is the
+[`schema/presence.rs`](../../crates/fujicodegen/src/schema/presence.rs) is the
 highest-leverage analysis. From the error rules alone, it derives:
 
 - **Edges**: dependencies between settings, used to topologically order reads.
@@ -195,8 +195,8 @@ read-order edge `Y -> X` so the gate has the data it needs when it fires.
 ### Topological Sort
 
 The collected nodes (settings in declaration order) and edges feed into
-[`util::dag::Dag`](../../crates/codegen/src/util/dag.rs). Kahn's algorithm with
-a min-heap keyed on **declaration index** yields the order closest to
+[`util::dag::Dag`](../../crates/fujicodegen/src/util/dag.rs). Kahn's algorithm
+with a min-heap keyed on **declaration index** yields the order closest to
 declaration order among all valid topological orders. Where the spec doesn't
 force an order, the read order matches what the FML author typed - which makes
 the generated code readable and stable.
@@ -206,7 +206,7 @@ caused by two rules with crossed gating (`A gates B` and `B gates A`).
 
 ## Repair
 
-[`schema/repair.rs`](../../crates/codegen/src/schema/repair.rs) emits the
+[`schema/repair.rs`](../../crates/fujicodegen/src/schema/repair.rs) emits the
 `solve(&mut self, pin: &HashSet<&'static str>)` function. The render path gets
 an extra `original: &Self` parameter; original-scope leaves in the rule DNFs
 read from that snapshot. Simulation `solve` keeps the original-free signature.
@@ -272,7 +272,7 @@ the function returns false. The outer loop then bails with the rule's message.
 
 ## Inverse Transformations
 
-[`schema/inverse.rs`](../../crates/codegen/src/schema/inverse.rs) is the
+[`schema/inverse.rs`](../../crates/fujicodegen/src/schema/inverse.rs) is the
 read-side counterpart to alias substitution. On read, ref-fields are converted
 from wire to typed form _in topological convert order_; then the inverse pass
 runs.

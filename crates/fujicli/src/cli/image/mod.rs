@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 
-use fujicli::{
+use fujicore::{
     features::image::extract_simulation,
     generated::{
         cli::RenderArgs, options::CustomSetting, renders::RenderBase, simulations::SimulationBase,

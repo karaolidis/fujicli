@@ -280,7 +280,7 @@ mod tests {
         let info = collect_raw(&rules).unwrap();
         let cond = info.conditions.get("B").expect("B condition");
         assert_gate_is_single_negated_value_leaf(cond);
-        assert_eq!(info.edges, [edge("C", "B")].into_iter().collect());
+        assert_eq!(info.edges, std::iter::once(edge("C", "B")).collect());
     }
 
     #[test]

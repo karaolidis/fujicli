@@ -1,4 +1,4 @@
-use fujicli::{
+use fujicore::{
     features::simulation::SimulationListItem,
     generated::{cli::SimulationArgs, options::CustomSetting, simulations::SimulationBase},
 };

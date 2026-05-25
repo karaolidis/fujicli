@@ -49,7 +49,7 @@ impl Leaf {
         }
     }
 
-    pub fn scope(&self) -> Scope {
+    pub const fn scope(&self) -> Scope {
         match self {
             Self::Present(p) => p.scope,
             Self::Equals(p) | Self::NotEquals(p) => p.scope,

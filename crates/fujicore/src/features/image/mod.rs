@@ -14,7 +14,7 @@ use crate::features::simulation::Simulation;
 pub const MAKER_NOTES_TAG: &str = "MakerNotes";
 
 pub fn extract_simulation(image: &Path) -> anyhow::Result<Box<dyn Simulation>> {
-    let mut exiftool = ExifTool::new()?;
+    let exiftool = ExifTool::new()?;
 
     let maker_notes = exiftool.read_tag_binary(image, MAKER_NOTES_TAG)?;
     debug!("{:x?}", maker_notes);

@@ -1,55 +1,15 @@
 [workspace]
+resolver = "2"
 members = [
-    ".",
-    "crates/codegen",
-    "crates/ptp/cursor",
-    "crates/ptp/macro",
+    "crates/fujicli",
+    "crates/fujicodegen",
+    "crates/fujicore",
+    "crates/ptp-cursor",
+    "crates/ptp-macro",
 ]
-
-[package]
-name = "fujicli"
-version = "0.2.0"
-edition = "2024"
-description = "A CLI to manage Fujifilm devices, simulations, backups, and rendering"
-authors = [
-    "Nikolaos Karaolidis <nick@karaolidis.com>",
-]
-build = "build.rs"
-
-[lib]
-name = "fujicli"
-path = "src/lib/mod.rs"
-
-[[bin]]
-name = "fujicli"
-path = "src/main.rs"
-
-[build-dependencies]
-anyhow = "1.0.100"
-codegen = { path = "crates/codegen" }
 
 [profile.release]
 panic         = 'abort'
 strip         = true
 lto           = true
 codegen-units = 1
-
-[dependencies]
-anyhow = "1.0.100"
-byteorder = "1.5.0"
-clap = { version = "4.5.48", features = ["derive", "wrap_help"] }
-log = "0.4.28"
-log4rs = "1.4.0"
-num_enum = "0.7.4"
-rusb = "0.9.4"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
-strsim = "0.11.1"
-ptp_macro = { path = "crates/ptp/macro" }
-ptp_cursor = { path = "crates/ptp/cursor" }
-strum = { version = "0.27.2", features = ["strum_macros"] }
-strum_macros = "0.27.2"
-erased-serde = "0.4.8"
-serde_with = "3.15.1"
-exiftool = "0.3.0"
-tempfile = "3.24.0"

@@ -1,0 +1,31 @@
+[package]
+name = "fujicore"
+version = "0.2.0"
+edition = "2024"
+description = "Core library for managing Fujifilm devices, simulations, backups, and rendering"
+authors = [
+    "Nikolaos Karaolidis <nick@karaolidis.com>",
+]
+build = "build.rs"
+
+[build-dependencies]
+anyhow = "1.0.102"
+fujicodegen = { path = "../fujicodegen" }
+
+[dependencies]
+anyhow = "1.0.102"
+byteorder = "1.5.0"
+clap = { version = "4.6.1", features = ["derive", "wrap_help"] }
+log = "0.4.30"
+num_enum = "0.7.6"
+rusb = "0.9.4"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+strsim = "0.11.1"
+ptp-macro = { path = "../ptp-macro" }
+ptp-cursor = { path = "../ptp-cursor" }
+strum = { version = "0.28.0", features = ["strum_macros"] }
+strum_macros = "0.28.0"
+erased-serde = "0.4.10"
+serde_with = "3.20.0"
+exiftool = "0.3.1"

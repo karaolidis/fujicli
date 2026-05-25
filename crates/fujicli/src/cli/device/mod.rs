@@ -3,7 +3,7 @@ mod reverse;
 use clap::Subcommand;
 
 use crate::cli::{GlobalOptions, common::usb, device::reverse::ReverseCmd};
-use fujicli::features::base::info::CameraInfoListItem;
+use fujicore::features::base::info::CameraInfoListItem;
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum DeviceCmd {

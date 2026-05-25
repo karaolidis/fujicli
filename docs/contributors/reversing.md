@@ -130,4 +130,4 @@ constraints (the apply pattern must be unique among transformations).
   between the profile-code string and the field array. Until a second
   render-capable camera is reversed, the codegen assumes this value is
   universal; see
-  [`crates/codegen/src/common/renders/camera.rs`](../../crates/codegen/src/common/renders/camera.rs).
+  [`crates/fujicodegen/src/common/renders/camera.rs`](../../crates/fujicodegen/src/common/renders/camera.rs).

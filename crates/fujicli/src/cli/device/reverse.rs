@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use clap::Subcommand;
-use fujicli::{
+use fujicore::{
     Camera,
     features::backup::{self, manager::BackupObjectInfo},
     generated::{

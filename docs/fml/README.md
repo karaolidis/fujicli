@@ -2,9 +2,9 @@
 
 **FML** is the CUE-based schema in [`fml/`](../../fml/) that describes every
 option, generation, and camera `fujicli` knows about. The
-[`codegen`](../../crates/codegen/) crate consumes its JSON export at build time
-and emits Rust types and trait impls under `src/lib/generated/` (gitignored;
-regenerated on every build).
+[`fujicodegen`](../../crates/fujicodegen/) crate consumes its JSON export at
+build time and emits Rust types and trait impls under
+`crates/fujicore/src/generated/` (gitignored; regenerated on every build).
 
 For users adding a camera, this is the only thing you edit. For users extending
 the schema language itself, see [internals](../internals/codegen.md).

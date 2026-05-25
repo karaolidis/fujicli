@@ -1,7 +1,7 @@
 # Codegen
 
 The pipeline entrypoint is
-[`codegen::generate`](../../crates/codegen/src/lib.rs); from there each
+[`fujicodegen::generate`](../../crates/fujicodegen/src/lib.rs); from there each
 `common/*::generate` function returns a `proc_macro2::TokenStream` that gets
 formatted by `prettyplease` and written to disk.
 
@@ -16,8 +16,8 @@ The mechanical contract every emitter follows:
 
 ## Options
 
-[`common/options/`](../../crates/codegen/src/common/options/) emits one block
-per option. The dispatch is in `options/mod.rs`:
+[`common/options/`](../../crates/fujicodegen/src/common/options/) emits one
+block per option. The dispatch is in `options/mod.rs`:
 
 | `kind`    | `encoding.kind` | Emitter                     |
 | --------- | --------------- | --------------------------- |
@@ -31,8 +31,8 @@ per option. The dispatch is in `options/mod.rs`:
 ### Repr Resolution
 
 Numeric and enum wire types are always `i16` or `u16` (Fuji's convention).
-[`options/common.rs`](../../crates/codegen/src/common/options/common.rs) picks
-signedness from the observed range:
+[`options/common.rs`](../../crates/fujicodegen/src/common/options/common.rs)
+picks signedness from the observed range:
 
 - All values fit in `[0, u16::MAX]` -> `u16`.
 - Any negative value, all values fit in `[i16::MIN, i16::MAX]` -> `i16`.
@@ -41,7 +41,7 @@ signedness from the observed range:
   i16 nor u16`).
 
 The 32-bit profile codec lifts these to `i32`/`u32` via
-[`ConversionProfileField`](../../src/lib/ptp/option.rs).
+[`ConversionProfileField`](../../crates/fujicore/src/ptp/option.rs).
 
 ### Shapes
 
@@ -67,16 +67,16 @@ encoding instead.
 ### Aliases and Parsing
 
 `FromStr` runs the input through
-[`crate::input::CleanAlphanumeric::clean`](../../src/lib/input/). Drops
-whitespace, punctuation, case-folds. So `--white-balance "As Shot"`,
+[`crate::input::CleanAlphanumeric::clean`](../../crates/fujicore/src/input/).
+Drops whitespace, punctuation, case-folds. So `--white-balance "As Shot"`,
 `--white-balance as_shot`, and `--white-balance ASSHOT` all collide into the
 same key. If nothing matches, `Choices::closest` runs Levenshtein over the known
 aliases and the error tells the user "Did you mean 'auto'?".
 
 ## Cameras
 
-[`common/cameras/mod.rs`](../../crates/codegen/src/common/cameras/mod.rs) sorts
-cameras by `(generation, id)` for stable output and emits, per camera:
+[`common/cameras/mod.rs`](../../crates/fujicodegen/src/common/cameras/mod.rs)
+sorts cameras by `(generation, id)` for stable output and emits, per camera:
 
 - `pub struct XT5;` - zero-sized; carries only the type.
 - `pub const C_X_T5: SupportedCamera { name, vendor, product,
@@ -93,17 +93,17 @@ end. The runtime's `Camera::probe`/`open_with` scans this list by
 
 ## Simulations
 
-[`common/simulations/`](../../crates/codegen/src/common/simulations/) emits two
-things:
+[`common/simulations/`](../../crates/fujicodegen/src/common/simulations/) emits
+two things:
 
 **`SimulationBase`**
-([base.rs](../../crates/codegen/src/common/simulations/base.rs)) - the union of
-every simulation field across every simulation-capable camera. All fields are
+([base.rs](../../crates/fujicodegen/src/common/simulations/base.rs)) - the union
+of every simulation field across every simulation-capable camera. All fields are
 `Option<...>`. This is the partial users build via CLI args / JSON; cameras
 consume it via `try_update_from`.
 
 **`<Camera>Simulation`**
-([camera.rs](../../crates/codegen/src/common/simulations/camera.rs)) -
+([camera.rs](../../crates/fujicodegen/src/common/simulations/camera.rs)) -
 per-camera struct with typed fields, `apply_transformations`,
 `emit_warnings_and_infos`, `solve`, `try_update_from`, `name`, serde,
 `From<&Self>` for `SimulationBase`, `TryFrom<SimulationBase>`, `Display`, plus
@@ -143,7 +143,7 @@ else { None }`.
 
 ## Renders
 
-[`common/renders/`](../../crates/codegen/src/common/renders/) mirrors
+[`common/renders/`](../../crates/fujicodegen/src/common/renders/) mirrors
 simulations but with a wire codec instead of per-setting PTP calls.
 
 **`RenderBase`** carries the union of all render fields plus a `merge(overlay)`
@@ -169,14 +169,14 @@ simulation into the render base.
   render_image.
 
 A hard-coded constant
-[`RENDER_HEADER_PADDING`](../../crates/codegen/src/common/renders/camera.rs)
+[`RENDER_HEADER_PADDING`](../../crates/fujicodegen/src/common/renders/camera.rs)
 holds the 0x1EE-byte padding observed on the X-T5; it'll need to move into the
 camera spec when a render-capable body with a different padding is added.
 
 ## CLI
 
-[`common/cli/`](../../crates/codegen/src/cli/) emits two `clap::Args`-deriving
-structs:
+[`common/cli/`](../../crates/fujicodegen/src/cli/) emits two
+`clap::Args`-deriving structs:
 
 - **`SimulationArgs`** - every option that some simulation-capable camera uses
   and that doesn't have `codegen.skip_args`. Each field is `Option<OptionType>`
@@ -194,17 +194,17 @@ changes.
 
 ## Utilities
 
-[`util/dag.rs`](../../crates/codegen/src/util/dag.rs) - Kahn's algorithm with a
-min-heap keyed on declaration index. Among all valid topological orders we emit
-the one closest to declaration order. This matters because generated code
-preserves the order an FML author wrote settings in, only perturbing where
+[`util/dag.rs`](../../crates/fujicodegen/src/util/dag.rs) - Kahn's algorithm
+with a min-heap keyed on declaration index. Among all valid topological orders
+we emit the one closest to declaration order. This matters because generated
+code preserves the order an FML author wrote settings in, only perturbing where
 read-gating demands it.
 
-[`util/ident.rs`](../../crates/codegen/src/util/ident.rs) - safe Rust
+[`util/ident.rs`](../../crates/fujicodegen/src/util/ident.rs) - safe Rust
 identifiers. Digit-leading idents get an `X` prefix (`7728x5152` ->
 `X7728x5152`). Numeric-lookup variants get `Plus`/`Minus`/`Zero` (`Plus0_3`,
 `Minus4`, `Zero`).
 
-[`util/multiset.rs`](../../crates/codegen/src/util/multiset.rs) - multiset `eq`
-/ `hash` / `subset` used everywhere conjunctions compare order-insensitively
-(alias matching, conjunction equality in DNF).
+[`util/multiset.rs`](../../crates/fujicodegen/src/util/multiset.rs) - multiset
+`eq` / `hash` / `subset` used everywhere conjunctions compare
+order-insensitively (alias matching, conjunction equality in DNF).

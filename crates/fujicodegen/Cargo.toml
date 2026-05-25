@@ -1,5 +1,5 @@
 [package]
-name = "codegen"
+name = "fujicodegen"
 version = "0.1.0"
 edition = "2024"
 description = "Build-time codegen from FML JSON to Rust for fujicli"
@@ -7,15 +7,12 @@ authors = [
     "Nikolaos Karaolidis <nick@karaolidis.com>",
 ]
 
-[lib]
-path = "src/lib.rs"
-
 [dependencies]
-anyhow = "1.0.100"
+anyhow = "1.0.102"
 heck = "0.5.0"
 prettyplease = "0.2.37"
 proc-macro2 = "1.0"
 quote = "1.0"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
+serde_json = "1.0.150"
 syn = { version = "2.0", features = ["full"] }
