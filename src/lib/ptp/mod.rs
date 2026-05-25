@@ -1,6 +1,6 @@
 pub mod container;
 pub mod error;
-pub mod fuji;
+pub mod option;
 pub mod props;
 pub mod structs;
 
@@ -194,19 +194,25 @@ impl Ptp {
         Ok(info)
     }
 
-    pub fn get_prop_raw(&mut self, prop: DevicePropCode) -> anyhow::Result<Vec<u8>> {
-        debug!("Getting device prop: {prop:?}");
-        let response = self.send(CommandCode::GetDevicePropValue, &[prop.into()], None)?;
+    pub fn get_prop_raw(&mut self, prop: impl Into<u16>) -> anyhow::Result<Vec<u8>> {
+        let prop = prop.into();
+        debug!("Getting device prop: 0x{prop:04x}");
+        let response = self.send(CommandCode::GetDevicePropValue, &[u32::from(prop)], None)?;
         Ok(response)
     }
 
-    pub fn set_prop_raw(&mut self, prop: DevicePropCode, value: &[u8]) -> anyhow::Result<Vec<u8>> {
-        debug!("Setting device prop: {prop:?}");
-        let response = self.send(CommandCode::SetDevicePropValue, &[prop.into()], Some(value))?;
+    pub fn set_prop_raw(&mut self, prop: impl Into<u16>, value: &[u8]) -> anyhow::Result<Vec<u8>> {
+        let prop = prop.into();
+        debug!("Setting device prop: 0x{prop:04x}");
+        let response = self.send(
+            CommandCode::SetDevicePropValue,
+            &[u32::from(prop)],
+            Some(value),
+        )?;
         Ok(response)
     }
 
-    pub fn get_prop<T: PtpDeserialize>(&mut self, code: DevicePropCode) -> anyhow::Result<T> {
+    pub fn get_prop<T: PtpDeserialize>(&mut self, code: impl Into<u16>) -> anyhow::Result<T> {
         let bytes = self.get_prop_raw(code)?;
         let value = T::try_from_ptp(&bytes)?;
         Ok(value)
@@ -214,7 +220,7 @@ impl Ptp {
 
     pub fn set_prop<T: PtpSerialize>(
         &mut self,
-        code: DevicePropCode,
+        code: impl Into<u16>,
         value: &T,
     ) -> anyhow::Result<()> {
         let bytes = value.try_into_ptp()?;

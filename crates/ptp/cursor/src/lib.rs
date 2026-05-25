@@ -1,9 +1,6 @@
-#![allow(dead_code)]
-#![allow(clippy::redundant_closure_for_method_calls)]
-
 mod types;
 
-pub use types::*;
+pub use types::ExactString;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Cursor};
@@ -321,3 +318,181 @@ ptp_ser!(Vec<u64>, write_ptp_u64_vec);
 ptp_de!(Vec<u64>, read_ptp_u64_vec);
 ptp_ser!(Vec<i64>, write_ptp_i64_vec);
 ptp_de!(Vec<i64>, read_ptp_i64_vec);
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::{ExactString, PtpDeserialize, PtpSerialize, Read};
+
+    macro_rules! check_ptp_round_trip {
+        ($ty:ty, $value:expr, $bytes:expr) => {{
+            let value: $ty = $value;
+            let bytes = value.try_into_ptp().unwrap();
+            assert_eq!(bytes, $bytes, "wire bytes for {}", stringify!($ty));
+
+            let parsed = <$ty>::try_from_ptp(&bytes).unwrap();
+            assert_eq!(parsed, value, "round-trip for {}", stringify!($ty));
+        }};
+    }
+
+    #[test]
+    fn u8_wire_format() {
+        check_ptp_round_trip!(u8, 0x42, vec![0x42]);
+    }
+
+    #[test]
+    fn i8_negative_wire_format() {
+        check_ptp_round_trip!(i8, -1, vec![0xFF]);
+    }
+
+    #[test]
+    fn u16_little_endian() {
+        check_ptp_round_trip!(u16, 0x1234, vec![0x34, 0x12]);
+    }
+
+    #[test]
+    fn i16_little_endian_negative() {
+        check_ptp_round_trip!(i16, -1, vec![0xFF, 0xFF]);
+    }
+
+    #[test]
+    fn u32_little_endian() {
+        check_ptp_round_trip!(u32, 0x1234_5678, vec![0x78, 0x56, 0x34, 0x12]);
+    }
+
+    #[test]
+    fn i32_little_endian_negative() {
+        check_ptp_round_trip!(i32, -3000, ((-3000i32) as u32).to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn u64_little_endian() {
+        check_ptp_round_trip!(
+            u64,
+            0x0102_0304_0506_0708,
+            vec![0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]
+        );
+    }
+
+    #[test]
+    fn i64_little_endian() {
+        check_ptp_round_trip!(i64, -1, vec![0xFF; 8]);
+    }
+
+    #[test]
+    fn vec_u8_includes_u32_length_prefix() {
+        let bytes = vec![0xAAu8, 0xBB, 0xCC].try_into_ptp().unwrap();
+        assert_eq!(bytes, vec![0x03, 0x00, 0x00, 0x00, 0xAA, 0xBB, 0xCC]);
+
+        let parsed: Vec<u8> = Vec::<u8>::try_from_ptp(&bytes).unwrap();
+        assert_eq!(parsed, vec![0xAA, 0xBB, 0xCC]);
+    }
+
+    #[test]
+    fn vec_u16_round_trips() {
+        let bytes = vec![0x0001u16, 0x0203, 0xFFFF].try_into_ptp().unwrap();
+        assert_eq!(
+            bytes,
+            vec![
+                0x03, 0x00, 0x00, 0x00, // length = 3
+                0x01, 0x00, // 0x0001 LE
+                0x03, 0x02, // 0x0203 LE
+                0xFF, 0xFF, // 0xFFFF LE
+            ],
+        );
+
+        let parsed = Vec::<u16>::try_from_ptp(&bytes).unwrap();
+        assert_eq!(parsed, vec![0x0001, 0x0203, 0xFFFF]);
+    }
+
+    #[test]
+    fn vec_empty_is_just_the_length_prefix() {
+        let bytes = Vec::<u32>::new().try_into_ptp().unwrap();
+        assert_eq!(bytes, vec![0x00, 0x00, 0x00, 0x00]);
+
+        let parsed = Vec::<u32>::try_from_ptp(&bytes).unwrap();
+        assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn vec_i32_signed_round_trip() {
+        let original: Vec<i32> = vec![-3000, 0, 3000];
+        let bytes = original.try_into_ptp().unwrap();
+        let parsed = Vec::<i32>::try_from_ptp(&bytes).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn string_empty_is_single_zero_byte() {
+        let bytes = String::new().try_into_ptp().unwrap();
+        assert_eq!(bytes, vec![0x00]);
+
+        let parsed = String::try_from_ptp(&bytes).unwrap();
+        assert_eq!(parsed, "");
+    }
+
+    #[test]
+    fn string_writes_length_then_utf16_then_null() {
+        let bytes = "AB".to_string().try_into_ptp().unwrap();
+        assert_eq!(
+            bytes,
+            vec![
+                0x03, // length: 2 chars + null terminator
+                0x41, 0x00, // 'A' UTF-16 LE
+                0x42, 0x00, // 'B' UTF-16 LE
+                0x00, 0x00, // null terminator UTF-16 LE
+            ],
+        );
+
+        let parsed = String::try_from_ptp(&bytes).unwrap();
+        assert_eq!(parsed, "AB");
+    }
+
+    #[test]
+    fn exact_string_omits_null_terminator() {
+        let bytes = ExactString::new("AB".to_string()).try_into_ptp().unwrap();
+        assert_eq!(bytes, vec![0x02, 0x41, 0x00, 0x42, 0x00]);
+
+        let parsed = ExactString::try_from_ptp(&bytes).unwrap();
+        assert_eq!(parsed.as_ref(), "AB");
+    }
+
+    #[test]
+    fn exact_string_empty_is_single_zero_byte() {
+        let bytes = ExactString::new(String::new()).try_into_ptp().unwrap();
+        assert_eq!(bytes, vec![0x00]);
+    }
+
+    #[test]
+    fn try_from_ptp_rejects_buffer_with_trailing_bytes() {
+        let bytes = vec![0x34, 0x12, 0xAA, 0xBB];
+        let err = u16::try_from_ptp(&bytes).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
+    }
+
+    #[test]
+    fn try_from_ptp_rejects_truncated_buffer() {
+        let err = u32::try_from_ptp(&[0x01, 0x02]).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::UnexpectedEof);
+    }
+
+    #[test]
+    fn try_read_ptp_consumes_only_its_own_bytes_from_a_cursor() {
+        let buf = [0x34u8, 0x12, 0x78, 0x56, 0x34, 0x12];
+        let mut cur = Cursor::new(&buf[..]);
+
+        let a = u16::try_read_ptp(&mut cur).unwrap();
+        let b = u32::try_read_ptp(&mut cur).unwrap();
+        assert_eq!(a, 0x1234);
+        assert_eq!(b, 0x1234_5678);
+        cur.expect_end().unwrap();
+    }
+
+    #[test]
+    fn exact_string_display_and_from_str() {
+        let s: ExactString = "hello".parse().unwrap();
+        assert_eq!(format!("{s}"), "hello");
+        assert_eq!(s.into_inner(), "hello");
+    }
+}

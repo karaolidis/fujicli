@@ -15,6 +15,11 @@
         treefmt-nix.follows = "treefmt-nix";
       };
     };
+
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -33,7 +38,10 @@
             src = ./.;
             cargoLock.lockFile = ./Cargo.lock;
 
-            nativeBuildInputs = [ pkgs.makeWrapper ];
+            nativeBuildInputs = with pkgs; [
+              makeWrapper
+              cue
+            ];
 
             postInstall = ''
               wrapProgram $out/bin/fujicli \
@@ -60,13 +68,11 @@
       {
         devShells.${system}.default = pkgs.mkShell {
           packages = with pkgs; [
-            cargo
-            rustc
-            rustfmt
-            clippy
+            inputs.fenix.packages.${system}.latest.toolchain
             cargo-udeps
             cargo-outdated
             cargo-expand
+            cue
           ];
 
           shellHook = ''

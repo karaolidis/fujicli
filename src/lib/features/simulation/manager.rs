@@ -1,35 +1,32 @@
-use strum::IntoEnumIterator;
-
 use crate::{
     features::{
         base::CameraBase,
         simulation::{Simulation, parser::CameraSimulationParser},
     },
-    ptp::{Ptp, fuji},
+    generated::{options::CustomSetting, simulations::SimulationBase},
+    ptp::Ptp,
 };
 
 pub trait CameraSimulationManager: CameraBase + CameraSimulationParser {
-    fn custom_settings_slots(&self) -> Vec<fuji::CustomSetting> {
-        fuji::CustomSetting::iter().collect()
-    }
+    fn custom_settings_slots(&self) -> Vec<CustomSetting>;
 
     fn get_simulation(
         &self,
         ptp: &mut Ptp,
-        slot: fuji::CustomSetting,
+        slot: CustomSetting,
     ) -> anyhow::Result<Box<dyn Simulation>>;
 
     fn update_simulation(
         &self,
         ptp: &mut Ptp,
-        slot: fuji::CustomSetting,
-        simulation_modifier: &mut dyn FnMut(&mut dyn Simulation) -> anyhow::Result<()>,
+        slot: CustomSetting,
+        partial: SimulationBase,
     ) -> anyhow::Result<()>;
 
     fn set_simulation(
         &self,
         ptp: &mut Ptp,
-        slot: fuji::CustomSetting,
+        slot: CustomSetting,
         simulation: &dyn Simulation,
     ) -> anyhow::Result<()>;
 }

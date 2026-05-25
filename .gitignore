@@ -26,3 +26,10 @@ result-*
 .direnv
 
 .cargo/
+
+# ---> FML
+# Artifacts from `cue export ./fml`
+*.json
+
+# Build-time codegen output. Inspect locally; never commit.
+src/lib/generated/

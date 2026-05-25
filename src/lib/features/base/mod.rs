@@ -11,7 +11,8 @@ use crate::{
         render::CameraRenderManager,
         simulation::{manager::CameraSimulationManager, parser::CameraSimulationParser},
     },
-    ptp::{DevicePropCode, Ptp},
+    generated::options::UsbMode,
+    ptp::{DevicePropCode, Ptp, option::SimulationSetting},
 };
 
 pub trait CameraBase {
@@ -46,7 +47,7 @@ pub trait CameraBase {
     fn get_info(&self, ptp: &mut Ptp) -> anyhow::Result<Box<dyn CameraInfo>> {
         let info = ptp.get_info()?;
 
-        let mode = ptp.get_prop(DevicePropCode::FujiUsbMode)?;
+        let mode = UsbMode::try_pull(ptp)?;
 
         let battery_string: String = ptp.get_prop(DevicePropCode::FujiBatteryInfo2)?;
         debug!("Raw battery string: {battery_string}");
@@ -70,109 +71,19 @@ pub trait CameraBase {
     }
 }
 
-macro_rules! impl_camera_base {
-    (
-        $camera:ty,
-        $def:expr,
-        [ $( $cap:ident ),* $(,)? ]
-        $(, $chunk:expr )?
-    ) => {
-        impl crate::features::base::CameraBase for $camera {
-            type Context = rusb::GlobalContext;
+pub struct UnknownCamera;
 
-            fn camera_definition(&self) -> &'static crate::SupportedCamera {
-                $def
-            }
+pub const UNKNOWN_CAMERA: SupportedCamera = SupportedCamera {
+    name: "Unknown Camera",
+    vendor: 0x0000,
+    product: 0x0000,
+    camera_factory: || Box::new(UnknownCamera),
+};
 
-            $(
-                fn chunk_size(&self) -> usize {
-                    $chunk
-                }
-            )?
+impl CameraBase for UnknownCamera {
+    type Context = rusb::GlobalContext;
 
-            $(
-                crate::features::base::impl_camera_base!(@cap self, $cap);
-            )*
-        }
-    };
-
-    (@cap $self:ident, CameraBackupManager) => {
-        fn as_backup_manager(
-            &$self,
-        ) -> Option<&dyn crate::features::backup::CameraBackupManager<Context = rusb::GlobalContext>> {
-            Some($self)
-        }
-    };
-
-    (@cap $self:ident, CameraSimulationParser) => {
-        fn as_simulation_parser(
-            &$self,
-        ) -> Option<&dyn crate::features::simulation::CameraSimulationParser> {
-            Some($self)
-        }
-    };
-
-    (@cap $self:ident, CameraSimulationManager) => {
-        fn as_simulation_manager(
-            &$self,
-        ) -> Option<&dyn crate::features::simulation::CameraSimulationManager<Context = rusb::GlobalContext>> {
-            Some($self)
-        }
-    };
-
-    (@cap $self:ident, CameraRenderManager) => {
-        fn as_render_manager(
-            &$self,
-        ) -> Option<&dyn crate::features::render::CameraRenderManager<Context = rusb::GlobalContext>> {
-            Some($self)
-        }
-    };
+    fn camera_definition(&self) -> &'static SupportedCamera {
+        &UNKNOWN_CAMERA
+    }
 }
-
-pub(crate) use impl_camera_base;
-
-macro_rules! define_camera {
-    (
-        $name:literal,
-        $struct_name:ident,
-        $const_name:ident,
-        $vendor:expr,
-        $product:expr,
-        $sensor:ident,
-        [ $( $cap:ident ),* $(,)? ],
-        $( $chunk:expr, )?
-    ) => {
-        pub struct $struct_name;
-
-        pub const $const_name: crate::SupportedCamera = crate::SupportedCamera {
-            name: $name,
-            vendor: $vendor,
-            product: $product,
-            camera_factory: || Box::new($struct_name {}),
-        };
-
-        crate::features::base::impl_camera_base!(
-            $struct_name,
-            &$const_name,
-            [ $( $cap ),* ]
-            $( , $chunk )?
-        );
-
-        impl $sensor for $struct_name {}
-    };
-}
-
-pub(crate) use define_camera;
-
-#[allow(dead_code)]
-trait UnknownSensor {}
-
-define_camera!(
-    "Unknown Camera",
-    UnknownCamera,
-    UNKNOWN_CAMERA,
-    0x0000,
-    0x0000,
-    UnknownSensor,
-    [],
-);

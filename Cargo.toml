@@ -1,11 +1,20 @@
+[workspace]
+members = [
+    ".",
+    "crates/codegen",
+    "crates/ptp/cursor",
+    "crates/ptp/macro",
+]
+
 [package]
 name = "fujicli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "A CLI to manage Fujifilm devices, simulations, backups, and rendering"
 authors = [
     "Nikolaos Karaolidis <nick@karaolidis.com>",
 ]
+build = "build.rs"
 
 [lib]
 name = "fujicli"
@@ -14,6 +23,10 @@ path = "src/lib/mod.rs"
 [[bin]]
 name = "fujicli"
 path = "src/main.rs"
+
+[build-dependencies]
+anyhow = "1.0.100"
+codegen = { path = "crates/codegen" }
 
 [profile.release]
 panic         = 'abort'
@@ -36,9 +49,7 @@ ptp_macro = { path = "crates/ptp/macro" }
 ptp_cursor = { path = "crates/ptp/cursor" }
 strum = { version = "0.27.2", features = ["strum_macros"] }
 strum_macros = "0.27.2"
-paste = "1.0.15"
 erased-serde = "0.4.8"
-serde_repr = "0.1.20"
 serde_with = "3.15.1"
 exiftool = "0.3.0"
 tempfile = "3.24.0"

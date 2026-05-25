@@ -1,11 +1,11 @@
-use fujicli::{features::simulation::SimulationListItem, ptp::fuji};
-
-use super::common::{
-    file::{Input, Output},
-    film::FilmSimulationOptions,
+use fujicli::{
+    features::simulation::SimulationListItem,
+    generated::{cli::SimulationArgs, options::CustomSetting, simulations::SimulationBase},
 };
+
+use super::common::file::{Input, Output};
 use crate::cli::{GlobalOptions, common::usb};
-use clap::{Args, Subcommand};
+use clap::Subcommand;
 
 #[derive(Subcommand, Debug)]
 pub enum SimulationCmd {
@@ -17,27 +17,24 @@ pub enum SimulationCmd {
     #[command(alias = "g")]
     Get {
         /// Simulation slot number
-        slot: fuji::CustomSetting,
+        slot: CustomSetting,
     },
 
     /// Set simulation parameters
     #[command(alias = "s")]
     Set {
         /// Simulation slot number
-        slot: fuji::CustomSetting,
+        slot: CustomSetting,
 
         #[command(flatten)]
-        set_film_simulation_options: SetFilmSimulationOptions,
-
-        #[command(flatten)]
-        film_simulation_options: FilmSimulationOptions,
+        simulation: SimulationArgs,
     },
 
     /// Export simulation
     #[command(alias = "e")]
     Export {
         /// Simulation slot number
-        slot: fuji::CustomSetting,
+        slot: CustomSetting,
 
         /// Output file (use '-' to write to stdout)
         output: Output,
@@ -47,18 +44,11 @@ pub enum SimulationCmd {
     #[command(alias = "i")]
     Import {
         /// Simulation slot number
-        slot: fuji::CustomSetting,
+        slot: CustomSetting,
 
         /// Input file (use '-' to read from stdin)
         input: Input,
     },
-}
-
-#[derive(Args, Debug)]
-pub struct SetFilmSimulationOptions {
-    /// The name of the slot
-    #[clap(long)]
-    pub name: Option<fuji::CustomSettingName>,
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -77,7 +67,7 @@ fn handle_list(options: GlobalOptions) -> anyhow::Result<()> {
         .into_iter()
         .map(|slot| -> anyhow::Result<SimulationListItem> {
             let simulation = camera.get_simulation(slot)?;
-            let name = simulation.get_name()?;
+            let name = simulation.name();
             Ok(SimulationListItem { slot, name })
         })
         .collect::<anyhow::Result<Vec<SimulationListItem>>>()?;
@@ -94,7 +84,7 @@ fn handle_list(options: GlobalOptions) -> anyhow::Result<()> {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn handle_get(options: GlobalOptions, slot: fuji::CustomSetting) -> anyhow::Result<()> {
+fn handle_get(options: GlobalOptions, slot: CustomSetting) -> anyhow::Result<()> {
     let GlobalOptions {
         json,
         device,
@@ -115,100 +105,26 @@ fn handle_get(options: GlobalOptions, slot: fuji::CustomSetting) -> anyhow::Resu
     Ok(())
 }
 
-macro_rules! update_simulation {
-    ($sim_var:ident, [
-        $($local_field:ident => $setter:ident,)*
-    ]) => {
-        $(
-            if let Some(value) = $local_field {
-                $sim_var.$setter(value)?;
-            }
-        )*
-    };
-}
-
 #[allow(clippy::needless_pass_by_value)]
 fn handle_set(
     options: GlobalOptions,
-    set_options: &SetFilmSimulationOptions,
-    film_options: &FilmSimulationOptions,
-    slot: fuji::CustomSetting,
+    simulation: SimulationArgs,
+    slot: CustomSetting,
 ) -> anyhow::Result<()> {
     let GlobalOptions {
         device, emulate, ..
     } = options;
 
     let mut camera = usb::get_camera(device, emulate)?;
-
-    let SetFilmSimulationOptions { name } = set_options;
-
-    let FilmSimulationOptions {
-        simulation: film_simulation,
-        monochromatic_color_temperature,
-        monochromatic_color_tint,
-        size,
-        quality,
-        highlight,
-        shadow,
-        color,
-        sharpness,
-        clarity,
-        white_balance,
-        white_balance_shift_red,
-        white_balance_shift_blue,
-        white_balance_temperature,
-        dynamic_range,
-        dynamic_range_priority,
-        noise_reduction,
-        grain,
-        color_chrome_effect,
-        color_chrome_fx_blue,
-        smooth_skin_effect,
-        lens_modulation_optimizer,
-        color_space,
-    } = film_options;
-
-    camera.update_simulation(slot, &mut |simulation| {
-        update_simulation! {
-            simulation,
-            [
-                name => set_name,
-                film_simulation => set_simulation,
-                monochromatic_color_temperature => set_monochromatic_color_temperature,
-                monochromatic_color_tint => set_monochromatic_color_tint,
-                size => set_size,
-                quality => set_quality,
-                highlight => set_highlight,
-                shadow => set_shadow,
-                color => set_color,
-                sharpness => set_sharpness,
-                clarity => set_clarity,
-                white_balance => set_white_balance,
-                white_balance_shift_red => set_white_balance_shift_red,
-                white_balance_shift_blue => set_white_balance_shift_blue,
-                white_balance_temperature => set_white_balance_temperature,
-                dynamic_range => set_dynamic_range,
-                dynamic_range_priority => set_dynamic_range_priority,
-                noise_reduction => set_noise_reduction,
-                grain => set_grain,
-                color_chrome_effect => set_color_chrome_effect,
-                color_chrome_fx_blue => set_color_chrome_fx_blue,
-                smooth_skin_effect => set_smooth_skin_effect,
-                lens_modulation_optimizer => set_lens_modulation_optimizer,
-                color_space => set_color_space,
-            ]
-        };
-
-        Ok(())
-    })?;
-
+    let partial: SimulationBase = simulation.into();
+    camera.update_simulation(slot, partial)?;
     Ok(())
 }
 
 #[allow(clippy::needless_pass_by_value)]
 fn handle_export(
     options: GlobalOptions,
-    slot: fuji::CustomSetting,
+    slot: CustomSetting,
     output: Output,
 ) -> anyhow::Result<()> {
     let GlobalOptions {
@@ -226,11 +142,7 @@ fn handle_export(
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn handle_import(
-    options: GlobalOptions,
-    slot: fuji::CustomSetting,
-    input: Input,
-) -> anyhow::Result<()> {
+fn handle_import(options: GlobalOptions, slot: CustomSetting, input: Input) -> anyhow::Result<()> {
     let GlobalOptions {
         device, emulate, ..
     } = options;
@@ -238,9 +150,9 @@ fn handle_import(
     let mut camera = usb::get_camera(device, emulate)?;
 
     let mut reader = input.get_reader()?;
-    let mut simulation = Vec::new();
-    reader.read_to_end(&mut simulation)?;
-    let simulation = camera.deserialize_simulation(&simulation)?;
+    let mut buffer = Vec::new();
+    reader.read_to_end(&mut buffer)?;
+    let simulation = camera.deserialize_simulation(&buffer)?;
     camera.set_simulation(slot, &*simulation)?;
 
     Ok(())
@@ -250,16 +162,7 @@ pub fn handle(cmd: SimulationCmd, options: GlobalOptions) -> anyhow::Result<()> 
     match cmd {
         SimulationCmd::List => handle_list(options),
         SimulationCmd::Get { slot } => handle_get(options, slot),
-        SimulationCmd::Set {
-            slot,
-            set_film_simulation_options,
-            film_simulation_options,
-        } => handle_set(
-            options,
-            &set_film_simulation_options,
-            &film_simulation_options,
-            slot,
-        ),
+        SimulationCmd::Set { slot, simulation } => handle_set(options, simulation, slot),
         SimulationCmd::Export { slot, output } => handle_export(options, slot, output),
         SimulationCmd::Import { slot, input } => handle_import(options, slot, input),
     }

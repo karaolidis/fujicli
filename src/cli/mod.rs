@@ -62,3 +62,16 @@ pub enum Commands {
     #[command(alias = "i", subcommand)]
     Image(ImageCmd),
 }
+
+pub fn handle(cli: Cli) -> Result<(), anyhow::Error> {
+    let () = match cli.command {
+        Commands::Device(device_cmd) => device::handle(device_cmd, cli.options)?,
+        Commands::Backup(backup_cmd) => backup::handle(backup_cmd, cli.options)?,
+        Commands::Simulation(simulation_cmd) => {
+            simulation::handle(simulation_cmd, cli.options)?;
+        }
+        Commands::Image(render_cmd) => image::handle(render_cmd, cli.options)?,
+    };
+
+    Ok(())
+}

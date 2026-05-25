@@ -1,4 +1,7 @@
-use std::{fmt::Display, fmt::Formatter, str::FromStr};
+use std::{
+    fmt::{Display, Formatter},
+    str::FromStr,
+};
 
 use anyhow::{anyhow, bail};
 use fujicli::Camera;

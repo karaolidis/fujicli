@@ -1,9 +1,11 @@
+use std::io::{self, Write};
+
 use log::debug;
 use ptp_cursor::PtpSerialize;
 
 use crate::{
     features::base::CameraBase,
-    ptp::{CommandCode, Ptp, fuji},
+    ptp::{CommandCode, ObjectFormat, ObjectInfo, Ptp},
 };
 
 pub const OBJECT_HANDLE: [u32; 1] = [0x0];
@@ -23,7 +25,7 @@ pub trait CameraBackupManager: CameraBase {
 
     fn import_backup(&self, ptp: &mut Ptp, buffer: &[u8]) -> anyhow::Result<()> {
         debug!("Starting backup import");
-        let object_info = fuji::BackupObjectInfo::new(buffer.len())?;
+        let object_info = BackupObjectInfo::new(buffer.len())?;
         let _ = ptp.send(
             CommandCode::SendObjectInfo,
             &IMPORT_OBJECT_INFO_HANDLE,
@@ -37,3 +39,37 @@ pub trait CameraBackupManager: CameraBase {
 }
 
 impl<T> CameraBackupManager for T where T: CameraBase {}
+
+// NOTE: Naively assuming that all cameras support backup/restore using the same structs.
+pub struct BackupObjectInfo {
+    compressed_size: u32,
+}
+
+impl BackupObjectInfo {
+    pub fn new(buffer_len: usize) -> anyhow::Result<Self> {
+        Ok(Self {
+            compressed_size: u32::try_from(buffer_len)?,
+        })
+    }
+}
+
+impl PtpSerialize for BackupObjectInfo {
+    fn try_into_ptp(&self) -> io::Result<Vec<u8>> {
+        let mut buf = Vec::new();
+        self.try_write_ptp(&mut buf)?;
+        Ok(buf)
+    }
+
+    fn try_write_ptp(&self, buf: &mut Vec<u8>) -> io::Result<()> {
+        let object_info = ObjectInfo {
+            object_format: ObjectFormat::FujiBackup,
+            compressed_size: self.compressed_size,
+            ..Default::default()
+        };
+
+        object_info.try_write_ptp(buf)?;
+        buf.write_all(&[0x0u8; 1020])?;
+
+        Ok(())
+    }
+}

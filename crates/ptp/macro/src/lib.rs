@@ -190,7 +190,7 @@ pub fn derive_ptp_deserialize(input: TokenStream) -> TokenStream {
                 .iter()
                 .filter(|attr| attr.path().is_ident("repr"))
                 .find_map(|attr| attr.parse_args::<syn::Ident>().ok())
-                .expect("Enums must have a #[repr(T)] attribute for PtpSerialize");
+                .expect("Enums must have a #[repr(T)] attribute for PtpDeserialize");
 
             quote! {
                 impl ptp_cursor::PtpDeserialize for #name

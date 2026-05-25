@@ -2,6 +2,9 @@
 name = "ptp_macro"
 version = "0.1.0"
 edition = "2024"
+authors = [
+    "Nikolaos Karaolidis <nick@karaolidis.com>",
+]
 
 [lib]
 proc-macro = true
@@ -12,3 +15,6 @@ proc-macro2 = "1.0.101"
 quote = "1.0.41"
 syn = { version = "2.0.106", features = ["full"] }
 ptp_cursor = { path = "../cursor" }
+
+[dev-dependencies]
+num_enum = "0.7.4"

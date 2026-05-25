@@ -4,17 +4,16 @@ use log::debug;
 use ptp_cursor::{PtpDeserialize, PtpSerialize};
 
 use crate::{
-    features::{
-        base::CameraBase, render::ConversionProfile, simulation::parser::CameraSimulationParser,
-    },
+    features::base::CameraBase,
+    generated::renders::RenderBase,
     ptp::{CommandCode, DevicePropCode, ObjectFormat, ObjectInfo, Ptp},
 };
 
 pub const OUTGOING_OBJECT_HANDLE: [u32; 3] = [0x0, 0x0, 0x0];
 pub const INCOMING_OBJECT_HANDLE: [u32; 3] = [u32::MAX, 0x0, 0x0];
 
-// NOTE: Naively assuming that all cameras render in a similar way
-pub trait CameraRenderManager: CameraBase + CameraSimulationParser {
+// NOTE: Naively assuming that all cameras render in a similar way.
+pub trait CameraRenderManager: CameraBase {
     fn send_image(&self, ptp: &mut Ptp, image: &[u8]) -> anyhow::Result<()> {
         debug!("Sending image to camera");
         let object_info = ObjectInfo {
@@ -67,9 +66,7 @@ pub trait CameraRenderManager: CameraBase + CameraSimulationParser {
         &self,
         ptp: &mut Ptp,
         image: &[u8],
-        conversion_profile_modifier: &mut dyn FnMut(
-            &mut dyn ConversionProfile,
-        ) -> anyhow::Result<()>,
+        partial: RenderBase,
         draft: bool,
     ) -> anyhow::Result<Vec<u8>>;
 }
