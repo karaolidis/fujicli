@@ -8,12 +8,14 @@ authors = [
 ]
 build = "build.rs"
 
+[lints]
+workspace = true
+
 [build-dependencies]
 anyhow = "1.0.102"
 fujicodegen = { path = "../fujicodegen" }
 
 [dependencies]
-anyhow = "1.0.102"
 byteorder = "1.5.0"
 clap = { version = "4.6.1", features = ["derive", "wrap_help"] }
 log = "0.4.30"
@@ -29,3 +31,4 @@ strum_macros = "0.28.0"
 erased-serde = "0.4.10"
 serde_with = "3.20.0"
 exiftool = "0.3.1"
+thiserror = "2.0.18"

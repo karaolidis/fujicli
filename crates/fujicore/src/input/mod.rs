@@ -1,3 +1,7 @@
+pub mod error;
+
+pub use error::OptionError;
+
 use std::fmt::Display;
 
 use strsim::damerau_levenshtein;
@@ -23,6 +27,7 @@ const SIMILARITY_THRESHOLD: usize = 8;
 pub trait Choices {
     fn choices() -> Vec<String>;
 
+    #[must_use]
     fn closest(input: &str) -> Option<String> {
         let input_lower = input.to_lowercase();
 

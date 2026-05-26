@@ -13,13 +13,10 @@ use quote::quote;
 pub fn generate(json: &str, out_dir: &Path) -> anyhow::Result<()> {
     let fml: ast::Fml = serde_json::from_str(json).context("parsing FML JSON")?;
 
-    if out_dir.exists() {
-        std::fs::remove_dir_all(out_dir)
-            .with_context(|| format!("clearing {}", out_dir.display()))?;
-    }
     std::fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
 
-    let options = common::options::generate(&fml.options).context("generating option types")?;
+    let options =
+        common::options::generate(&fml.options, &fml.cameras).context("generating option types")?;
     write(out_dir, "options", options)?;
 
     let cameras = common::cameras::generate(&fml.cameras).context("generating camera registry")?;
@@ -52,6 +49,7 @@ fn root(fml: &ast::Fml) -> TokenStream {
 
     quote! {
         #![doc = #banner]
+        #![allow(clippy::unreadable_literal)]
 
         pub mod cameras;
         pub mod options;
@@ -65,6 +63,9 @@ fn write(out_dir: &Path, name: &str, tokens: TokenStream) -> anyhow::Result<()> 
     let formatted =
         format(tokens).with_context(|| format!("formatting generated module `{name}`"))?;
     let path = out_dir.join(format!("{name}.rs"));
+    if fs::read_to_string(&path).is_ok_and(|existing| existing == formatted) {
+        return Ok(());
+    }
     fs::write(&path, formatted).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }

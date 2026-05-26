@@ -27,7 +27,12 @@ pub fn generate(cameras: &BTreeMap<String, Camera>) -> anyhow::Result<TokenStrea
         let chunk_size = Literal::usize_suffixed(camera.spec.usb.chunk_size.try_into()?);
 
         let features = camera.spec.features.as_ref();
-        let backup_override = features.is_some_and(|f| f.backup).then(|| {
+
+        let has_backup = features.is_some_and(|f| f.backup);
+        let has_simulation = features.and_then(|f| f.simulation.as_ref()).is_some();
+        let has_render = features.and_then(|f| f.render.as_ref()).is_some();
+
+        let backup_override = has_backup.then(|| {
             quote! {
                 fn as_backup_manager(
                     &self,
@@ -36,7 +41,7 @@ pub fn generate(cameras: &BTreeMap<String, Camera>) -> anyhow::Result<TokenStrea
                 }
             }
         });
-        let simulation_override = features.and_then(|f| f.simulation.as_ref()).map(|_| {
+        let simulation_override = has_simulation.then(|| {
             quote! {
                 fn as_simulation_parser(
                     &self,
@@ -51,12 +56,31 @@ pub fn generate(cameras: &BTreeMap<String, Camera>) -> anyhow::Result<TokenStrea
                 }
             }
         });
-        let render_override = features.and_then(|f| f.render.as_ref()).map(|_| {
+        let render_override = has_render.then(|| {
             quote! {
                 fn as_render_manager(
                     &self,
                 ) -> Option<&dyn crate::features::render::CameraRenderManager<Context = Self::Context>> {
                     Some(self)
+                }
+            }
+        });
+
+        let mut capabilities: Vec<TokenStream> = Vec::new();
+        if has_backup {
+            capabilities.push(quote! { crate::error::Capability::BackupManagement });
+        }
+        if has_simulation {
+            capabilities.push(quote! { crate::error::Capability::SimulationParsing });
+            capabilities.push(quote! { crate::error::Capability::SimulationManagement });
+        }
+        if has_render {
+            capabilities.push(quote! { crate::error::Capability::RenderManagement });
+        }
+        let capabilities = (!capabilities.is_empty()).then(|| {
+            quote! {
+                fn capabilities(&self) -> &'static [crate::error::Capability] {
+                    &[ #( #capabilities, )* ]
                 }
             }
         });
@@ -82,6 +106,7 @@ pub fn generate(cameras: &BTreeMap<String, Camera>) -> anyhow::Result<TokenStrea
                     #chunk_size
                 }
 
+                #capabilities
                 #backup_override
                 #simulation_override
                 #render_override

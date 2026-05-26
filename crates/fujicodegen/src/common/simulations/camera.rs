@@ -148,7 +148,13 @@ fn generate_struct_def(
     });
 
     quote! {
-        #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+        #[derive(
+            ::std::fmt::Debug,
+            ::std::clone::Clone,
+            ::std::default::Default,
+            ::serde::Serialize,
+            ::serde::Deserialize,
+        )]
         #[serde(default, rename_all = "camelCase")]
         pub struct #struct_ident {
             #( #field_defs )*
@@ -171,7 +177,7 @@ fn generate_inherent_impl(
     let warnings_infos =
         generate_emit_warnings_and_infos(settings, effective_rules, Scopes::new(&self_acc))?;
     let solve = generate_solve(settings, effective_rules, false)?;
-    let try_update_from = generate_try_update_from(settings, &simulation.settings, struct_ident)?;
+    let try_update_from = generate_try_update_from(settings, &simulation.settings)?;
     let name = generate_name(settings, options_path);
 
     Ok(quote! {
@@ -187,15 +193,20 @@ fn generate_inherent_impl(
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_try_update_from(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     fields: &[Setting],
-    struct_ident: &Ident,
 ) -> anyhow::Result<TokenStream> {
     let init_fields = fields.iter().map(|s| {
         let info = settings.get(s.id.as_str()).expect("settings indexed");
         let ident = info.field_ident();
-        quote! { #ident: partial.#ident, }
+        let value = if info.is_copy {
+            quote! { partial.#ident }
+        } else {
+            quote! { partial.#ident.clone() }
+        };
+        quote! { #ident: #value, }
     });
 
     let merge_assigns = fields.iter().map(|s| {
@@ -213,9 +224,9 @@ fn generate_try_update_from(
     Ok(quote! {
         pub fn try_update_from(
             &mut self,
-            partial: crate::generated::simulations::SimulationBase,
-        ) -> ::anyhow::Result<()> {
-            let mut partial_profile: #struct_ident = #struct_ident {
+            partial: &crate::generated::simulations::SimulationBase,
+        ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
+            let mut partial_profile = Self {
                 #( #init_fields )*
             };
             partial_profile.apply_transformations();
@@ -245,6 +256,7 @@ fn generate_name(
         quote! { None }
     };
     quote! {
+        #[must_use]
         pub fn name(&self) -> Option<#options_path::CustomSettingName> {
             #body
         }
@@ -315,12 +327,12 @@ fn generate_try_from_base_impl(
         impl ::std::convert::TryFrom<crate::generated::simulations::SimulationBase>
             for #struct_ident
         {
-            type Error = ::anyhow::Error;
+            type Error = crate::features::simulation::SimulationError;
             fn try_from(
                 base: crate::generated::simulations::SimulationBase,
-            ) -> ::anyhow::Result<Self> {
+            ) -> ::std::result::Result<Self, crate::features::simulation::SimulationError> {
                 let mut sim = Self::default();
-                sim.try_update_from(base)?;
+                sim.try_update_from(&base)?;
                 #required_checks
                 Ok(sim)
             }
@@ -344,11 +356,10 @@ fn generate_required_field_checks(
         let id_str = id.to_string();
         Some(quote! {
             if sim.#ident.is_none() {
-                ::anyhow::bail!(
-                    "{}: required setting `{}` is missing",
-                    #struct_name,
-                    #id_str,
-                );
+                return Err(crate::features::simulation::SimulationError::MissingField {
+                    simulation: #struct_name,
+                    field: #id_str,
+                });
             }
         })
     });
@@ -365,8 +376,7 @@ fn generate_display_impl(
         let ident = info.field_ident();
         let label = info
             .option
-            .map(|o| o.spec.name().to_string())
-            .unwrap_or_else(|| info.id.to_string());
+            .map_or_else(|| info.id.to_string(), |o| o.spec.name().to_string());
         let escaped = label.replace('{', "{{").replace('}', "}}");
         let fmt = format!("{escaped}: {{value}}");
         quote! {
@@ -406,16 +416,17 @@ fn generate_simulation_impl(
 
             fn try_update_from(
                 &mut self,
-                partial: crate::generated::simulations::SimulationBase,
-            ) -> ::anyhow::Result<()> {
-                <Self>::try_update_from(self, partial)
+                partial: &crate::generated::simulations::SimulationBase,
+            ) -> crate::error::CoreResult<()> {
+                <Self>::try_update_from(self, partial)?;
+                Ok(())
             }
 
             #try_pull
             #try_push
 
             fn to_base(&self) -> crate::generated::simulations::SimulationBase {
-                <crate::generated::simulations::SimulationBase as ::std::convert::From<&#struct_ident>>::from(self)
+                <crate::generated::simulations::SimulationBase as ::std::convert::From<&Self>>::from(self)
             }
         }
     })
@@ -456,7 +467,9 @@ fn generate_try_pull(
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     Ok(quote! {
-        fn try_pull(ptp: &mut crate::ptp::Ptp) -> ::anyhow::Result<Self> {
+        fn try_pull(
+            ptp: &mut crate::ptp::Ptp,
+        ) -> crate::error::CoreResult<Self> {
             let mut staged = Self::default();
             #( #reads )*
             Ok(staged)
@@ -482,7 +495,10 @@ fn generate_try_push(
     });
 
     quote! {
-        fn try_push(&self, ptp: &mut crate::ptp::Ptp) -> ::anyhow::Result<()> {
+        fn try_push(
+            &self,
+            ptp: &mut crate::ptp::Ptp,
+        ) -> crate::error::CoreResult<()> {
             #( #writes )*
             Ok(())
         }
@@ -495,16 +511,21 @@ fn generate_parser_impl(struct_ident: &Ident, camera_struct_path: &TokenStream) 
             fn deserialize_simulation(
                 &self,
                 data: &[u8],
-            ) -> ::anyhow::Result<Box<dyn crate::features::simulation::Simulation>> {
-                let sim: #struct_ident = ::serde_json::from_slice(data)?;
+            ) -> crate::error::CoreResult<
+                Box<dyn crate::features::simulation::Simulation>,
+            > {
+                let sim: #struct_ident = ::serde_json::from_slice(data)
+                    .map_err(crate::features::simulation::SimulationError::from)?;
                 Ok(Box::new(sim))
             }
 
             fn serialize_simulation(
                 &self,
                 simulation: &dyn crate::features::simulation::Simulation,
-            ) -> ::anyhow::Result<Vec<u8>> {
-                Ok(::serde_json::to_vec(simulation)?)
+            ) -> crate::error::CoreResult<Vec<u8>> {
+                let bytes = ::serde_json::to_vec(simulation)
+                    .map_err(crate::features::simulation::SimulationError::from)?;
+                Ok(bytes)
             }
         }
     }
@@ -528,7 +549,9 @@ fn generate_manager_impl(
                 &self,
                 ptp: &mut crate::ptp::Ptp,
                 slot: #options_path::CustomSetting,
-            ) -> ::anyhow::Result<Box<dyn crate::features::simulation::Simulation>> {
+            ) -> crate::error::CoreResult<
+                Box<dyn crate::features::simulation::Simulation>,
+            > {
                 crate::ptp::option::SimulationSetting::try_push(&slot, ptp)?;
                 Ok(Box::new(
                     <#struct_ident as crate::features::simulation::Simulation>::try_pull(ptp)?,
@@ -540,11 +563,11 @@ fn generate_manager_impl(
                 ptp: &mut crate::ptp::Ptp,
                 slot: #options_path::CustomSetting,
                 partial: crate::generated::simulations::SimulationBase,
-            ) -> ::anyhow::Result<()> {
+            ) -> crate::error::CoreResult<()> {
                 crate::ptp::option::SimulationSetting::try_push(&slot, ptp)?;
                 let mut current =
                     <#struct_ident as crate::features::simulation::Simulation>::try_pull(ptp)?;
-                current.try_update_from(partial)?;
+                current.try_update_from(&partial)?;
                 <#struct_ident as crate::features::simulation::Simulation>::try_push(&current, ptp)
             }
 
@@ -553,13 +576,13 @@ fn generate_manager_impl(
                 ptp: &mut crate::ptp::Ptp,
                 slot: #options_path::CustomSetting,
                 simulation: &dyn crate::features::simulation::Simulation,
-            ) -> ::anyhow::Result<()> {
+            ) -> crate::error::CoreResult<()> {
                 let sim = simulation
                     .as_any()
                     .downcast_ref::<#struct_ident>()
-                    .ok_or_else(|| ::anyhow::anyhow!(
-                        "Simulation type mismatch: expected {}", #struct_name
-                    ))?;
+                    .ok_or(crate::features::simulation::SimulationError::TypeMismatch {
+                        expected: #struct_name,
+                    })?;
                 crate::ptp::option::SimulationSetting::try_push(&slot, ptp)?;
                 <#struct_ident as crate::features::simulation::Simulation>::try_push(sim, ptp)
             }

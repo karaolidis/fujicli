@@ -4,6 +4,7 @@ use log::debug;
 use ptp_cursor::PtpSerialize;
 
 use crate::{
+    error::{CoreError, CoreResult},
     features::base::CameraBase,
     ptp::{CommandCode, ObjectFormat, ObjectInfo, Ptp},
 };
@@ -14,7 +15,7 @@ pub const IMPORT_OBJECT_INFO_HANDLE: [u32; 2] = [0x0, 0x0];
 
 // NOTE: Naively assuming that all cameras backup/restore in the same way.
 pub trait CameraBackupManager: CameraBase {
-    fn export_backup(&self, ptp: &mut Ptp) -> anyhow::Result<Vec<u8>> {
+    fn export_backup(&self, ptp: &mut Ptp) -> CoreResult<Vec<u8>> {
         debug!("Starting backup export");
         let _ = ptp.send(CommandCode::GetObjectInfo, &EXPORT_OBJECT_INFO_HANDLE, None)?;
         let response = ptp.send(CommandCode::GetObject, &OBJECT_HANDLE, None)?;
@@ -23,13 +24,16 @@ pub trait CameraBackupManager: CameraBase {
         Ok(response)
     }
 
-    fn import_backup(&self, ptp: &mut Ptp, buffer: &[u8]) -> anyhow::Result<()> {
+    fn import_backup(&self, ptp: &mut Ptp, buffer: &[u8]) -> CoreResult<()> {
         debug!("Starting backup import");
         let object_info = BackupObjectInfo::new(buffer.len())?;
+        let serialized = object_info
+            .try_into_ptp()
+            .map_err(crate::ptp::PtpError::Io)?;
         let _ = ptp.send(
             CommandCode::SendObjectInfo,
             &IMPORT_OBJECT_INFO_HANDLE,
-            Some(&object_info.try_into_ptp()?),
+            Some(&serialized),
         )?;
         let _ = ptp.send(CommandCode::SendObject, &OBJECT_HANDLE, Some(buffer))?;
         debug!("Backup import completed");
@@ -46,10 +50,10 @@ pub struct BackupObjectInfo {
 }
 
 impl BackupObjectInfo {
-    pub fn new(buffer_len: usize) -> anyhow::Result<Self> {
-        Ok(Self {
-            compressed_size: u32::try_from(buffer_len)?,
-        })
+    pub fn new(buffer_len: usize) -> CoreResult<Self> {
+        let compressed_size =
+            u32::try_from(buffer_len).map_err(|_| CoreError::PayloadTooLarge(buffer_len))?;
+        Ok(Self { compressed_size })
     }
 }
 

@@ -4,15 +4,21 @@ mod float;
 mod integer;
 mod string;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Context;
 use proc_macro2::TokenStream;
 use quote::quote;
 
-use crate::ast::{FujiOption, NumericEncoding, OptionSpec};
+use crate::{
+    ast::{Camera, Field, FujiOption, NumericEncoding, OptionSpec},
+    util::ident::safe_upper_camel_case_ident,
+};
 
-pub fn generate(options: &BTreeMap<String, FujiOption>) -> anyhow::Result<TokenStream> {
+pub fn generate(
+    options: &BTreeMap<String, FujiOption>,
+    cameras: &BTreeMap<String, Camera>,
+) -> anyhow::Result<TokenStream> {
     let mut blocks = Vec::with_capacity(options.len());
 
     for (id, opt) in options {
@@ -55,13 +61,61 @@ pub fn generate(options: &BTreeMap<String, FujiOption>) -> anyhow::Result<TokenS
         blocks.push(block);
     }
 
+    let discriminant = generate_discriminant(options, cameras);
+
     let tokens = quote! {
         //! Generated option types. Do not edit.
 
         #(#blocks)*
+
+        #discriminant
     };
 
     Ok(tokens)
+}
+
+fn generate_discriminant(
+    options: &BTreeMap<String, FujiOption>,
+    cameras: &BTreeMap<String, Camera>,
+) -> TokenStream {
+    let inline_ids: BTreeSet<String> = cameras
+        .values()
+        .filter_map(|c| c.spec.features.as_ref()?.render.as_ref())
+        .flat_map(|r| r.fields.iter())
+        .filter_map(|f| match f {
+            Field::Inline(i) => Some(i.id.clone()),
+            Field::Ref(_) => None,
+        })
+        .collect();
+
+    let option_variants = options.keys().map(|id| {
+        let ident = safe_upper_camel_case_ident(id);
+        quote! { #ident, }
+    });
+
+    let inline_variants = inline_ids.iter().map(|id| {
+        let ident = safe_upper_camel_case_ident(id);
+        quote! { #ident, }
+    });
+
+    let option_impls = options.keys().map(|id| {
+        let ident = safe_upper_camel_case_ident(id);
+        quote! {
+            impl #ident {
+                pub const DISCRIMINANT: OptionDiscriminant = OptionDiscriminant::#ident;
+            }
+        }
+    });
+
+    quote! {
+        #[derive(::std::fmt::Debug, ::std::clone::Clone, ::std::marker::Copy, ::std::cmp::PartialEq, ::std::cmp::Eq, ::std::hash::Hash)]
+        pub enum OptionDiscriminant {
+            #(#option_variants)*
+            #(#inline_variants)*
+        }
+
+        #(#option_impls)*
+    }
 }
 
 pub fn path() -> TokenStream {

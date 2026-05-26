@@ -9,6 +9,9 @@ authors = [
 [lib]
 proc-macro = true
 
+[lints]
+workspace = true
+
 [dependencies]
 byteorder = "1.5.0"
 proc-macro2 = "1.0.106"

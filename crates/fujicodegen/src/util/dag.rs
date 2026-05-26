@@ -14,7 +14,7 @@ impl<'a> Dag<'a> {
     /// `edges` carries `(from, to)` pairs: `from` must come before `to`
     /// in the topological order. Nodes that aren't named in `nodes` and
     /// edges referencing such nodes are rejected at sort time.
-    pub fn new(nodes: Vec<&'a str>, edges: Vec<(&'a str, &'a str)>) -> Self {
+    pub const fn new(nodes: Vec<&'a str>, edges: Vec<(&'a str, &'a str)>) -> Self {
         Self { nodes, edges }
     }
 
@@ -70,8 +70,7 @@ impl<'a> Dag<'a> {
                 .map(|(i, _)| self.nodes[i])
                 .collect();
             bail!(
-                "ordering cycle detected among settings: {:?} (cannot produce a stable read/write order)",
-                stuck
+                "ordering cycle detected among settings: {stuck:?} (cannot produce a stable read/write order)"
             );
         }
 

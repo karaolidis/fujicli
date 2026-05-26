@@ -21,7 +21,7 @@ impl Bounds {
     }
 }
 
-pub(crate) fn generate(
+pub fn generate(
     id: &str,
     rules: Option<&StringRules>,
     encoding: &StringEncoding,
@@ -56,22 +56,24 @@ pub(crate) fn generate(
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_struct_def(type_name: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         #[derive(
-            Debug,
-            Clone,
-            PartialEq,
-            Eq,
-            ptp_macro::PtpSerialize,
-            ptp_macro::PtpDeserialize,
-            serde_with::SerializeDisplay,
-            serde_with::DeserializeFromStr,
+            ::std::fmt::Debug,
+            ::std::clone::Clone,
+            ::std::cmp::PartialEq,
+            ::std::cmp::Eq,
+            ::ptp_macro::PtpSerialize,
+            ::ptp_macro::PtpDeserialize,
+            ::serde_with::SerializeDisplay,
+            ::serde_with::DeserializeFromStr,
         )]
         pub struct #type_name(String);
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_inherent_impl(type_name: &Ident, bounds: &Bounds) -> anyhow::Result<TokenStream> {
     let const_block = match (bounds.min_len, bounds.max_len) {
         (Some(min), Some(max)) => quote! {
@@ -91,19 +93,22 @@ fn generate_inherent_impl(type_name: &Ident, bounds: &Bounds) -> anyhow::Result<
         impl #type_name {
             #const_block
 
+            #[must_use]
             pub fn as_str(&self) -> &str { &self.0 }
         }
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_from_str_impl(type_name: &Ident, bounds: &Bounds) -> anyhow::Result<TokenStream> {
     let validate_min = bounds.min_len.map(|min| {
         quote! {
             if s.chars().count() < #min as usize {
-                ::anyhow::bail!(
-                    "{} value '{s}' is shorter than min length {}",
-                    stringify!(#type_name), #min,
-                );
+                return Err(crate::input::OptionError::TooShort {
+                    type_name: stringify!(#type_name),
+                    input: s.to_string(),
+                    min: #min,
+                });
             }
         }
     });
@@ -111,18 +116,19 @@ fn generate_from_str_impl(type_name: &Ident, bounds: &Bounds) -> anyhow::Result<
     let validate_max = bounds.max_len.map(|max| {
         quote! {
             if s.chars().count() > #max as usize {
-                ::anyhow::bail!(
-                    "{} value '{s}' exceeds max length {}",
-                    stringify!(#type_name), #max,
-                );
+                return Err(crate::input::OptionError::TooLong {
+                    type_name: stringify!(#type_name),
+                    input: s.to_string(),
+                    max: #max,
+                });
             }
         }
     });
 
     Ok(quote! {
         impl ::std::str::FromStr for #type_name {
-            type Err = ::anyhow::Error;
-            fn from_str(s: &str) -> ::anyhow::Result<Self> {
+            type Err = crate::input::OptionError;
+            fn from_str(s: &str) -> ::std::result::Result<Self, crate::input::OptionError> {
                 #validate_min
                 #validate_max
                 Ok(Self(s.to_string()))
@@ -131,6 +137,7 @@ fn generate_from_str_impl(type_name: &Ident, bounds: &Bounds) -> anyhow::Result<
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_display_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         impl ::std::fmt::Display for #type_name {
@@ -141,6 +148,7 @@ fn generate_display_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_simulation_setting_impl(
     type_name: &Ident,
     prop_code: u16,

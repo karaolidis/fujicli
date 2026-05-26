@@ -1,8 +1,8 @@
 use heck::ToUpperCamelCase;
 use proc_macro2::{Ident, Span};
 
-fn safe_ident(raw: String) -> Ident {
-    let raw = raw.replace("-", "_");
+fn safe_ident(raw: &str) -> Ident {
+    let raw = raw.replace('-', "_");
     let safe = if raw.chars().next().is_none_or(|c| c.is_ascii_digit()) {
         format!("X{raw}")
     } else {
@@ -14,12 +14,12 @@ fn safe_ident(raw: String) -> Ident {
 
 pub fn safe_upper_camel_case_ident(s: &str) -> Ident {
     let raw = s.to_upper_camel_case();
-    safe_ident(raw)
+    safe_ident(&raw)
 }
 
 pub fn safe_uppercase_ident(s: &str) -> Ident {
     let raw = s.to_uppercase();
-    safe_ident(raw)
+    safe_ident(&raw)
 }
 
 /// Convert a numeric lookup key (e.g. `"-4"`, `"0"`, `"3.0"`, `"-0.3"`)
@@ -30,10 +30,9 @@ pub fn numeric_variant_ident(key: &str) -> Ident {
         return Ident::new("Zero", Span::call_site());
     }
 
-    let (sign, abs) = match s.strip_prefix('-') {
-        Some(rest) => ("Minus", rest),
-        None => ("Plus", s),
-    };
+    let (sign, abs) = s
+        .strip_prefix('-')
+        .map_or(("Plus", s), |rest| ("Minus", rest));
 
     let mut digits: String = abs
         .chars()

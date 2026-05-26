@@ -36,6 +36,7 @@ pub enum Leaf {
 }
 
 impl Leaf {
+    #[must_use]
     pub fn r#ref(&self) -> &str {
         match self {
             Self::Present(p) => &p.r#ref,
@@ -49,6 +50,7 @@ impl Leaf {
         }
     }
 
+    #[must_use]
     pub const fn scope(&self) -> Scope {
         match self {
             Self::Present(p) => p.scope,
@@ -62,6 +64,7 @@ impl Leaf {
         }
     }
 
+    #[must_use]
     pub fn negated(self) -> Self {
         match self {
             Self::Present(LeafPresent {
@@ -94,12 +97,12 @@ impl Leaf {
 impl From<&Assignment> for Leaf {
     fn from(a: &Assignment) -> Self {
         match &a.effect {
-            AssignmentEffect::Set(v) => Leaf::Equals(LeafEquals {
+            AssignmentEffect::Set(v) => Self::Equals(LeafEquals {
                 r#ref: a.r#ref.clone(),
                 scope: Scope::Current,
                 equals: v.clone(),
             }),
-            AssignmentEffect::Clear => Leaf::Present(LeafPresent {
+            AssignmentEffect::Clear => Self::Present(LeafPresent {
                 r#ref: a.r#ref.clone(),
                 scope: Scope::Current,
                 present: false,
@@ -161,7 +164,8 @@ impl Conjunction {
         });
     }
 
-    pub fn contains_all(&self, needle: &Conjunction) -> bool {
+    #[must_use]
+    pub fn contains_all(&self, needle: &Self) -> bool {
         multiset::subset(needle, self)
     }
 }
@@ -214,10 +218,12 @@ impl Hash for Conjunction {
 pub struct Dnf(pub Vec<Conjunction>);
 
 impl Dnf {
+    #[must_use]
     pub fn is_tautology(&self) -> bool {
         self.iter().any(|c| c.is_empty())
     }
 
+    #[must_use]
     pub fn is_contradiction(&self) -> bool {
         self.is_empty()
     }
@@ -273,32 +279,32 @@ impl Hash for Dnf {
 
 impl From<Predicate> for Dnf {
     fn from(p: Predicate) -> Self {
-        Dnf(p.into_disjuncts())
+        Self(p.into_disjuncts())
     }
 }
 
 impl From<Dnf> for Predicate {
     fn from(dnf: Dnf) -> Self {
         if dnf.is_contradiction() {
-            return Predicate::Bool(false);
+            return Self::Bool(false);
         }
 
         if dnf.is_tautology() {
-            return Predicate::Bool(true);
+            return Self::Bool(true);
         }
 
-        let mut disjuncts: Vec<Predicate> = dnf
+        let mut disjuncts: Vec<Self> = dnf
             .into_iter()
             .map(|c| {
                 if c.len() == 1 {
-                    Predicate::from(
+                    Self::from(
                         c.into_iter()
                             .next()
                             .expect("conjunction has exactly one element"),
                     )
                 } else {
                     PredAll {
-                        all: c.into_iter().map(Predicate::from).collect(),
+                        all: c.into_iter().map(Self::from).collect(),
                     }
                     .into()
                 }
@@ -314,40 +320,36 @@ impl From<Dnf> for Predicate {
 }
 
 impl Predicate {
+    #[must_use]
     pub fn into_disjuncts(self) -> Vec<Conjunction> {
         match self {
-            Predicate::All(a) => {
-                a.all
-                    .into_iter()
-                    .fold(vec![Conjunction(Vec::new())], |acc, clause| {
-                        if acc.is_empty() {
-                            return acc;
-                        }
+            Self::All(a) => a
+                .all
+                .into_iter()
+                .fold(vec![Conjunction(Vec::new())], |acc, clause| {
+                    if acc.is_empty() {
+                        return acc;
+                    }
 
-                        let parts = clause.into_disjuncts();
-                        if parts.is_empty() {
-                            return Vec::new();
-                        }
+                    let parts = clause.into_disjuncts();
+                    if parts.is_empty() {
+                        return Vec::new();
+                    }
 
-                        acc.iter()
-                            .flat_map(|prefix| {
-                                parts.iter().map(move |part| {
-                                    Conjunction(
-                                        prefix
-                                            .iter()
-                                            .cloned()
-                                            .chain(part.iter().cloned())
-                                            .collect(),
-                                    )
-                                })
+                    acc.iter()
+                        .flat_map(|prefix| {
+                            parts.iter().map(move |part| {
+                                Conjunction(
+                                    prefix.iter().cloned().chain(part.iter().cloned()).collect(),
+                                )
                             })
-                            .collect()
-                    })
-            }
-            Predicate::Any(a) => a.any.into_iter().flat_map(|p| p.into_disjuncts()).collect(),
-            Predicate::Not(n) => Self::into_negation(*n.not),
-            Predicate::Bool(true) => vec![Conjunction(Vec::new())],
-            Predicate::Bool(false) => Vec::new(),
+                        })
+                        .collect()
+                }),
+            Self::Any(a) => a.any.into_iter().flat_map(Self::into_disjuncts).collect(),
+            Self::Not(n) => Self::into_negation(*n.not),
+            Self::Bool(true) => vec![Conjunction(Vec::new())],
+            Self::Bool(false) => Vec::new(),
             leaf => {
                 let leaf_val =
                     Leaf::try_from(leaf).expect("into_leaf called on non-leaf predicate");
@@ -356,9 +358,10 @@ impl Predicate {
         }
     }
 
-    pub fn into_negation(p: Predicate) -> Vec<Conjunction> {
+    #[must_use]
+    pub fn into_negation(p: Self) -> Vec<Conjunction> {
         match p {
-            Predicate::All(a) => Predicate::Any(PredAny {
+            Self::All(a) => Self::Any(PredAny {
                 any: a
                     .all
                     .into_iter()
@@ -366,7 +369,7 @@ impl Predicate {
                     .collect(),
             })
             .into_disjuncts(),
-            Predicate::Any(a) => Predicate::All(PredAll {
+            Self::Any(a) => Self::All(PredAll {
                 all: a
                     .any
                     .into_iter()
@@ -374,8 +377,8 @@ impl Predicate {
                     .collect(),
             })
             .into_disjuncts(),
-            Predicate::Not(inner) => inner.not.into_disjuncts(),
-            Predicate::Bool(b) => {
+            Self::Not(inner) => inner.not.into_disjuncts(),
+            Self::Bool(b) => {
                 if b {
                     Vec::new()
                 } else {
@@ -396,14 +399,14 @@ impl TryFrom<Predicate> for Leaf {
 
     fn try_from(p: Predicate) -> Result<Self, Self::Error> {
         match p {
-            Predicate::Present(p) => Ok(Leaf::Present(p)),
-            Predicate::Equals(p) => Ok(Leaf::Equals(p)),
-            Predicate::In(p) => Ok(Leaf::In(p)),
-            Predicate::Between(p) => Ok(Leaf::Between(p)),
-            Predicate::LessThan(p) => Ok(Leaf::LessThan(p)),
-            Predicate::LessThanOrEqual(p) => Ok(Leaf::LessThanOrEqual(p)),
-            Predicate::GreaterThan(p) => Ok(Leaf::GreaterThan(p)),
-            Predicate::GreaterThanOrEqual(p) => Ok(Leaf::GreaterThanOrEqual(p)),
+            Predicate::Present(p) => Ok(Self::Present(p)),
+            Predicate::Equals(p) => Ok(Self::Equals(p)),
+            Predicate::In(p) => Ok(Self::In(p)),
+            Predicate::Between(p) => Ok(Self::Between(p)),
+            Predicate::LessThan(p) => Ok(Self::LessThan(p)),
+            Predicate::LessThanOrEqual(p) => Ok(Self::LessThanOrEqual(p)),
+            Predicate::GreaterThan(p) => Ok(Self::GreaterThan(p)),
+            Predicate::GreaterThanOrEqual(p) => Ok(Self::GreaterThanOrEqual(p)),
             Predicate::All(_) | Predicate::Any(_) | Predicate::Not(_) | Predicate::Bool(_) => {
                 bail!("into_leaf called on non-leaf predicate")
             }
@@ -599,7 +602,7 @@ mod tests {
             ],
         }
         .into();
-        let dnf = Dnf::from(p.clone());
+        let dnf = Dnf::from(p);
         let p2: Predicate = dnf.clone().into();
         assert_eq!(Dnf::from(p2), dnf);
     }

@@ -5,15 +5,17 @@ pub mod props;
 pub mod structs;
 
 pub use container::*;
+pub use error::PtpError;
 pub use props::*;
 pub use structs::*;
 
 use std::{cmp::min, io::Cursor, time::Duration};
 
-use anyhow::anyhow;
 use log::{debug, error, trace, warn};
 use ptp_cursor::{PtpDeserialize, PtpSerialize};
 use rusb::GlobalContext;
+
+use crate::CoreResult;
 
 pub struct Ptp {
     pub bus: u8,
@@ -32,7 +34,7 @@ impl Ptp {
         code: CommandCode,
         params: &[u32],
         data: Option<&[u8]>,
-    ) -> anyhow::Result<Vec<u8>> {
+    ) -> CoreResult<Vec<u8>> {
         let transaction_id = self.transaction_id;
 
         trace!(
@@ -43,7 +45,7 @@ impl Ptp {
         trace!("PTP tx={transaction_id}: sending command header");
         let mut payload = Vec::with_capacity(params.len() * 4);
         for p in params {
-            p.try_write_ptp(&mut payload)?;
+            p.try_write_ptp(&mut payload).map_err(PtpError::Io)?;
         }
         self.write(ContainerType::Command, code, &payload, transaction_id)?;
 
@@ -56,7 +58,7 @@ impl Ptp {
         }
 
         let response = {
-            let mut response: anyhow::Result<Vec<u8>> = Ok(Vec::new());
+            let mut response: CoreResult<Vec<u8>> = Ok(Vec::new());
             loop {
                 trace!("PTP tx={transaction_id}: receiving response");
                 let (container, payload) = self.read()?;
@@ -85,8 +87,8 @@ impl Ptp {
                         match container.code {
                             ContainerCode::Command(_)
                             | ContainerCode::Response(ResponseCode::Ok) => {}
-                            ContainerCode::Response(code) => {
-                                response = Err(anyhow!(error::Error::Response(code.into())));
+                            ContainerCode::Response(resp) => {
+                                response = Err(PtpError::Response(resp).into());
                             }
                         }
 
@@ -103,7 +105,7 @@ impl Ptp {
         self.transaction_id += 1;
         trace!(
             "PTP tx={transaction_id}: complete with response length {}",
-            response.as_ref().map(std::vec::Vec::len).unwrap_or(0)
+            response.as_ref().map_or(0, std::vec::Vec::len)
         );
 
         response
@@ -115,9 +117,9 @@ impl Ptp {
         code: CommandCode,
         payload: &[u8],
         transaction_id: u32,
-    ) -> anyhow::Result<()> {
+    ) -> CoreResult<()> {
         let container_info = ContainerInfo::new(kind, code, transaction_id, payload.len())?;
-        let mut buffer: Vec<u8> = container_info.try_into_ptp()?;
+        let mut buffer: Vec<u8> = container_info.try_into_ptp().map_err(PtpError::Io)?;
 
         let first_chunk_len = min(payload.len(), self.chunk_size - ContainerInfo::SIZE);
         buffer.extend_from_slice(&payload[..first_chunk_len]);
@@ -126,28 +128,31 @@ impl Ptp {
             "PTP write: {kind:?} container, code={code:?}, tx={transaction_id}, chunk_size={first_chunk_len}",
         );
         self.handle
-            .write_bulk(self.bulk_out, &buffer, Duration::ZERO)?;
+            .write_bulk(self.bulk_out, &buffer, Duration::ZERO)
+            .map_err(PtpError::Transport)?;
 
         for chunk in payload[first_chunk_len..].chunks(self.chunk_size) {
             trace!("PTP write: additional chunk ({} bytes)", chunk.len());
             self.handle
-                .write_bulk(self.bulk_out, chunk, Duration::ZERO)?;
+                .write_bulk(self.bulk_out, chunk, Duration::ZERO)
+                .map_err(PtpError::Transport)?;
         }
 
         Ok(())
     }
 
-    fn read(&self) -> anyhow::Result<(ContainerInfo, Vec<u8>)> {
+    fn read(&self) -> CoreResult<(ContainerInfo, Vec<u8>)> {
         let mut stack_buf = [0u8; 8 * 1024];
 
         let n = self
             .handle
-            .read_bulk(self.bulk_in, &mut stack_buf, Duration::ZERO)?;
+            .read_bulk(self.bulk_in, &mut stack_buf, Duration::ZERO)
+            .map_err(PtpError::Transport)?;
         let buf = &stack_buf[..n];
         trace!("PTP read: initial chunk ({n} bytes)");
 
         let mut cur = Cursor::new(buf);
-        let container_info = ContainerInfo::try_read_ptp(&mut cur)?;
+        let container_info = ContainerInfo::try_read_ptp(&mut cur).map_err(PtpError::Io)?;
 
         let payload_len = container_info.payload_len();
         if payload_len == 0 {
@@ -164,7 +169,8 @@ impl Ptp {
             let mut chunk = vec![0u8; min(remaining, self.chunk_size)];
             let n = self
                 .handle
-                .read_bulk(self.bulk_in, &mut chunk, Duration::ZERO)?;
+                .read_bulk(self.bulk_in, &mut chunk, Duration::ZERO)
+                .map_err(PtpError::Transport)?;
             trace!("PTP read: additional chunk ({n} bytes)");
             if n == 0 {
                 break;
@@ -175,55 +181,49 @@ impl Ptp {
         Ok((container_info, payload))
     }
 
-    pub fn open_session(&mut self, session_id: u32) -> anyhow::Result<()> {
+    pub fn open_session(&mut self, session_id: u32) -> CoreResult<()> {
         debug!("Opening PTP session");
         self.send(CommandCode::OpenSession, &[session_id], None)?;
         Ok(())
     }
 
-    pub fn close_session(&mut self, _: u32) -> anyhow::Result<()> {
+    pub fn close_session(&mut self, _: u32) -> CoreResult<()> {
         debug!("Closing PTP session");
         self.send(CommandCode::CloseSession, &[], None)?;
         Ok(())
     }
 
-    pub fn get_info(&mut self) -> anyhow::Result<DeviceInfo> {
+    pub fn get_info(&mut self) -> CoreResult<DeviceInfo> {
         debug!("Retrieving device info");
         let response = self.send(CommandCode::GetDeviceInfo, &[], None)?;
-        let info = DeviceInfo::try_from_ptp(&response)?;
+        let info = DeviceInfo::try_from_ptp(&response).map_err(PtpError::Io)?;
         Ok(info)
     }
 
-    pub fn get_prop_raw(&mut self, prop: impl Into<u16>) -> anyhow::Result<Vec<u8>> {
+    pub fn get_prop_raw(&mut self, prop: impl Into<u16>) -> CoreResult<Vec<u8>> {
         let prop = prop.into();
         debug!("Getting device prop: 0x{prop:04x}");
-        let response = self.send(CommandCode::GetDevicePropValue, &[u32::from(prop)], None)?;
-        Ok(response)
+        self.send(CommandCode::GetDevicePropValue, &[u32::from(prop)], None)
     }
 
-    pub fn set_prop_raw(&mut self, prop: impl Into<u16>, value: &[u8]) -> anyhow::Result<Vec<u8>> {
+    pub fn set_prop_raw(&mut self, prop: impl Into<u16>, value: &[u8]) -> CoreResult<Vec<u8>> {
         let prop = prop.into();
         debug!("Setting device prop: 0x{prop:04x}");
-        let response = self.send(
+        self.send(
             CommandCode::SetDevicePropValue,
             &[u32::from(prop)],
             Some(value),
-        )?;
-        Ok(response)
+        )
     }
 
-    pub fn get_prop<T: PtpDeserialize>(&mut self, code: impl Into<u16>) -> anyhow::Result<T> {
+    pub fn get_prop<T: PtpDeserialize>(&mut self, code: impl Into<u16>) -> CoreResult<T> {
         let bytes = self.get_prop_raw(code)?;
-        let value = T::try_from_ptp(&bytes)?;
+        let value = T::try_from_ptp(&bytes).map_err(PtpError::Io)?;
         Ok(value)
     }
 
-    pub fn set_prop<T: PtpSerialize>(
-        &mut self,
-        code: impl Into<u16>,
-        value: &T,
-    ) -> anyhow::Result<()> {
-        let bytes = value.try_into_ptp()?;
+    pub fn set_prop<T: PtpSerialize>(&mut self, code: impl Into<u16>, value: &T) -> CoreResult<()> {
+        let bytes = value.try_into_ptp().map_err(PtpError::Io)?;
         self.set_prop_raw(code, &bytes)?;
         Ok(())
     }

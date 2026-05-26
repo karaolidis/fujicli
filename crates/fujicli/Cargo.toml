@@ -7,6 +7,9 @@ authors = [
     "Nikolaos Karaolidis <nick@karaolidis.com>",
 ]
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "fujicli"
 path = "src/main.rs"
@@ -22,3 +25,4 @@ rusb = "0.9.4"
 serde_json = "1.0.150"
 strum = { version = "0.28.0", features = ["strum_macros"] }
 tempfile = "3.27.0"
+thiserror = "2.0.18"

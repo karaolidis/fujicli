@@ -81,7 +81,13 @@ fn generate_struct_def(union: &[UnionEntry]) -> TokenStream {
     });
 
     quote! {
-        #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+        #[derive(
+            ::std::fmt::Debug,
+            ::std::clone::Clone,
+            ::std::default::Default,
+            ::serde::Serialize,
+            ::serde::Deserialize,
+        )]
         #[serde(default, rename_all = "camelCase")]
         pub struct RenderBase {
             #( #fields )*
@@ -92,8 +98,13 @@ fn generate_struct_def(union: &[UnionEntry]) -> TokenStream {
 fn generate_merge_impl(union: &[UnionEntry]) -> TokenStream {
     let assigns = union.iter().map(|entry| {
         let ident = format_ident!("{}", entry.id);
+        let access = if entry.is_copy {
+            quote! { overlay.#ident }
+        } else {
+            quote! { overlay.#ident.clone() }
+        };
         quote! {
-            if let Some(value) = overlay.#ident {
+            if let Some(value) = #access {
                 self.#ident = Some(value);
             }
         }
@@ -101,7 +112,8 @@ fn generate_merge_impl(union: &[UnionEntry]) -> TokenStream {
 
     quote! {
         impl RenderBase {
-            pub fn merge(&mut self, overlay: Self) {
+            #[allow(clippy::missing_const_for_fn)]
+            pub fn merge(&mut self, overlay: &Self) {
                 #( #assigns )*
             }
         }
@@ -133,6 +145,7 @@ fn generate_apply_simulation_impl(
 
     quote! {
         impl RenderBase {
+            #[allow(clippy::missing_const_for_fn)]
             pub fn try_update_from(
                 &mut self,
                 simulation: &#simulations_path::SimulationBase,

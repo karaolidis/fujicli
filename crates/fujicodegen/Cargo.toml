@@ -7,6 +7,9 @@ authors = [
     "Nikolaos Karaolidis <nick@karaolidis.com>",
 ]
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow = "1.0.102"
 heck = "0.5.0"

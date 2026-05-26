@@ -19,19 +19,11 @@ pub fn resolve_numeric_repr_signed(min: i32, max: i32) -> anyhow::Result<bool> {
     let above_u16_max = max > i32::from(u16::MAX);
 
     if below_i16_min || above_u16_max {
-        bail!(
-            "wire value range [{}, {}] fits neither i16 nor u16",
-            min,
-            max
-        );
+        bail!("wire value range [{min}, {max}] fits neither i16 nor u16");
     }
 
     if negative && above_i16_max {
-        bail!(
-            "wire values [{}, {}] mix negatives with values above i16::MAX",
-            min,
-            max
-        );
+        bail!("wire values [{min}, {max}] mix negatives with values above i16::MAX");
     }
 
     Ok(negative)
@@ -115,7 +107,7 @@ mod tests {
 
     #[test]
     fn test_all_in_i16_positive_range_defaults_to_unsigned() {
-        let values = [0, 100, i16::MAX as i32];
+        let values = [0, 100, i32::from(i16::MAX)];
         assert!(!resolve_enum_repr_signed(&values).unwrap());
     }
 
@@ -146,7 +138,7 @@ mod tests {
 
     #[test]
     fn test_boundaries() {
-        assert!(resolve_enum_repr_signed(&[i16::MIN as i32]).unwrap());
-        assert!(!resolve_enum_repr_signed(&[u16::MAX as i32]).unwrap());
+        assert!(resolve_enum_repr_signed(&[i32::from(i16::MIN)]).unwrap());
+        assert!(!resolve_enum_repr_signed(&[i32::from(u16::MAX)]).unwrap());
     }
 }

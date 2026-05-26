@@ -71,7 +71,7 @@ pub fn generate_solve(
             quote! {
                 if !ok[#i_lit] {
                     if !self.#fn_name(pin, &ok #original_arg) {
-                        ::anyhow::bail!(#msg);
+                        return Err(crate::features::simulation::SimulationError::RuleViolation(#msg));
                     }
                     ok[#i_lit] = true;
                 }
@@ -88,10 +88,16 @@ pub fn generate_solve(
             let mut counter = 0usize;
             let walk = generate_dnf_walk(settings, &r.when, &mut counter, has_original)?;
             Ok(quote! {
-                #[allow(unused_variables)]
+                #[allow(
+                    unused_variables,
+                    clippy::nonminimal_bool,
+                    clippy::trivially_copy_pass_by_ref,
+                )]
                 fn #fn_name(
                     &mut self,
-                    pin: &::std::collections::HashSet<&'static str>,
+                    pin: &::std::collections::HashSet<
+                        crate::generated::options::OptionDiscriminant,
+                    >,
                     ok: &[bool; #n_lit]
                     #original_param,
                 ) -> bool {
@@ -115,12 +121,19 @@ pub fn generate_solve(
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     Ok(quote! {
-        #[allow(unused_assignments, unused_variables)]
+        #[allow(
+            unused_assignments,
+            unused_variables,
+            clippy::nonminimal_bool,
+            clippy::needless_late_init,
+        )]
         pub fn solve(
             &mut self,
-            pin: &::std::collections::HashSet<&'static str>
+            pin: &::std::collections::HashSet<
+                crate::generated::options::OptionDiscriminant,
+            >
             #original_param,
-        ) -> ::anyhow::Result<()> {
+        ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
             let mut ok: [bool; #n_lit] = [false; #n_lit];
             #( #seeds )*
             #( #process )*
@@ -129,7 +142,11 @@ pub fn generate_solve(
 
         #( #repair_fns )*
 
-        #[allow(unused_variables)]
+        #[allow(
+            unused_variables,
+            clippy::nonminimal_bool,
+            clippy::trivially_copy_pass_by_ref,
+        )]
         fn re_fires_other_ok(
             state: &Self,
             ok: &[bool; #n_lit],
@@ -147,18 +164,19 @@ pub fn generate_pin_set(
     accessor: &TokenStream,
 ) -> TokenStream {
     let insertions = settings.values().map(|info| {
-        let id = info.id;
         let ident = info.field_ident();
+        let discriminant = info.discriminant_expr();
         quote! {
             if #accessor.#ident.is_some() {
-                pin.insert(#id);
+                pin.insert(#discriminant);
             }
         }
     });
     quote! {
         {
-            let mut pin: ::std::collections::HashSet<&'static str> =
-                ::std::collections::HashSet::new();
+            let mut pin: ::std::collections::HashSet<
+                crate::generated::options::OptionDiscriminant,
+            > = ::std::collections::HashSet::new();
             #( #insertions )*
             pin
         }
@@ -267,8 +285,8 @@ fn generate_leaf_attempt(
     let Some((info, mutation)) = leaf_flip(settings, leaf)? else {
         return Ok(TokenStream::new());
     };
-    let field_id = info.id;
     let field_ident = info.field_ident();
+    let discriminant = info.discriminant_expr();
     let original_arg = if has_original {
         quote! { , original }
     } else {
@@ -276,7 +294,7 @@ fn generate_leaf_attempt(
     };
     Ok(quote! {
         {
-            if !pin.contains(#field_id) {
+            if !pin.contains(&#discriminant) {
                 let saved = self.#field_ident.take();
                 #mutation
                 if !Self::re_fires_other_ok(self, ok, current #original_arg) {
@@ -350,6 +368,7 @@ mod tests {
             id,
             kind: crate::ast::SpecKind::Integer,
             option: None,
+            is_copy: true,
         }
     }
 
@@ -394,7 +413,9 @@ mod tests {
             .unwrap()
             .to_string();
         assert!(out.contains("try_repair_rule_0"));
-        assert!(out.contains("pin . contains (\"a\")"));
+        assert!(out.contains(
+            "pin . contains (& crate :: generated :: options :: OptionDiscriminant :: A)"
+        ));
         assert!(out.contains("re_fires_other_ok"));
         assert!(out.contains("self . a = None"));
         assert!(out.contains("self . a = saved"));
@@ -460,8 +481,12 @@ mod tests {
         let out = generate_solve(&settings, &rules, false)
             .unwrap()
             .to_string();
-        assert!(out.contains("pin . contains (\"a\")"));
-        assert!(out.contains("pin . contains (\"b\")"));
+        assert!(out.contains(
+            "pin . contains (& crate :: generated :: options :: OptionDiscriminant :: A)"
+        ));
+        assert!(out.contains(
+            "pin . contains (& crate :: generated :: options :: OptionDiscriminant :: B)"
+        ));
         assert!(out.contains("let snap = self . clone ()"));
     }
 

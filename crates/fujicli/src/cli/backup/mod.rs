@@ -1,6 +1,8 @@
+use anyhow::Context;
+use clap::Subcommand;
+
 use super::common::file::{Input, Output};
 use crate::cli::{GlobalOptions, common::usb};
-use clap::Subcommand;
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum BackupCmd {
@@ -28,8 +30,10 @@ fn handle_export(options: GlobalOptions, output: Output) -> anyhow::Result<()> {
     let mut camera = usb::get_camera(device, emulate)?;
 
     let mut writer = output.get_writer()?;
-    let backup = camera.export_backup()?;
-    writer.write_all(&backup)?;
+    let backup = camera.export_backup().context("exporting camera backup")?;
+    writer
+        .write_all(&backup)
+        .context("writing backup to output")?;
 
     Ok(())
 }
@@ -44,8 +48,12 @@ fn handle_import(options: GlobalOptions, input: Input) -> anyhow::Result<()> {
 
     let mut reader = input.get_reader()?;
     let mut backup = Vec::new();
-    reader.read_to_end(&mut backup)?;
-    camera.import_backup(&backup)?;
+    reader
+        .read_to_end(&mut backup)
+        .context("reading backup from input")?;
+    camera
+        .import_backup(&backup)
+        .context("importing camera backup")?;
 
     Ok(())
 }

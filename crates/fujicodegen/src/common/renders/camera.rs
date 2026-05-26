@@ -135,7 +135,13 @@ fn generate_struct_def(
     });
 
     quote! {
-        #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+        #[derive(
+            ::std::fmt::Debug,
+            ::std::clone::Clone,
+            ::std::default::Default,
+            ::serde::Serialize,
+            ::serde::Deserialize,
+        )]
         #[serde(default, rename_all = "camelCase")]
         pub struct #struct_ident {
             #( #field_defs )*
@@ -162,8 +168,7 @@ fn generate_inherent_impl(
         Scopes::with_original(&self_acc, &original_acc),
     )?;
     let solve = generate_solve(settings, effective_rules, true)?;
-    let try_update_from =
-        generate_try_update_from(settings, &render.fields, renders_path, struct_ident)?;
+    let try_update_from = generate_try_update_from(settings, &render.fields, renders_path)?;
 
     Ok(quote! {
         impl #struct_ident {
@@ -177,16 +182,21 @@ fn generate_inherent_impl(
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_try_update_from(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     fields: &[Field],
     renders_path: &TokenStream,
-    struct_ident: &Ident,
 ) -> anyhow::Result<TokenStream> {
     let init_fields = fields.iter().map(|f| {
         let info = settings.get(f.id()).expect("settings indexed");
         let ident = info.field_ident();
-        quote! { #ident: partial.#ident, }
+        let value = if info.is_copy {
+            quote! { partial.#ident }
+        } else {
+            quote! { partial.#ident.clone() }
+        };
+        quote! { #ident: #value, }
     });
 
     let merge_assigns = fields.iter().map(|f| {
@@ -204,10 +214,10 @@ fn generate_try_update_from(
     Ok(quote! {
         pub fn try_update_from(
             &mut self,
-            partial: #renders_path::RenderBase,
-        ) -> ::anyhow::Result<()> {
+            partial: &#renders_path::RenderBase,
+        ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
             let original = self.clone();
-            let mut partial_profile: #struct_ident = #struct_ident {
+            let mut partial_profile = Self {
                 #( #init_fields )*
             };
             partial_profile.apply_transformations();
@@ -338,7 +348,7 @@ fn generate_ptp_deserialize_impl(
                 Ok(val)
             }
 
-            #[allow(clippy::field_reassign_with_default)]
+            #[allow(clippy::field_reassign_with_default, clippy::nonminimal_bool)]
             fn try_read_ptp<R: ::ptp_cursor::Read>(
                 cur: &mut R,
             ) -> ::std::io::Result<Self> {
@@ -447,9 +457,9 @@ fn generate_camera_render_manager_impl(
                 &self,
                 ptp: &mut crate::ptp::Ptp,
                 image: &[u8],
-                partial: #renders_path::RenderBase,
+                partial: &#renders_path::RenderBase,
                 draft: bool,
-            ) -> ::anyhow::Result<Vec<u8>> {
+            ) -> crate::error::CoreResult<Vec<u8>> {
                 <Self as crate::features::render::CameraRenderManager>::send_image(self, ptp, image)?;
                 let mut profile: #struct_ident = ptp.get_prop(
                     crate::ptp::DevicePropCode::FujiRawConversionProfile,

@@ -1,11 +1,55 @@
 use std::{
     fmt::{Display, Formatter},
+    num::ParseIntError,
     str::FromStr,
 };
 
-use anyhow::{anyhow, bail};
+use anyhow::Context;
 use fujicore::Camera;
 use log::trace;
+use thiserror::Error;
+
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, Error)]
+pub enum ParseLocationError {
+    #[error("invalid device format '{0}', expected <BUS>.<ADDRESS>")]
+    BadFormat(String),
+
+    #[error("invalid bus number '{value}': {source}")]
+    BadBus {
+        value: String,
+        #[source]
+        source: ParseIntError,
+    },
+
+    #[error("invalid address '{value}': {source}")]
+    BadAddress {
+        value: String,
+        #[source]
+        source: ParseIntError,
+    },
+}
+
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, Error)]
+pub enum ParseIdentityError {
+    #[error("invalid model format '{0}', expected <VENDOR_ID>:<PRODUCT_ID>")]
+    BadFormat(String),
+
+    #[error("invalid vendor id '{value}': {source}")]
+    BadVendor {
+        value: String,
+        #[source]
+        source: ParseIntError,
+    },
+
+    #[error("invalid product id '{value}': {source}")]
+    BadProduct {
+        value: String,
+        #[source]
+        source: ParseIntError,
+    },
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Location {
@@ -14,21 +58,26 @@ pub struct Location {
 }
 
 impl FromStr for Location {
-    type Err = anyhow::Error;
+    type Err = ParseLocationError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (bus, address) = s
             .split_once('.')
-            .ok_or_else(|| anyhow!("Invalid device format: {s}, expected <BUS>.<ADDRESS>"))?;
+            .ok_or_else(|| ParseLocationError::BadFormat(s.to_owned()))?;
 
-        Ok(Self {
-            bus: bus
-                .parse()
-                .map_err(|_| anyhow!("Invalid bus number: {bus}"))?,
-            address: address
-                .parse()
-                .map_err(|_| anyhow!("Invalid address: {address}"))?,
-        })
+        let bus = bus.parse().map_err(|source| ParseLocationError::BadBus {
+            value: bus.to_owned(),
+            source,
+        })?;
+
+        let address = address
+            .parse()
+            .map_err(|source| ParseLocationError::BadAddress {
+                value: address.to_owned(),
+                source,
+            })?;
+
+        Ok(Self { bus, address })
     }
 }
 
@@ -45,19 +94,26 @@ pub struct Identity {
 }
 
 impl FromStr for Identity {
-    type Err = anyhow::Error;
+    type Err = ParseIdentityError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (vendor, product) = s.split_once(':').ok_or_else(|| {
-            anyhow!("Invalid model format: {s}, expected <VENDOR_ID>:<PRODUCT_ID>")
-        })?;
+        let (vendor, product) = s
+            .split_once(':')
+            .ok_or_else(|| ParseIdentityError::BadFormat(s.to_owned()))?;
 
-        Ok(Self {
-            vendor: u16::from_str_radix(vendor, 16)
-                .map_err(|_| anyhow!("Invalid vendor ID: {vendor}"))?,
-            product: u16::from_str_radix(product, 16)
-                .map_err(|_| anyhow!("Invalid product ID: {product}"))?,
-        })
+        let vendor =
+            u16::from_str_radix(vendor, 16).map_err(|source| ParseIdentityError::BadVendor {
+                value: vendor.to_owned(),
+                source,
+            })?;
+
+        let product =
+            u16::from_str_radix(product, 16).map_err(|source| ParseIdentityError::BadProduct {
+                value: product.to_owned(),
+                source,
+            })?;
+
+        Ok(Self { vendor, product })
     }
 }
 
@@ -70,7 +126,7 @@ impl Display for Identity {
 pub fn get_usb_device_by_location(
     location: Location,
 ) -> anyhow::Result<rusb::Device<rusb::GlobalContext>> {
-    for device in rusb::devices()?.iter() {
+    for device in rusb::devices().context("enumerating USB devices")?.iter() {
         let bus = device.bus_number();
         let address = device.address();
 
@@ -82,20 +138,20 @@ pub fn get_usb_device_by_location(
         return Ok(device);
     }
 
-    bail!("No USB device found at location {location}");
+    anyhow::bail!("no USB device found at location {location}");
 }
 
 pub fn get_all_cameras() -> anyhow::Result<Vec<Camera>> {
     let mut cameras = Vec::new();
 
-    for device in rusb::devices()?.iter() {
+    for device in rusb::devices().context("enumerating USB devices")?.iter() {
         trace!("Found USB device {device:x?}");
-        if !Camera::probe(&device)? {
+        if !Camera::probe(&device).context("probing USB device for Fujifilm support")? {
             trace!("USB device {device:x?} is not a supported camera");
             continue;
         }
 
-        let camera = Camera::open(&device)?;
+        let camera = Camera::open(&device).context("opening supported camera")?;
         cameras.push(camera);
     }
 
@@ -107,23 +163,29 @@ pub fn get_camera(device: Option<Location>, emulate: Option<Identity>) -> anyhow
         let device = get_usb_device_by_location(location)?;
 
         emulate.as_ref().map_or_else(
-            || Camera::open(&device),
-            |identity| Camera::open_as(&device, identity.vendor, identity.product),
+            || Camera::open(&device).context("opening camera"),
+            |identity| {
+                Camera::open_as(&device, identity.vendor, identity.product)
+                    .with_context(|| format!("opening camera as emulated {identity}"))
+            },
         )
     } else {
-        for device in rusb::devices()?.iter() {
+        for device in rusb::devices().context("enumerating USB devices")?.iter() {
             trace!("Found USB device {device:x?}");
-            if !Camera::probe(&device)? {
+            if !Camera::probe(&device).context("probing USB device for Fujifilm support")? {
                 trace!("USB device {device:x?} is not a supported camera");
                 continue;
             }
 
             return emulate.as_ref().map_or_else(
-                || Camera::open(&device),
-                |identity| Camera::open_as(&device, identity.vendor, identity.product),
+                || Camera::open(&device).context("opening camera"),
+                |identity| {
+                    Camera::open_as(&device, identity.vendor, identity.product)
+                        .with_context(|| format!("opening camera as emulated {identity}"))
+                },
             );
         }
 
-        bail!("No supported camera found");
+        anyhow::bail!("no supported camera found");
     }
 }

@@ -221,7 +221,7 @@ mod tests {
         let info = collect_raw(&rules).unwrap();
         let cond = info.conditions.get("A").expect("A condition");
         assert_gate_is_single_negated_value_leaf(cond);
-        assert_eq!(info.edges, [edge("B", "A")].into_iter().collect());
+        assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
     }
 
     #[test]
@@ -309,7 +309,7 @@ mod tests {
         assert_eq!(cond.0.len(), 1);
         assert_eq!(cond.0[0].0.len(), 1);
         assert!(matches!(&cond.0[0].0[0], Leaf::Equals(_)));
-        assert_eq!(info.edges, [edge("B", "A")].into_iter().collect());
+        assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
     }
 
     #[test]
@@ -477,7 +477,7 @@ mod tests {
         )];
         let info = collect_raw(&rules).unwrap();
         assert!(info.conditions.contains_key("A"));
-        assert_eq!(info.edges, [edge("B", "A")].into_iter().collect());
+        assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
     }
 
     #[test]
@@ -508,7 +508,7 @@ mod tests {
         )];
         let info = collect_raw(&rules).unwrap();
         assert!(info.conditions.contains_key("A"));
-        assert_eq!(info.edges, [edge("B", "A")].into_iter().collect());
+        assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
     }
 
     #[test]
@@ -665,7 +665,7 @@ mod tests {
 
         assert!(info.conditions.contains_key("A"));
         assert!(!info.conditions.contains_key("B"));
-        assert_eq!(info.edges, [edge("B", "A")].into_iter().collect());
+        assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
 
         // Polarity is `true` so the gate is the negation of
         // `Present(B, false)` which is `Present(B, true)`.
@@ -699,7 +699,7 @@ mod tests {
         let info = collect_raw(&rules).unwrap();
         assert!(info.conditions.contains_key("B"));
         assert!(!info.conditions.contains_key("A"));
-        assert_eq!(info.edges, [edge("A", "B")].into_iter().collect());
+        assert_eq!(info.edges, std::iter::once(edge("A", "B")).collect());
     }
 
     #[test]
@@ -725,7 +725,7 @@ mod tests {
         )];
         let info = collect_raw(&rules).unwrap();
         assert!(info.conditions.contains_key("A"));
-        assert_eq!(info.edges, [edge("B", "A")].into_iter().collect());
+        assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
     }
 
     #[test]
@@ -857,8 +857,8 @@ mod tests {
         let cond = &info.conditions["A"];
         assert_eq!(cond.0.len(), 1, "expected one disjunct, got {cond:?}");
         assert_eq!(cond.0[0].0.len(), 2);
-        let mut refs: Vec<&str> = cond.0[0].0.iter().map(|l| l.r#ref()).collect();
-        refs.sort();
+        let mut refs: Vec<&str> = cond.0[0].0.iter().map(Leaf::r#ref).collect();
+        refs.sort_unstable();
         assert_eq!(refs, vec!["B", "C"]);
         assert!(cond.0[0].0.iter().all(|l| matches!(l, Leaf::NotEquals(_))));
 
@@ -1046,7 +1046,7 @@ mod tests {
             ),
         ];
         let info = collect_raw(&rules).unwrap();
-        assert_eq!(info.edges, [edge("B", "A")].into_iter().collect());
+        assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
     }
 
     #[test]

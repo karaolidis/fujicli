@@ -1,9 +1,11 @@
+pub mod error;
 pub mod features;
 pub mod generated;
 pub mod input;
 pub mod ptp;
 
-use anyhow::{anyhow, bail};
+pub use error::{Capability, CoreError, CoreResult};
+
 use features::{
     base::{CameraBase, info::CameraInfo},
     simulation::Simulation,
@@ -20,16 +22,6 @@ use crate::{
     },
 };
 
-const ERROR_DEVICE_NOT_SUPPORTED: &str = "Device not supported";
-const ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUP_MANAGEMENT: &str =
-    "This camera does not support backups yet";
-const ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_PARSING: &str =
-    "This camera does not support simulation parsing yet";
-const ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_MANAGEMENT: &str =
-    "This camera does not support simulation management yet";
-const ERROR_CAMERA_DOES_NOT_SUPPORT_RENDER_MANAGEMENT: &str =
-    "This camera does not support rendering images yet";
-
 const SESSION: u32 = 1;
 
 pub struct Camera {
@@ -37,6 +29,7 @@ pub struct Camera {
     r#impl: Box<dyn CameraBase<Context = GlobalContext>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CameraMode {
     Supported,
     Emulated { vendor: u16, product: u16 },
@@ -44,7 +37,7 @@ pub enum CameraMode {
 }
 
 impl Camera {
-    pub fn probe(device: &rusb::Device<GlobalContext>) -> anyhow::Result<bool> {
+    pub fn probe(device: &rusb::Device<GlobalContext>) -> CoreResult<bool> {
         let descriptor = device.device_descriptor()?;
 
         let vendor = descriptor.vendor_id();
@@ -57,10 +50,7 @@ impl Camera {
         Ok(supported)
     }
 
-    pub fn open_with(
-        mode: CameraMode,
-        device: &rusb::Device<GlobalContext>,
-    ) -> anyhow::Result<Self> {
+    pub fn open_with(mode: CameraMode, device: &rusb::Device<GlobalContext>) -> CoreResult<Self> {
         let descriptor = device.device_descriptor()?;
 
         let (vendor, product) = match mode {
@@ -78,7 +68,7 @@ impl Camera {
                     debug!("Found supported camera: {}", c.name);
                     c.camera_factory
                 })
-                .ok_or_else(|| anyhow!(ERROR_DEVICE_NOT_SUPPORTED))?,
+                .ok_or(CoreError::DeviceUnsupported { vendor, product })?,
             CameraMode::Unknown => UNKNOWN_CAMERA.camera_factory,
         };
 
@@ -90,7 +80,7 @@ impl Camera {
             .interfaces()
             .flat_map(|i| i.descriptors())
             .find(|x| x.class_code() == LIBUSB_CLASS_IMAGE)
-            .ok_or(rusb::Error::NotFound)?;
+            .ok_or(CoreError::NoImagingInterface)?;
 
         let interface = interface_descriptor.interface_number();
         debug!("Found interface {interface}");
@@ -135,7 +125,7 @@ impl Camera {
         Ok(Self { ptp, r#impl })
     }
 
-    pub fn open(device: &rusb::Device<GlobalContext>) -> anyhow::Result<Self> {
+    pub fn open(device: &rusb::Device<GlobalContext>) -> CoreResult<Self> {
         Self::open_with(CameraMode::Supported, device)
     }
 
@@ -143,11 +133,11 @@ impl Camera {
         device: &rusb::Device<GlobalContext>,
         vendor: u16,
         product: u16,
-    ) -> anyhow::Result<Self> {
+    ) -> CoreResult<Self> {
         Self::open_with(CameraMode::Emulated { vendor, product }, device)
     }
 
-    pub fn open_unknown(device: &rusb::Device<GlobalContext>) -> anyhow::Result<Self> {
+    pub fn open_unknown(device: &rusb::Device<GlobalContext>) -> CoreResult<Self> {
         Self::open_with(CameraMode::Unknown, device)
     }
 }
@@ -187,92 +177,100 @@ impl Camera {
         format!("{}.{}", self.ptp.bus, self.ptp.address)
     }
 
-    pub fn get_info(&mut self) -> anyhow::Result<Box<dyn CameraInfo>> {
+    pub fn capabilities(&self) -> &'static [Capability] {
+        self.r#impl.capabilities()
+    }
+
+    pub fn supports(&self, capability: Capability) -> bool {
+        self.capabilities().contains(&capability)
+    }
+
+    pub fn get_info(&mut self) -> CoreResult<Box<dyn CameraInfo>> {
         self.r#impl.get_info(&mut self.ptp)
     }
 
-    pub fn export_backup(&mut self) -> anyhow::Result<Vec<u8>> {
-        if let Some(backups) = self.r#impl.as_backup_manager() {
-            backups.export_backup(&mut self.ptp)
-        } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUP_MANAGEMENT);
-        }
+    pub fn export_backup(&mut self) -> CoreResult<Vec<u8>> {
+        let backups = self
+            .r#impl
+            .as_backup_manager()
+            .ok_or(CoreError::Unsupported(Capability::BackupManagement))?;
+        backups.export_backup(&mut self.ptp)
     }
 
-    pub fn import_backup(&mut self, buffer: &[u8]) -> anyhow::Result<()> {
-        if let Some(backups) = self.r#impl.as_backup_manager() {
-            backups.import_backup(&mut self.ptp, buffer)
-        } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_BACKUP_MANAGEMENT);
-        }
+    pub fn import_backup(&mut self, buffer: &[u8]) -> CoreResult<()> {
+        let backups = self
+            .r#impl
+            .as_backup_manager()
+            .ok_or(CoreError::Unsupported(Capability::BackupManagement))?;
+        backups.import_backup(&mut self.ptp, buffer)
     }
 
-    pub fn serialize_simulation(&self, simulation: &dyn Simulation) -> anyhow::Result<Vec<u8>> {
-        if let Some(simulations) = self.r#impl.as_simulation_parser() {
-            simulations.serialize_simulation(simulation)
-        } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_PARSING);
-        }
+    pub fn serialize_simulation(&self, simulation: &dyn Simulation) -> CoreResult<Vec<u8>> {
+        let parser = self
+            .r#impl
+            .as_simulation_parser()
+            .ok_or(CoreError::Unsupported(Capability::SimulationParsing))?;
+        parser.serialize_simulation(simulation)
     }
 
-    pub fn deserialize_simulation(&self, simulation: &[u8]) -> anyhow::Result<Box<dyn Simulation>> {
-        if let Some(simulations) = self.r#impl.as_simulation_parser() {
-            simulations.deserialize_simulation(simulation)
-        } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_PARSING);
-        }
+    pub fn deserialize_simulation(&self, simulation: &[u8]) -> CoreResult<Box<dyn Simulation>> {
+        let parser = self
+            .r#impl
+            .as_simulation_parser()
+            .ok_or(CoreError::Unsupported(Capability::SimulationParsing))?;
+        parser.deserialize_simulation(simulation)
     }
 
-    pub fn custom_settings_slots(&self) -> anyhow::Result<Vec<CustomSetting>> {
-        if let Some(sim) = self.r#impl.as_simulation_manager() {
-            Ok(sim.custom_settings_slots())
-        } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_MANAGEMENT);
-        }
+    pub fn custom_settings_slots(&self) -> CoreResult<Vec<CustomSetting>> {
+        let sim = self
+            .r#impl
+            .as_simulation_manager()
+            .ok_or(CoreError::Unsupported(Capability::SimulationManagement))?;
+        Ok(sim.custom_settings_slots())
     }
 
-    pub fn get_simulation(&mut self, slot: CustomSetting) -> anyhow::Result<Box<dyn Simulation>> {
-        if let Some(sim) = self.r#impl.as_simulation_manager() {
-            sim.get_simulation(&mut self.ptp, slot)
-        } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_MANAGEMENT);
-        }
+    pub fn get_simulation(&mut self, slot: CustomSetting) -> CoreResult<Box<dyn Simulation>> {
+        let sim = self
+            .r#impl
+            .as_simulation_manager()
+            .ok_or(CoreError::Unsupported(Capability::SimulationManagement))?;
+        sim.get_simulation(&mut self.ptp, slot)
     }
 
     pub fn update_simulation(
         &mut self,
         slot: CustomSetting,
         partial: SimulationBase,
-    ) -> anyhow::Result<()> {
-        if let Some(sim) = self.r#impl.as_simulation_manager() {
-            sim.update_simulation(&mut self.ptp, slot, partial)
-        } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_MANAGEMENT);
-        }
+    ) -> CoreResult<()> {
+        let sim = self
+            .r#impl
+            .as_simulation_manager()
+            .ok_or(CoreError::Unsupported(Capability::SimulationManagement))?;
+        sim.update_simulation(&mut self.ptp, slot, partial)
     }
 
     pub fn set_simulation(
         &mut self,
         slot: CustomSetting,
         simulation: &dyn Simulation,
-    ) -> anyhow::Result<()> {
-        if let Some(sim) = self.r#impl.as_simulation_manager() {
-            sim.set_simulation(&mut self.ptp, slot, simulation)
-        } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_SIMULATION_MANAGEMENT);
-        }
+    ) -> CoreResult<()> {
+        let sim = self
+            .r#impl
+            .as_simulation_manager()
+            .ok_or(CoreError::Unsupported(Capability::SimulationManagement))?;
+        sim.set_simulation(&mut self.ptp, slot, simulation)
     }
 
     pub fn render(
         &mut self,
         image: &[u8],
-        partial: RenderBase,
+        partial: &RenderBase,
         draft: bool,
-    ) -> anyhow::Result<Vec<u8>> {
-        if let Some(renders) = self.r#impl.as_render_manager() {
-            renders.render(&mut self.ptp, image, partial, draft)
-        } else {
-            bail!(ERROR_CAMERA_DOES_NOT_SUPPORT_RENDER_MANAGEMENT);
-        }
+    ) -> CoreResult<Vec<u8>> {
+        let renders = self
+            .r#impl
+            .as_render_manager()
+            .ok_or(CoreError::Unsupported(Capability::RenderManagement))?;
+        renders.render(&mut self.ptp, image, partial, draft)
     }
 }

@@ -1,53 +1,20 @@
-use std::{fmt, io};
+use std::io;
+
+use thiserror::Error;
 
 use crate::ptp::ResponseCode;
 
-#[derive(Debug)]
-pub enum Error {
-    Response(u16),
-    Malformed(String),
-    Usb(rusb::Error),
-    Io(io::Error),
-}
+#[derive(Debug, Error)]
+pub enum PtpError {
+    #[error("PTP response: {0}")]
+    Response(ResponseCode),
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Self::Response(r) => {
-                let name = ResponseCode::try_from(r)
-                    .map_or_else(|_| "Unknown".to_string(), |c| format!("{c:?}"));
-                write!(f, "{name} (0x{r:04x})")
-            }
-            Self::Usb(ref e) => write!(f, "USB error: {e}"),
-            Self::Io(ref e) => write!(f, "IO error: {e}"),
-            Self::Malformed(ref e) => write!(f, "{e}"),
-        }
-    }
-}
+    #[error("unknown PTP container code 0x{0:04x}")]
+    UnknownContainerCode(u16),
 
-impl ::std::error::Error for Error {
-    fn cause(&self) -> Option<&dyn ::std::error::Error> {
-        match *self {
-            Self::Usb(ref e) => Some(e),
-            Self::Io(ref e) => Some(e),
-            _ => None,
-        }
-    }
-}
+    #[error(transparent)]
+    Transport(#[from] rusb::Error),
 
-impl From<rusb::Error> for Error {
-    fn from(e: rusb::Error) -> Self {
-        Self::Usb(e)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Self {
-        match e.kind() {
-            io::ErrorKind::UnexpectedEof => {
-                Self::Malformed("Unexpected end of message".to_string())
-            }
-            _ => Self::Io(e),
-        }
-    }
+    #[error(transparent)]
+    Io(#[from] io::Error),
 }

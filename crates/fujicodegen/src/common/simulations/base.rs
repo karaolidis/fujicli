@@ -59,7 +59,13 @@ fn generate_struct_def(union: &[UnionEntry]) -> TokenStream {
     });
 
     quote! {
-        #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+        #[derive(
+            ::std::fmt::Debug,
+            ::std::clone::Clone,
+            ::std::default::Default,
+            ::serde::Serialize,
+            ::serde::Deserialize,
+        )]
         #[serde(default, rename_all = "camelCase")]
         pub struct SimulationBase {
             #( #base_fields )*

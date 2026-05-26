@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use clap::Subcommand;
 use fujicore::{
     Camera,
@@ -54,7 +54,7 @@ fn handle_backup_export(options: GlobalOptions, output: Output) -> anyhow::Resul
 
     let location = device.ok_or_else(|| anyhow!("Device must be specified for backup export"))?;
     let usb = usb::get_usb_device_by_location(location)?;
-    let mut camera = Camera::open_unknown(&usb)?;
+    let mut camera = Camera::open_unknown(&usb).context("opening device as unknown camera")?;
 
     let mut writer = output.get_writer()?;
     try_call!(camera.ptp.send(
@@ -67,7 +67,9 @@ fn handle_backup_export(options: GlobalOptions, output: Output) -> anyhow::Resul
             .ptp
             .send(CommandCode::GetObject, &backup::OBJECT_HANDLE, None)
     )?;
-    writer.write_all(&backup)?;
+    writer
+        .write_all(&backup)
+        .context("writing backup to output")?;
 
     Ok(())
 }
@@ -78,18 +80,23 @@ fn handle_backup_import(options: GlobalOptions, input: Input) -> anyhow::Result<
 
     let location = device.ok_or_else(|| anyhow!("Device must be specified for backup import"))?;
     let usb = usb::get_usb_device_by_location(location)?;
-    let mut camera = Camera::open_unknown(&usb)?;
+    let mut camera = Camera::open_unknown(&usb).context("opening device as unknown camera")?;
 
     let mut reader = input.get_reader()?;
     let mut backup = Vec::new();
-    reader.read_to_end(&mut backup)?;
+    reader
+        .read_to_end(&mut backup)
+        .context("reading backup from input")?;
 
-    let backup_info = BackupObjectInfo::new(backup.len())?;
+    let backup_info = BackupObjectInfo::new(backup.len()).context("preparing backup envelope")?;
+    let backup_info_bytes = backup_info
+        .try_into_ptp()
+        .context("serializing backup envelope")?;
 
     try_call!(camera.ptp.send(
         CommandCode::SendObjectInfo,
         &backup::IMPORT_OBJECT_INFO_HANDLE,
-        Some(&backup_info.try_into_ptp()?),
+        Some(&backup_info_bytes),
     ))?;
     try_call!(camera.ptp.send(
         CommandCode::SendObject,
@@ -106,7 +113,7 @@ fn handle_info(options: GlobalOptions) -> anyhow::Result<()> {
 
     let location = device.ok_or_else(|| anyhow!("Device must be specified for info dump"))?;
     let usb = usb::get_usb_device_by_location(location)?;
-    let mut camera = Camera::open_unknown(&usb)?;
+    let mut camera = Camera::open_unknown(&usb).context("opening device as unknown camera")?;
 
     let _ = try_call!(camera.ptp.get_info());
     let _ = try_call!(camera.ptp.get_prop_raw(UsbMode::prop_code()));
@@ -115,8 +122,6 @@ fn handle_info(options: GlobalOptions) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)]
-#[allow(clippy::cognitive_complexity)]
 #[allow(clippy::needless_pass_by_value)]
 fn handle_simulation(options: GlobalOptions) -> anyhow::Result<()> {
     let GlobalOptions { device, .. } = options;
@@ -124,7 +129,7 @@ fn handle_simulation(options: GlobalOptions) -> anyhow::Result<()> {
     let location =
         device.ok_or_else(|| anyhow!("Device must be specified for simulation prop dump"))?;
     let usb = usb::get_usb_device_by_location(location)?;
-    let mut camera = Camera::open_unknown(&usb)?;
+    let mut camera = Camera::open_unknown(&usb).context("opening device as unknown camera")?;
 
     for slot in CustomSetting::iter() {
         if try_call!(slot.try_push(&mut camera.ptp)).is_err() {

@@ -63,13 +63,13 @@ impl OptionLike for Setting {
 
 impl OptionLike for Field {
     fn id(&self) -> &str {
-        Field::id(self)
+        Self::id(self)
     }
 
     fn option_ref(&self) -> Option<&str> {
         match self {
-            Field::Ref(r) => Some(&r.r#ref),
-            Field::Inline(_) => None,
+            Self::Ref(r) => Some(&r.r#ref),
+            Self::Inline(_) => None,
         }
     }
 }
@@ -100,25 +100,35 @@ pub struct SettingInfo<'a> {
     pub id: &'a str,
     pub kind: SpecKind,
     pub option: Option<&'a FujiOption>,
+    pub is_copy: bool,
 }
 
-impl<'a> SettingInfo<'a> {
+impl SettingInfo<'_> {
     pub fn field_ident(&self) -> Ident {
         Ident::new(self.id, proc_macro2::Span::call_site())
     }
 
     pub fn type_path(&self) -> TokenStream {
-        match self.option {
-            Some(option) => {
+        self.option.map_or_else(
+            || {
+                debug_assert!(matches!(self.kind, SpecKind::Integer));
+                quote! { i32 }
+            },
+            |option| {
                 let options_path = options::path();
                 let type_ident = safe_upper_camel_case_ident(&option.id);
                 quote! { #options_path::#type_ident }
-            }
-            None => {
-                debug_assert!(matches!(self.kind, SpecKind::Integer));
-                quote! { i32 }
-            }
-        }
+            },
+        )
+    }
+
+    pub fn discriminant_expr(&self) -> TokenStream {
+        let options_path = options::path();
+        let variant = self.option.map_or_else(
+            || safe_upper_camel_case_ident(self.id),
+            |option| safe_upper_camel_case_ident(&option.id),
+        );
+        quote! { #options_path::OptionDiscriminant::#variant }
     }
 
     fn int(&self, accessor: &TokenStream) -> TokenStream {
@@ -130,26 +140,30 @@ impl<'a> SettingInfo<'a> {
     }
 }
 
+#[allow(clippy::unnecessary_wraps)]
 pub fn build_settings<'a, F: OptionLike + 'a>(
     options: &'a BTreeMap<String, FujiOption>,
     items: &'a [F],
 ) -> anyhow::Result<BTreeMap<&'a str, SettingInfo<'a>>> {
     let mut table = BTreeMap::new();
     for item in items {
-        let info = if let Some(name) = item.option_ref() {
-            let option = options.get(name).expect("ref validated during cue export");
-            SettingInfo {
-                id: item.id(),
-                kind: option.spec.kind(),
-                option: Some(option),
-            }
-        } else {
-            SettingInfo {
+        let info = item.option_ref().map_or_else(
+            || SettingInfo {
                 id: item.id(),
                 kind: SpecKind::Integer,
                 option: None,
-            }
-        };
+                is_copy: true,
+            },
+            |name| {
+                let option = options.get(name).expect("ref validated during cue export");
+                SettingInfo {
+                    id: item.id(),
+                    kind: option.spec.kind(),
+                    option: Some(option),
+                    is_copy: !matches!(option.spec.kind(), SpecKind::String),
+                }
+            },
+        );
         let _ = table.insert(info.id, info);
     }
     Ok(table)
@@ -355,7 +369,19 @@ pub fn generate_apply_transformations(
         .iter()
         .map(|t| generate_transformation(settings, t, &accessor))
         .collect::<anyhow::Result<Vec<_>>>()?;
+    let head = if transformations.is_empty() {
+        quote! {
+            #[allow(
+                clippy::missing_const_for_fn,
+                clippy::needless_pass_by_ref_mut,
+                clippy::unused_self,
+            )]
+        }
+    } else {
+        quote! {}
+    };
     Ok(quote! {
+        #head
         fn apply_transformations(&mut self) {
             #( #parts )*
         }
@@ -367,18 +393,33 @@ pub fn generate_emit_warnings_and_infos(
     rules: &[NormalizedRule],
     scopes: Scopes<'_>,
 ) -> anyhow::Result<TokenStream> {
-    let parts = rules
+    let warning_rules: Vec<_> = rules
         .iter()
         .filter(|r| !matches!(r.severity, Severity::Error))
+        .collect();
+    let parts = warning_rules
+        .iter()
         .map(|r| generate_normalized_rule(settings, r, scopes))
         .collect::<anyhow::Result<Vec<_>>>()?;
     let original_param = match scopes.original {
         Some(_) => quote! { , original: &Self },
         None => quote! {},
     };
+    let head = if warning_rules.is_empty() {
+        quote! {
+            #[allow(
+                clippy::missing_const_for_fn,
+                clippy::unnecessary_wraps,
+                clippy::unused_self,
+            )]
+        }
+    } else {
+        quote! {}
+    };
     Ok(quote! {
+        #head
         #[allow(unused_variables)]
-        fn emit_warnings_and_infos(&self #original_param) -> ::anyhow::Result<()> {
+        fn emit_warnings_and_infos(&self #original_param) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
             #( #parts )*
             Ok(())
         }
@@ -395,7 +436,9 @@ pub fn generate_normalized_rule(
         let severity = rule.severity;
         let message: &str = &rule.message;
         let action = match severity {
-            Severity::Error => quote! { ::anyhow::bail!(#message); },
+            Severity::Error => {
+                quote! { return Err(crate::features::simulation::SimulationError::RuleViolation(#message)); }
+            }
             Severity::Warning => quote! { ::log::warn!(#message); },
             Severity::Info => quote! { ::log::info!(#message); },
         };
@@ -472,6 +515,7 @@ pub fn generate_value_expr(info: &SettingInfo<'_>, value: &Value) -> anyhow::Res
             let n = value
                 .as_f64()
                 .expect("float predicate value validated during cue export");
+            #[allow(clippy::cast_possible_truncation)]
             let lit = Literal::f32_suffixed(n as f32);
             Ok(quote! { #lit })
         }

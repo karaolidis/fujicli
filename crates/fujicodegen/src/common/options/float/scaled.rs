@@ -41,7 +41,7 @@ impl Bounds {
     }
 }
 
-pub(crate) fn generate(
+pub fn generate(
     id: &str,
     prop_code: Option<u16>,
     rules: Option<&NumericRules<f32>>,
@@ -50,7 +50,9 @@ pub(crate) fn generate(
     let bounds = Bounds::resolve(id, rules, encoding)
         .with_context(|| format!("resolving bounds for float option `{id}`"))?;
 
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
     let raw_min = (bounds.min * bounds.scale as f32).round() as i32;
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
     let raw_max = (bounds.max * bounds.scale as f32).round() as i32;
     let signed = resolve_numeric_repr_signed(raw_min, raw_max)
         .with_context(|| format!("determining representation type for float option `{id}`"))?;
@@ -60,11 +62,11 @@ pub(crate) fn generate(
 
     let type_name = safe_upper_camel_case_ident(id);
 
-    let struct_def = generate_struct_def(&type_name)
+    let struct_def = generate_struct_def(&type_name, &repr_type)
         .with_context(|| format!("generating struct definition for float option `{id}`"))?;
     let inherent_impl = generate_inherent_impl(&type_name, signed, &bounds)
         .with_context(|| format!("generating inherent impl for float option `{id}`"))?;
-    let try_from_impl = generate_try_from_impl(&type_name)
+    let try_from_impl = generate_try_from_impl(&type_name, &repr_type)
         .with_context(|| format!("generating TryFrom<f32> impl for float option `{id}`"))?;
     let from_impl = generate_from_impl(&type_name).with_context(|| {
         format!("generating From<{type_name}> for f32 impl for float option `{id}`")
@@ -98,18 +100,19 @@ pub(crate) fn generate(
     })
 }
 
-fn generate_struct_def(type_name: &Ident) -> anyhow::Result<TokenStream> {
+#[allow(clippy::unnecessary_wraps)]
+fn generate_struct_def(type_name: &Ident, repr_type: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         #[derive(
-            Debug,
-            Clone,
-            Copy,
-            PartialEq,
-            Eq,
-            ptp_macro::PtpSerialize,
-            ptp_macro::PtpDeserialize,
+            ::std::fmt::Debug,
+            ::std::clone::Clone,
+            ::std::marker::Copy,
+            ::std::cmp::PartialEq,
+            ::std::cmp::Eq,
+            ::ptp_macro::PtpSerialize,
+            ::ptp_macro::PtpDeserialize,
         )]
-        pub struct #type_name(i16);
+        pub struct #type_name(#repr_type);
     })
 }
 
@@ -132,6 +135,7 @@ fn generate_inherent_impl(
         pub const SCALE: i32 = #scale;
     };
 
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
     let raw = if signed {
         let raw_min: i16 = ((min * scale as f32) as i32).try_into()?;
         let raw_max: i16 = ((max * scale as f32) as i32).try_into()?;
@@ -162,41 +166,56 @@ fn generate_inherent_impl(
     })
 }
 
-fn generate_try_from_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
+#[allow(clippy::unnecessary_wraps)]
+fn generate_try_from_impl(type_name: &Ident, repr_type: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         impl ::std::convert::TryFrom<f32> for #type_name {
-            type Error = ::anyhow::Error;
-            fn try_from(value: f32) -> ::anyhow::Result<Self> {
+            type Error = crate::input::OptionError;
+            fn try_from(value: f32) -> ::std::result::Result<Self, crate::input::OptionError> {
                 if !(Self::MIN..=Self::MAX).contains(&value) {
-                    ::anyhow::bail!(
-                        "{} value {} is out of range [{}, {}]",
-                        stringify!(#type_name), value, Self::MIN, Self::MAX,
-                    );
+                    return Err(crate::input::OptionError::OutOfRange {
+                        type_name: stringify!(#type_name),
+                        value: value.to_string(),
+                        min: Self::MIN.to_string(),
+                        max: Self::MAX.to_string(),
+                    });
                 }
                 if (value - Self::MIN) % Self::STEP != 0.0 {
-                    ::anyhow::bail!(
-                        "{} value {} is not aligned to step {}",
-                        stringify!(#type_name), value, Self::STEP,
-                    );
+                    return Err(crate::input::OptionError::StepMisaligned {
+                        type_name: stringify!(#type_name),
+                        value: value.to_string(),
+                        step: Self::STEP.to_string(),
+                    });
                 }
+                #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
                 let raw: i32 = (value * Self::SCALE as f32).round() as i32;
-                let raw = raw.try_into()?;
+                let raw = raw.try_into().map_err(|_| {
+                    crate::input::OptionError::WireOverflow {
+                        type_name: stringify!(#type_name),
+                        raw: raw.to_string(),
+                        repr: stringify!(#repr_type),
+                    }
+                })?;
                 Ok(Self(raw))
             }
         }
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_from_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         impl ::std::convert::From<#type_name> for f32 {
-            fn from(value: #type_name) -> f32 {
-                f32::from(value.0) / #type_name::SCALE as f32
+            fn from(value: #type_name) -> Self {
+                #[allow(clippy::cast_precision_loss)]
+                let scale = #type_name::SCALE as Self;
+                Self::from(value.0) / scale
             }
         }
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_display_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         impl ::std::fmt::Display for #type_name {
@@ -207,20 +226,28 @@ fn generate_display_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_from_str_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         impl ::std::str::FromStr for #type_name {
-            type Err = ::anyhow::Error;
-            fn from_str(s: &str) -> ::anyhow::Result<Self> {
+            type Err = crate::input::OptionError;
+            fn from_str(s: &str) -> ::std::result::Result<Self, crate::input::OptionError> {
                 let logical = crate::input::CleanAlphanumeric::clean(&s)
                     .parse::<f32>()
-                    .map_err(|e| ::anyhow::anyhow!("Invalid numeric value '{}': {}", s, e))?;
+                    .map_err(|e: ::std::num::ParseFloatError| {
+                        crate::input::OptionError::InvalidValue {
+                            type_name: stringify!(#type_name),
+                            input: s.to_string(),
+                            reason: e.to_string(),
+                        }
+                    })?;
                 Self::try_from(logical)
             }
         }
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_serde_impls(type_name: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         impl ::serde::Serialize for #type_name {
@@ -240,6 +267,7 @@ fn generate_serde_impls(type_name: &Ident) -> anyhow::Result<TokenStream> {
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_simulation_setting_impl(
     type_name: &Ident,
     prop_code: u16,
@@ -251,6 +279,7 @@ fn generate_simulation_setting_impl(
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_conversion_profile_impl(
     type_name: &Ident,
     repr_type: &Ident,

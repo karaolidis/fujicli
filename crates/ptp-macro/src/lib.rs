@@ -98,7 +98,7 @@ pub fn derive_ptp_serialize(input: TokenStream) -> TokenStream {
                 }
             }
         }
-        _ => {
+        Data::Union(_) => {
             unimplemented!("PtpSerialize cannot be automatically derived for unions")
         }
     };
@@ -218,7 +218,7 @@ pub fn derive_ptp_deserialize(input: TokenStream) -> TokenStream {
                 }
             }
         }
-        _ => {
+        Data::Union(_) => {
             unimplemented!("PtpDeserialize cannot be automatically derived for unions")
         }
     };

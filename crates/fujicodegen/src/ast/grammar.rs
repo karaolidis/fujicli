@@ -235,11 +235,11 @@ impl_into_predicate!(
 );
 
 impl Predicate {
-    pub fn collect<T: Ord>(&self, out: &mut BTreeSet<T>, f: &impl Fn(&Predicate) -> Option<T>) {
+    pub fn collect<T: Ord>(&self, out: &mut BTreeSet<T>, f: &impl Fn(&Self) -> Option<T>) {
         match self {
-            Predicate::All(p) => p.all.iter().for_each(|c| c.collect(out, f)),
-            Predicate::Any(p) => p.any.iter().for_each(|c| c.collect(out, f)),
-            Predicate::Not(p) => p.not.collect(out, f),
+            Self::All(p) => p.all.iter().for_each(|c| c.collect(out, f)),
+            Self::Any(p) => p.any.iter().for_each(|c| c.collect(out, f)),
+            Self::Not(p) => p.not.collect(out, f),
             leaf => {
                 if let Some(v) = f(leaf) {
                     out.insert(v);
@@ -250,14 +250,14 @@ impl Predicate {
 
     pub fn refs(&self, out: &mut BTreeSet<String>) {
         self.collect(out, &|p| match p {
-            Predicate::Present(p) => Some(p.r#ref.clone()),
-            Predicate::Equals(p) => Some(p.r#ref.clone()),
-            Predicate::In(p) => Some(p.r#ref.clone()),
-            Predicate::Between(p) => Some(p.r#ref.clone()),
-            Predicate::LessThan(p) => Some(p.r#ref.clone()),
-            Predicate::LessThanOrEqual(p) => Some(p.r#ref.clone()),
-            Predicate::GreaterThan(p) => Some(p.r#ref.clone()),
-            Predicate::GreaterThanOrEqual(p) => Some(p.r#ref.clone()),
+            Self::Present(p) => Some(p.r#ref.clone()),
+            Self::Equals(p) => Some(p.r#ref.clone()),
+            Self::In(p) => Some(p.r#ref.clone()),
+            Self::Between(p) => Some(p.r#ref.clone()),
+            Self::LessThan(p) => Some(p.r#ref.clone()),
+            Self::LessThanOrEqual(p) => Some(p.r#ref.clone()),
+            Self::GreaterThan(p) => Some(p.r#ref.clone()),
+            Self::GreaterThanOrEqual(p) => Some(p.r#ref.clone()),
             _ => None,
         });
     }
@@ -401,7 +401,10 @@ mod tests {
             values: vec![json!(1), json!(2)],
         })
         .refs(&mut out);
-        assert_eq!(out, ["A", "B", "C"].iter().map(|s| s.to_string()).collect());
+        assert_eq!(
+            out,
+            ["A", "B", "C"].iter().map(ToString::to_string).collect()
+        );
     }
 
     #[test]
@@ -440,7 +443,10 @@ mod tests {
             ],
         })
         .refs(&mut out);
-        assert_eq!(out, ["A", "B", "C"].iter().map(|s| s.to_string()).collect());
+        assert_eq!(
+            out,
+            ["A", "B", "C"].iter().map(ToString::to_string).collect()
+        );
     }
 
     #[test]

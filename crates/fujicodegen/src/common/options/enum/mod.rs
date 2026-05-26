@@ -43,7 +43,7 @@ impl<'a> Resolved<'a> {
     }
 }
 
-pub(crate) fn generate(
+pub fn generate(
     id: &str,
     rules: &EnumRules,
     encoding: &EnumEncoding,
@@ -149,14 +149,14 @@ fn generate_enum_def(
     Ok(quote! {
         #[repr(#repr_type)]
         #[derive(
-            Debug,
-            Clone,
-            Copy,
-            PartialEq,
-            Eq,
-            strum_macros::EnumIter,
-            serde_with::SerializeDisplay,
-            serde_with::DeserializeFromStr,
+            ::std::fmt::Debug,
+            ::std::clone::Clone,
+            ::std::marker::Copy,
+            ::std::cmp::PartialEq,
+            ::std::cmp::Eq,
+            ::strum_macros::EnumIter,
+            ::serde_with::SerializeDisplay,
+            ::serde_with::DeserializeFromStr,
         )]
         pub enum #type_name {
             #(#defs)*
@@ -164,6 +164,7 @@ fn generate_enum_def(
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_display_impl(
     type_name: &Ident,
     resolved: &[Resolved<'_>],
@@ -188,6 +189,7 @@ fn generate_display_impl(
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_from_str_impl(
     type_name: &Ident,
     resolved: &[Resolved<'_>],
@@ -205,24 +207,29 @@ fn generate_from_str_impl(
 
     Ok(quote! {
         impl ::std::str::FromStr for #type_name {
-            type Err = ::anyhow::Error;
-            fn from_str(s: &str) -> ::anyhow::Result<Self> {
+            type Err = crate::input::OptionError;
+            fn from_str(s: &str) -> ::std::result::Result<Self, crate::input::OptionError> {
                 match crate::input::CleanAlphanumeric::clean(&s).as_str() {
                     #(#arms)*
                     _ => {}
                 }
                 if let Some(best) = <Self as crate::input::Choices>::closest(s) {
-                    ::anyhow::bail!(
-                        "Unknown {} '{s}'. Did you mean '{best}'?",
-                        stringify!(#type_name),
-                    );
+                    return Err(crate::input::OptionError::UnknownWithSuggestion {
+                        type_name: stringify!(#type_name),
+                        input: s.to_string(),
+                        suggestion: best,
+                    });
                 }
-                ::anyhow::bail!("Unknown {} '{s}'", stringify!(#type_name));
+                Err(crate::input::OptionError::Unknown {
+                    type_name: stringify!(#type_name),
+                    input: s.to_string(),
+                })
             }
         }
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_ptp_serde_impl(type_name: &Ident, repr_type: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         impl ::ptp_cursor::PtpSerialize for #type_name {
@@ -254,6 +261,7 @@ fn generate_ptp_serde_impl(type_name: &Ident, repr_type: &Ident) -> anyhow::Resu
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_simulation_setting_impl(
     type_name: &Ident,
     prop_code: u16,
@@ -265,6 +273,7 @@ fn generate_simulation_setting_impl(
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_conversion_profile_impl(
     type_name: &Ident,
     repr_type: &Ident,

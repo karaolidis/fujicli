@@ -47,35 +47,35 @@ pub trait Read: ReadBytesExt {
     }
 
     fn read_ptp_u8_vec(&mut self) -> io::Result<Vec<u8>> {
-        self.read_ptp_vec(|cur| cur.read_ptp_u8())
+        self.read_ptp_vec(Self::read_ptp_u8)
     }
 
     fn read_ptp_i8_vec(&mut self) -> io::Result<Vec<i8>> {
-        self.read_ptp_vec(|cur| cur.read_ptp_i8())
+        self.read_ptp_vec(Self::read_ptp_i8)
     }
 
     fn read_ptp_u16_vec(&mut self) -> io::Result<Vec<u16>> {
-        self.read_ptp_vec(|cur| cur.read_ptp_u16())
+        self.read_ptp_vec(Self::read_ptp_u16)
     }
 
     fn read_ptp_i16_vec(&mut self) -> io::Result<Vec<i16>> {
-        self.read_ptp_vec(|cur| cur.read_ptp_i16())
+        self.read_ptp_vec(Self::read_ptp_i16)
     }
 
     fn read_ptp_u32_vec(&mut self) -> io::Result<Vec<u32>> {
-        self.read_ptp_vec(|cur| cur.read_ptp_u32())
+        self.read_ptp_vec(Self::read_ptp_u32)
     }
 
     fn read_ptp_i32_vec(&mut self) -> io::Result<Vec<i32>> {
-        self.read_ptp_vec(|cur| cur.read_ptp_i32())
+        self.read_ptp_vec(Self::read_ptp_i32)
     }
 
     fn read_ptp_u64_vec(&mut self) -> io::Result<Vec<u64>> {
-        self.read_ptp_vec(|cur| cur.read_ptp_u64())
+        self.read_ptp_vec(Self::read_ptp_u64)
     }
 
     fn read_ptp_i64_vec(&mut self) -> io::Result<Vec<i64>> {
-        self.read_ptp_vec(|cur| cur.read_ptp_i64())
+        self.read_ptp_vec(Self::read_ptp_i64)
     }
 
     fn read_ptp_str(&mut self) -> io::Result<String> {
@@ -166,6 +166,7 @@ pub trait Write: WriteBytesExt {
     where
         F: Fn(&mut Self, &T) -> io::Result<()>,
     {
+        #[allow(clippy::cast_possible_truncation)]
         self.write_u32::<LittleEndian>(vec.len() as u32)?;
         for v in vec {
             func(self, v)?;
@@ -174,35 +175,35 @@ pub trait Write: WriteBytesExt {
     }
 
     fn write_ptp_u8_vec(&mut self, vec: &[u8]) -> io::Result<()> {
-        self.write_ptp_vec(vec, |cur, v| cur.write_ptp_u8(v))
+        self.write_ptp_vec(vec, Self::write_ptp_u8)
     }
 
     fn write_ptp_i8_vec(&mut self, vec: &[i8]) -> io::Result<()> {
-        self.write_ptp_vec(vec, |cur, v| cur.write_ptp_i8(v))
+        self.write_ptp_vec(vec, Self::write_ptp_i8)
     }
 
     fn write_ptp_u16_vec(&mut self, vec: &[u16]) -> io::Result<()> {
-        self.write_ptp_vec(vec, |cur, v| cur.write_ptp_u16(v))
+        self.write_ptp_vec(vec, Self::write_ptp_u16)
     }
 
     fn write_ptp_i16_vec(&mut self, vec: &[i16]) -> io::Result<()> {
-        self.write_ptp_vec(vec, |cur, v| cur.write_ptp_i16(v))
+        self.write_ptp_vec(vec, Self::write_ptp_i16)
     }
 
     fn write_ptp_u32_vec(&mut self, vec: &[u32]) -> io::Result<()> {
-        self.write_ptp_vec(vec, |cur, v| cur.write_ptp_u32(v))
+        self.write_ptp_vec(vec, Self::write_ptp_u32)
     }
 
     fn write_ptp_i32_vec(&mut self, vec: &[i32]) -> io::Result<()> {
-        self.write_ptp_vec(vec, |cur, v| cur.write_ptp_i32(v))
+        self.write_ptp_vec(vec, Self::write_ptp_i32)
     }
 
     fn write_ptp_u64_vec(&mut self, vec: &[u64]) -> io::Result<()> {
-        self.write_ptp_vec(vec, |cur, v| cur.write_ptp_u64(v))
+        self.write_ptp_vec(vec, Self::write_ptp_u64)
     }
 
     fn write_ptp_i64_vec(&mut self, vec: &[i64]) -> io::Result<()> {
-        self.write_ptp_vec(vec, |cur, v| cur.write_ptp_i64(v))
+        self.write_ptp_vec(vec, Self::write_ptp_i64)
     }
 
     fn write_ptp_str(&mut self, s: &str) -> io::Result<()> {
@@ -211,6 +212,7 @@ pub trait Write: WriteBytesExt {
         }
 
         let utf16: Vec<u16> = s.encode_utf16().collect();
+        #[allow(clippy::cast_possible_truncation)]
         self.write_u8((utf16.len() + 1) as u8)?;
         for c in utf16 {
             self.write_u16::<LittleEndian>(c)?;
@@ -225,6 +227,7 @@ pub trait Write: WriteBytesExt {
         }
 
         let utf16: Vec<u16> = s.encode_utf16().collect();
+        #[allow(clippy::cast_possible_truncation)]
         self.write_u8((utf16.len()) as u8)?;
         for c in utf16 {
             self.write_u16::<LittleEndian>(c)?;
@@ -363,7 +366,9 @@ mod tests {
 
     #[test]
     fn i32_little_endian_negative() {
-        check_ptp_round_trip!(i32, -3000, ((-3000i32) as u32).to_le_bytes().to_vec());
+        #[allow(clippy::cast_sign_loss)]
+        let bytes = ((-3000i32) as u32).to_le_bytes().to_vec();
+        check_ptp_round_trip!(i32, -3000, bytes);
     }
 
     #[test]

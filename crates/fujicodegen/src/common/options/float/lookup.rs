@@ -43,7 +43,7 @@ impl Resolved {
     }
 }
 
-pub(crate) fn generate(
+pub fn generate(
     id: &str,
     prop_code: Option<u16>,
     spec: &LookupSpec,
@@ -156,12 +156,12 @@ fn generate_enum_def(
     Ok(quote! {
         #[repr(#repr_type)]
         #[derive(
-            Debug,
-            Clone,
-            Copy,
-            PartialEq,
-            Eq,
-            strum_macros::EnumIter,
+            ::std::fmt::Debug,
+            ::std::clone::Clone,
+            ::std::marker::Copy,
+            ::std::cmp::PartialEq,
+            ::std::cmp::Eq,
+            ::strum_macros::EnumIter,
         )]
         pub enum #type_name {
             #(#defs)*
@@ -169,6 +169,7 @@ fn generate_enum_def(
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_inherent_impl(type_name: &Ident, resolved: &[Resolved]) -> anyhow::Result<TokenStream> {
     let values_const: Vec<TokenStream> = resolved
         .iter()
@@ -179,8 +180,8 @@ fn generate_inherent_impl(type_name: &Ident, resolved: &[Resolved]) -> anyhow::R
         })
         .collect();
 
-    let logical_min = resolved.first().map(|r| r.logical).unwrap_or(0.0);
-    let logical_max = resolved.last().map(|r| r.logical).unwrap_or(0.0);
+    let logical_min = resolved.first().map_or(0.0, |r| r.logical);
+    let logical_max = resolved.last().map_or(0.0, |r| r.logical);
 
     Ok(quote! {
         impl #type_name {
@@ -191,6 +192,7 @@ fn generate_inherent_impl(type_name: &Ident, resolved: &[Resolved]) -> anyhow::R
             pub const LOGICAL_MIN: f32 = #logical_min;
             pub const LOGICAL_MAX: f32 = #logical_max;
 
+            #[must_use]
             pub fn from_nearest_f32(value: f32) -> Self {
                 Self::VALUES
                     .iter()
@@ -199,31 +201,32 @@ fn generate_inherent_impl(type_name: &Ident, resolved: &[Resolved]) -> anyhow::R
                         let db = (b.0 - value).abs();
                         da.partial_cmp(&db).unwrap_or(::std::cmp::Ordering::Equal)
                     })
-                    .map(|(_, v)| *v)
-                    .unwrap_or(Self::VALUES[0].1)
+                    .map_or(Self::VALUES[0].1, |(_, v)| *v)
             }
         }
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_try_from_logical_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         impl ::std::convert::TryFrom<f32> for #type_name {
-            type Error = ::anyhow::Error;
-            fn try_from(value: f32) -> ::anyhow::Result<Self> {
+            type Error = crate::input::OptionError;
+            fn try_from(value: f32) -> ::std::result::Result<Self, crate::input::OptionError> {
                 Self::VALUES
                     .iter()
                     .find(|(v, _)| (*v - value).abs() < f32::EPSILON)
                     .map(|(_, variant)| *variant)
-                    .ok_or_else(|| ::anyhow::anyhow!(
-                        "Value {} is not a valid {}",
-                        value, stringify!(#type_name),
-                    ))
+                    .ok_or_else(|| crate::input::OptionError::Unknown {
+                        type_name: stringify!(#type_name),
+                        input: value.to_string(),
+                    })
             }
         }
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_to_logical_impl(
     type_name: &Ident,
     resolved: &[Resolved],
@@ -239,7 +242,7 @@ fn generate_to_logical_impl(
 
     Ok(quote! {
         impl ::std::convert::From<#type_name> for f32 {
-            fn from(value: #type_name) -> f32 {
+            fn from(value: #type_name) -> Self {
                 match value {
                     #(#arms)*
                 }
@@ -248,6 +251,7 @@ fn generate_to_logical_impl(
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_display_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         impl ::std::fmt::Display for #type_name {
@@ -259,19 +263,28 @@ fn generate_display_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_from_str_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         impl ::std::str::FromStr for #type_name {
-            type Err = ::anyhow::Error;
-            fn from_str(s: &str) -> ::anyhow::Result<Self> {
+            type Err = crate::input::OptionError;
+            fn from_str(s: &str) -> ::std::result::Result<Self, crate::input::OptionError> {
                 let value = crate::input::CleanAlphanumeric::clean(&s)
                     .parse::<f32>()
-                    .map_err(|e| ::anyhow::anyhow!("Invalid numeric value '{}': {}", s, e))?;
+                    .map_err(|e: ::std::num::ParseFloatError| {
+                        crate::input::OptionError::InvalidValue {
+                            type_name: stringify!(#type_name),
+                            input: s.to_string(),
+                            reason: e.to_string(),
+                        }
+                    })?;
                 if !(Self::LOGICAL_MIN..=Self::LOGICAL_MAX).contains(&value) {
-                    ::anyhow::bail!(
-                        "{} value {} is out of range [{}, {}]",
-                        stringify!(#type_name), value, Self::LOGICAL_MIN, Self::LOGICAL_MAX,
-                    );
+                    return Err(crate::input::OptionError::OutOfRange {
+                        type_name: stringify!(#type_name),
+                        value: value.to_string(),
+                        min: Self::LOGICAL_MIN.to_string(),
+                        max: Self::LOGICAL_MAX.to_string(),
+                    });
                 }
                 Ok(Self::from_nearest_f32(value))
             }
@@ -279,6 +292,7 @@ fn generate_from_str_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_serde_impls(type_name: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         impl ::serde::Serialize for #type_name {
@@ -299,6 +313,7 @@ fn generate_serde_impls(type_name: &Ident) -> anyhow::Result<TokenStream> {
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_ptp_serde_impl(type_name: &Ident, repr_type: &Ident) -> anyhow::Result<TokenStream> {
     Ok(quote! {
         impl ::ptp_cursor::PtpSerialize for #type_name {
@@ -330,6 +345,7 @@ fn generate_ptp_serde_impl(type_name: &Ident, repr_type: &Ident) -> anyhow::Resu
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_simulation_setting_impl(
     type_name: &Ident,
     prop_code: u16,
@@ -341,6 +357,7 @@ fn generate_simulation_setting_impl(
     })
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn generate_conversion_profile_impl(
     type_name: &Ident,
     repr_type: &Ident,

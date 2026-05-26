@@ -15,6 +15,7 @@ struct Entry {
     type_path: TokenStream,
 }
 
+#[allow(clippy::unnecessary_wraps)]
 pub fn generate(
     options: &BTreeMap<String, FujiOption>,
     cameras: &BTreeMap<String, Camera>,
@@ -83,7 +84,7 @@ fn generate_struct(entries: &[Entry]) -> TokenStream {
     });
 
     quote! {
-        #[derive(::clap::Args, Debug, Default, Clone)]
+        #[derive(::clap::Args, ::std::fmt::Debug, ::std::default::Default, ::std::clone::Clone)]
         pub struct SimulationArgs {
             #( #fields )*
         }
