@@ -179,8 +179,8 @@ camera spec when a render-capable body with a different padding is added.
 `clap::Args`-deriving structs:
 
 - **`SimulationArgs`** - every option that some simulation-capable camera uses
-  and that doesn't have `codegen.skip_args`. Each field is `Option<OptionType>`
-  with `#[clap(long, allow_hyphen_values(true))]`.
+  and that doesn't have `codegen.skip`. Each field is `Option<OptionType>` with
+  `#[clap(long, allow_hyphen_values(true))]`.
 - **`RenderArgs`** - same idea but for render fields. Inline fields (no `ref`)
   are not exposed; users have no business setting padding.
 

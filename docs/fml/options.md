@@ -126,14 +126,14 @@ Optional knobs for the codegen, not part of the runtime semantics:
 
 ```cue
 codegen: {
-    skip_args?: true  // do not expose as a --<id> CLI flag
+    skip?: true  // do not expose this option to any user-facing surface
 }
 ```
 
-`skip_args` is used for options like `custom_setting` or `usb_mode` that are
-managed by `fujicli` itself, not by the user. The option still has a generated
-type and `SimulationSetting` impl; it just doesn't appear on `SimulationArgs` /
-`RenderArgs`.
+`skip` is used for options like `custom_setting` or `usb_mode` that are managed
+by `fujicli` itself, not by the user. The option still has a generated type and
+`SimulationSetting` impl; it just doesn't appear on `SimulationArgs` /
+`RenderArgs`, or any future user-facing list.
 
 ## What Gets Generated
 

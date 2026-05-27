@@ -54,7 +54,7 @@ fn collect_simulation_option_ids(cameras: &BTreeMap<String, Camera>) -> BTreeSet
 fn build_entries(options: &BTreeMap<String, FujiOption>) -> Vec<Entry> {
     options
         .values()
-        .filter(|opt| !opt.codegen.skip_args)
+        .filter(|opt| !opt.codegen.skip)
         .map(|opt| {
             let ident = format_ident!("{}", opt.id);
             let type_ident = safe_upper_camel_case_ident(&opt.id);

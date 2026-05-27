@@ -16,7 +16,7 @@ pub struct FujiOption {
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields, default)]
 pub struct Codegen {
-    pub skip_args: bool,
+    pub skip: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -24,21 +24,25 @@ pub struct Codegen {
 pub enum OptionSpec {
     Integer {
         name: String,
+        category: Option<String>,
         rules: Option<NumericRules<i32>>,
         encoding: NumericEncoding,
     },
     Float {
         name: String,
+        category: Option<String>,
         rules: Option<NumericRules<f32>>,
         encoding: NumericEncoding,
     },
     String {
         name: String,
+        category: Option<String>,
         rules: Option<StringRules>,
         encoding: StringEncoding,
     },
     Enum {
         name: String,
+        category: Option<String>,
         rules: EnumRules,
         encoding: EnumEncoding,
     },
@@ -52,6 +56,16 @@ impl OptionSpec {
             | Self::Float { name, .. }
             | Self::String { name, .. }
             | Self::Enum { name, .. } => name,
+        }
+    }
+
+    #[must_use]
+    pub fn category(&self) -> Option<&str> {
+        match self {
+            Self::Integer { category, .. }
+            | Self::Float { category, .. }
+            | Self::String { category, .. }
+            | Self::Enum { category, .. } => category.as_deref(),
         }
     }
 
@@ -218,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn codegen_block_defaults_to_skip_args_false() {
+    fn codegen_block_defaults_to_skip_false() {
         let opt = parse_option(
             r#"{
                 "id": "x", "spec": {
@@ -226,7 +240,42 @@ mod tests {
                 }
             }"#,
         );
-        assert!(!opt.codegen.skip_args);
+        assert!(!opt.codegen.skip);
+    }
+
+    #[test]
+    fn skip_round_trips() {
+        let opt = parse_option(
+            r#"{
+                "id": "x", "spec": {
+                    "name": "X", "kind": "integer", "encoding": { "kind": "raw" }
+                },
+                "codegen": { "skip": true }
+            }"#,
+        );
+        assert!(opt.codegen.skip);
+    }
+
+    #[test]
+    fn category_is_optional_and_round_trips() {
+        let without = parse_option(
+            r#"{
+                "id": "x", "spec": {
+                    "name": "X", "kind": "integer", "encoding": { "kind": "raw" }
+                }
+            }"#,
+        );
+        assert_eq!(without.spec.category(), None);
+
+        let with = parse_option(
+            r#"{
+                "id": "x", "spec": {
+                    "name": "X", "category": "Tone", "kind": "integer",
+                    "encoding": { "kind": "raw" }
+                }
+            }"#,
+        );
+        assert_eq!(with.spec.category(), Some("Tone"));
     }
 
     #[test]
