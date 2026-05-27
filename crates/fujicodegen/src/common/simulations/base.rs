@@ -31,7 +31,7 @@ fn build_union(
         .try_fold(
             BTreeMap::<String, UnionEntry>::new(),
             |mut by_id, simulation| -> anyhow::Result<_> {
-                let settings = build_settings(options, &simulation.settings)?;
+                let settings = build_settings(options, &simulation.settings);
                 simulation.settings.iter().for_each(|setting| {
                     let id = setting.id.clone();
                     let info = settings

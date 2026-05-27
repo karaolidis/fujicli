@@ -140,11 +140,10 @@ impl SettingInfo<'_> {
     }
 }
 
-#[allow(clippy::unnecessary_wraps)]
 pub fn build_settings<'a, F: OptionLike + 'a>(
     options: &'a BTreeMap<String, FujiOption>,
     items: &'a [F],
-) -> anyhow::Result<BTreeMap<&'a str, SettingInfo<'a>>> {
+) -> BTreeMap<&'a str, SettingInfo<'a>> {
     let mut table = BTreeMap::new();
     for item in items {
         let info = item.option_ref().map_or_else(
@@ -166,7 +165,7 @@ pub fn build_settings<'a, F: OptionLike + 'a>(
         );
         let _ = table.insert(info.id, info);
     }
-    Ok(table)
+    table
 }
 
 pub fn generate_predicate(

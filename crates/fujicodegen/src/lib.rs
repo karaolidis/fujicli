@@ -30,7 +30,7 @@ pub fn generate(json: &str, out_dir: &Path) -> anyhow::Result<()> {
         .context("generating render profile types")?;
     write(out_dir, "renders", renders)?;
 
-    let cli = cli::generate(&fml.options, &fml.cameras).context("generating CLI args")?;
+    let cli = cli::generate(&fml.options, &fml.cameras);
     write(out_dir, "cli", cli)?;
 
     let mod_rs = root(&fml);

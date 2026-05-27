@@ -15,11 +15,10 @@ struct Entry {
     type_path: TokenStream,
 }
 
-#[allow(clippy::unnecessary_wraps)]
 pub fn generate(
     options: &BTreeMap<String, FujiOption>,
     cameras: &BTreeMap<String, Camera>,
-) -> anyhow::Result<TokenStream> {
+) -> TokenStream {
     let simulation_options = collect_simulation_option_ids(cameras);
     let entries = build_entries(options);
 
@@ -27,11 +26,11 @@ pub fn generate(
     let from_impl = generate_from_impl(&entries, &simulation_options);
     let prop_codes_const = generate_prop_codes_const(options, &simulation_options);
 
-    Ok(quote! {
+    quote! {
         #struct_def
         #from_impl
         #prop_codes_const
-    })
+    }
 }
 
 fn collect_simulation_option_ids(cameras: &BTreeMap<String, Camera>) -> BTreeSet<String> {

@@ -81,32 +81,23 @@ pub fn generate(
         &wire_items(&resolved),
     )
     .with_context(|| format!("generating try_from_wire impl for enum option `{id}`"))?;
-    let display_impl = generate_display_impl(&safe_upper_camel_case_ident(id), &resolved)
-        .with_context(|| format!("generating Display impl for enum option `{id}`"))?;
-    let from_str_impl = generate_from_str_impl(&safe_upper_camel_case_ident(id), &resolved)
-        .with_context(|| format!("generating FromStr impl for enum option `{id}`"))?;
-
-    let (ptp_serde_impl, simulation_setting_impl) = if let Some(prop_code) = prop_code {
-        let serde = generate_ptp_serde_impl(&safe_upper_camel_case_ident(id), &repr_type)
-            .with_context(|| {
-                format!("generating PtpSerialize/PtpDeserialize impls for enum option `{id}`")
-            })?;
-        let setting =
-            generate_simulation_setting_impl(&safe_upper_camel_case_ident(id), *prop_code)
-                .with_context(|| {
-                    format!("generating SimulationSetting impl for enum option `{id}`")
-                })?;
-        (serde, setting)
-    } else {
-        (quote! {}, quote! {})
-    };
+    let display_impl = generate_display_impl(&safe_upper_camel_case_ident(id), &resolved);
+    let from_str_impl = generate_from_str_impl(&safe_upper_camel_case_ident(id), &resolved);
+    let (ptp_serde_impl, simulation_setting_impl) = prop_code.as_ref().map_or_else(
+        || (quote! {}, quote! {}),
+        |prop_code| {
+            let serde = generate_ptp_serde_impl(&safe_upper_camel_case_ident(id), &repr_type);
+            let setting =
+                generate_simulation_setting_impl(&safe_upper_camel_case_ident(id), *prop_code);
+            (serde, setting)
+        },
+    );
 
     let conversion_profile_impl = generate_conversion_profile_impl(
         &safe_upper_camel_case_ident(id),
         &repr_type,
         &repr_type_32,
-    )
-    .with_context(|| format!("generating ConversionProfileField impl for enum option `{id}`"))?;
+    );
 
     Ok(quote! {
         #enum_def
@@ -164,11 +155,7 @@ fn generate_enum_def(
     })
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_display_impl(
-    type_name: &Ident,
-    resolved: &[Resolved<'_>],
-) -> anyhow::Result<TokenStream> {
+fn generate_display_impl(type_name: &Ident, resolved: &[Resolved<'_>]) -> TokenStream {
     let arms = resolved
         .iter()
         .map(|r| {
@@ -178,7 +165,7 @@ fn generate_display_impl(
         })
         .collect::<Vec<_>>();
 
-    Ok(quote! {
+    quote! {
         impl ::std::fmt::Display for #type_name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 match self {
@@ -186,14 +173,10 @@ fn generate_display_impl(
                 }
             }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_from_str_impl(
-    type_name: &Ident,
-    resolved: &[Resolved<'_>],
-) -> anyhow::Result<TokenStream> {
+fn generate_from_str_impl(type_name: &Ident, resolved: &[Resolved<'_>]) -> TokenStream {
     let arms = resolved
         .iter()
         .map(|r| {
@@ -205,7 +188,7 @@ fn generate_from_str_impl(
         })
         .collect::<Vec<_>>();
 
-    Ok(quote! {
+    quote! {
         impl ::std::str::FromStr for #type_name {
             type Err = crate::input::OptionError;
             fn from_str(s: &str) -> ::std::result::Result<Self, crate::input::OptionError> {
@@ -226,12 +209,11 @@ fn generate_from_str_impl(
                 })
             }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_ptp_serde_impl(type_name: &Ident, repr_type: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_ptp_serde_impl(type_name: &Ident, repr_type: &Ident) -> TokenStream {
+    quote! {
         impl ::ptp_cursor::PtpSerialize for #type_name {
             fn try_into_ptp(&self) -> ::std::io::Result<Vec<u8>> {
                 let mut buf = Vec::new();
@@ -258,28 +240,23 @@ fn generate_ptp_serde_impl(type_name: &Ident, repr_type: &Ident) -> anyhow::Resu
                 Self::try_from_wire(raw)
             }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_simulation_setting_impl(
-    type_name: &Ident,
-    prop_code: u16,
-) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_simulation_setting_impl(type_name: &Ident, prop_code: u16) -> TokenStream {
+    quote! {
         impl crate::ptp::option::SimulationSetting for #type_name {
             fn prop_code() -> u16 { #prop_code }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
 fn generate_conversion_profile_impl(
     type_name: &Ident,
     repr_type: &Ident,
     repr_type_32: &Ident,
-) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+) -> TokenStream {
+    quote! {
         impl crate::ptp::option::ConversionProfileField for #type_name {
             fn try_write_conversion_profile_field_ptp(
                 &self, buf: &mut Vec<u8>,
@@ -306,5 +283,5 @@ fn generate_conversion_profile_impl(
                 Self::try_from_wire(raw)
             }
         }
-    })
+    }
 }

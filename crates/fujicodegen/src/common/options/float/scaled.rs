@@ -62,31 +62,20 @@ pub fn generate(
 
     let type_name = safe_upper_camel_case_ident(id);
 
-    let struct_def = generate_struct_def(&type_name, &repr_type)
-        .with_context(|| format!("generating struct definition for float option `{id}`"))?;
+    let struct_def = generate_struct_def(&type_name, &repr_type);
     let inherent_impl = generate_inherent_impl(&type_name, signed, &bounds)
         .with_context(|| format!("generating inherent impl for float option `{id}`"))?;
-    let try_from_impl = generate_try_from_impl(&type_name, &repr_type)
-        .with_context(|| format!("generating TryFrom<f32> impl for float option `{id}`"))?;
-    let from_impl = generate_from_impl(&type_name).with_context(|| {
-        format!("generating From<{type_name}> for f32 impl for float option `{id}`")
-    })?;
-    let display_impl = generate_display_impl(&type_name)
-        .with_context(|| format!("generating Display impl for float option `{id}`"))?;
-    let from_str_impl = generate_from_str_impl(&type_name)
-        .with_context(|| format!("generating FromStr impl for float option `{id}`"))?;
-    let serde_impls = generate_serde_impls(&type_name)
-        .with_context(|| format!("generating Serde impls for float option `{id}`"))?;
-    let simulation_setting_impl = if let Some(code) = prop_code {
-        generate_simulation_setting_impl(&type_name, code)
-            .with_context(|| format!("generating SimulationSetting impl for float option `{id}`"))?
-    } else {
-        quote! {}
-    };
+    let try_from_impl = generate_try_from_impl(&type_name, &repr_type);
+    let from_impl = generate_from_impl(&type_name);
+    let display_impl = generate_display_impl(&type_name);
+    let from_str_impl = generate_from_str_impl(&type_name);
+    let serde_impls = generate_serde_impls(&type_name);
+    let simulation_setting_impl = prop_code.map_or_else(
+        || quote! {},
+        |code| generate_simulation_setting_impl(&type_name, code),
+    );
     let conversion_profile_impl =
-        generate_conversion_profile_impl(&type_name, &repr_type, &repr_type_32).with_context(
-            || format!("generating ConversionProfileField impl for float option `{id}`"),
-        )?;
+        generate_conversion_profile_impl(&type_name, &repr_type, &repr_type_32);
     Ok(quote! {
         #struct_def
         #inherent_impl
@@ -100,9 +89,8 @@ pub fn generate(
     })
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_struct_def(type_name: &Ident, repr_type: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_struct_def(type_name: &Ident, repr_type: &Ident) -> TokenStream {
+    quote! {
         #[derive(
             ::std::fmt::Debug,
             ::std::clone::Clone,
@@ -113,7 +101,7 @@ fn generate_struct_def(type_name: &Ident, repr_type: &Ident) -> anyhow::Result<T
             ::ptp_macro::PtpDeserialize,
         )]
         pub struct #type_name(#repr_type);
-    })
+    }
 }
 
 fn generate_inherent_impl(
@@ -166,9 +154,8 @@ fn generate_inherent_impl(
     })
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_try_from_impl(type_name: &Ident, repr_type: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_try_from_impl(type_name: &Ident, repr_type: &Ident) -> TokenStream {
+    quote! {
         impl ::std::convert::TryFrom<f32> for #type_name {
             type Error = crate::input::OptionError;
             fn try_from(value: f32) -> ::std::result::Result<Self, crate::input::OptionError> {
@@ -199,12 +186,11 @@ fn generate_try_from_impl(type_name: &Ident, repr_type: &Ident) -> anyhow::Resul
                 Ok(Self(raw))
             }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_from_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_from_impl(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::std::convert::From<#type_name> for f32 {
             fn from(value: #type_name) -> Self {
                 #[allow(clippy::cast_precision_loss)]
@@ -212,23 +198,21 @@ fn generate_from_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
                 Self::from(value.0) / scale
             }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_display_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_display_impl(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::std::fmt::Display for #type_name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 write!(f, "{}", f32::from(*self))
             }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_from_str_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_from_str_impl(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::std::str::FromStr for #type_name {
             type Err = crate::input::OptionError;
             fn from_str(s: &str) -> ::std::result::Result<Self, crate::input::OptionError> {
@@ -244,12 +228,11 @@ fn generate_from_str_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
                 Self::try_from(logical)
             }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_serde_impls(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_serde_impls(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::serde::Serialize for #type_name {
             fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 serializer.serialize_f32(f32::from(*self))
@@ -264,28 +247,23 @@ fn generate_serde_impls(type_name: &Ident) -> anyhow::Result<TokenStream> {
                 Self::try_from(logical).map_err(::serde::de::Error::custom)
             }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_simulation_setting_impl(
-    type_name: &Ident,
-    prop_code: u16,
-) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_simulation_setting_impl(type_name: &Ident, prop_code: u16) -> TokenStream {
+    quote! {
         impl crate::ptp::option::SimulationSetting for #type_name {
             fn prop_code() -> u16 { #prop_code }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
 fn generate_conversion_profile_impl(
     type_name: &Ident,
     repr_type: &Ident,
     repr_type_32: &Ident,
-) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+) -> TokenStream {
+    quote! {
         impl crate::ptp::option::ConversionProfileField for #type_name {
             fn try_write_conversion_profile_field_ptp(
                 &self, buf: &mut Vec<u8>,
@@ -311,5 +289,5 @@ fn generate_conversion_profile_impl(
                 Ok(Self(raw))
             }
         }
-    })
+    }
 }

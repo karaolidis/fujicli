@@ -71,8 +71,7 @@ pub fn generate(
 
     let enum_def = generate_enum_def(&type_name, &repr_type, signed, &resolved)
         .with_context(|| format!("generating enum definition for integer option `{id}`"))?;
-    let inherent_impl = generate_inherent_impl(&type_name, &resolved)
-        .with_context(|| format!("generating inherent impl for integer option `{id}`"))?;
+    let inherent_impl = generate_inherent_impl(&type_name, &resolved);
     let try_from_wire_impl = generate_try_from_wire_impl(
         &safe_upper_camel_case_ident(id),
         signed,
@@ -85,27 +84,19 @@ pub fn generate(
     let to_logical_impl = generate_to_logical_impl(&type_name, &resolved).with_context(|| {
         format!("generating From<{type_name}> for i32 impl for integer option `{id}`")
     })?;
-    let display_impl = generate_display_impl(&type_name)
-        .with_context(|| format!("generating Display impl for integer option `{id}`"))?;
-    let from_str_impl = generate_from_str_impl(&type_name)
-        .with_context(|| format!("generating FromStr impl for integer option `{id}`"))?;
-    let serde_impls = generate_serde_impls(&type_name)
-        .with_context(|| format!("generating Serde impls for integer option `{id}`"))?;
-    let (ptp_serde_impl, simulation_setting_impl) = if let Some(code) = prop_code {
-        let serde = generate_ptp_serde_impl(&type_name, &repr_type).with_context(|| {
-            format!("generating PtpSerialize/PtpDeserialize impls for integer option `{id}`")
-        })?;
-        let setting = generate_simulation_setting_impl(&type_name, code).with_context(|| {
-            format!("generating SimulationSetting impl for integer option `{id}`")
-        })?;
-        (serde, setting)
-    } else {
-        (quote! {}, quote! {})
-    };
+    let display_impl = generate_display_impl(&type_name);
+    let from_str_impl = generate_from_str_impl(&type_name);
+    let serde_impls = generate_serde_impls(&type_name);
+    let (ptp_serde_impl, simulation_setting_impl) = prop_code.map_or_else(
+        || (quote! {}, quote! {}),
+        |code| {
+            let serde = generate_ptp_serde_impl(&type_name, &repr_type);
+            let setting = generate_simulation_setting_impl(&type_name, code);
+            (serde, setting)
+        },
+    );
     let conversion_profile_impl =
-        generate_conversion_profile_impl(&type_name, &repr_type, &repr_type_32).with_context(
-            || format!("generating ConversionProfileField impl for integer option `{id}`"),
-        )?;
+        generate_conversion_profile_impl(&type_name, &repr_type, &repr_type_32);
 
     Ok(quote! {
         #enum_def
@@ -165,8 +156,7 @@ fn generate_enum_def(
     })
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_inherent_impl(type_name: &Ident, resolved: &[Resolved]) -> anyhow::Result<TokenStream> {
+fn generate_inherent_impl(type_name: &Ident, resolved: &[Resolved]) -> TokenStream {
     let values_const: Vec<_> = resolved
         .iter()
         .map(|r| {
@@ -180,7 +170,7 @@ fn generate_inherent_impl(type_name: &Ident, resolved: &[Resolved]) -> anyhow::R
     let logical_min = resolved.first().map_or(0, |r| r.logical);
     let logical_max = resolved.last().map_or(0, |r| r.logical);
 
-    Ok(quote! {
+    quote! {
         impl #type_name {
             const VALUES: &'static [(f32, Self)] = &[
                 #(#values_const)*
@@ -207,7 +197,7 @@ fn generate_inherent_impl(type_name: &Ident, resolved: &[Resolved]) -> anyhow::R
                     .map_or(Self::VALUES[0].1, |(_, v)| *v)
             }
         }
-    })
+    }
 }
 
 fn generate_try_from_logical_impl(
@@ -263,21 +253,19 @@ fn generate_to_logical_impl(
     })
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_display_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_display_impl(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::std::fmt::Display for #type_name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 let n = i32::from(*self);
                 if n == 0 { write!(f, "0") } else { write!(f, "{n:+}") }
             }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_from_str_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_from_str_impl(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::std::str::FromStr for #type_name {
             type Err = crate::input::OptionError;
             fn from_str(s: &str) -> ::std::result::Result<Self, crate::input::OptionError> {
@@ -305,12 +293,11 @@ fn generate_from_str_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
                 Ok(Self::from_nearest_f32(value))
             }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_serde_impls(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_serde_impls(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::serde::Serialize for #type_name {
             fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 serializer.serialize_i32(i32::from(*self))
@@ -326,12 +313,11 @@ fn generate_serde_impls(type_name: &Ident) -> anyhow::Result<TokenStream> {
                     .map_err(::serde::de::Error::custom)
             }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_ptp_serde_impl(type_name: &Ident, repr_type: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_ptp_serde_impl(type_name: &Ident, repr_type: &Ident) -> TokenStream {
+    quote! {
         impl ::ptp_cursor::PtpSerialize for #type_name {
             fn try_into_ptp(&self) -> ::std::io::Result<Vec<u8>> {
                 let mut buf = Vec::new();
@@ -358,28 +344,23 @@ fn generate_ptp_serde_impl(type_name: &Ident, repr_type: &Ident) -> anyhow::Resu
                 Self::try_from_wire(raw)
             }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
-fn generate_simulation_setting_impl(
-    type_name: &Ident,
-    prop_code: u16,
-) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_simulation_setting_impl(type_name: &Ident, prop_code: u16) -> TokenStream {
+    quote! {
         impl crate::ptp::option::SimulationSetting for #type_name {
             fn prop_code() -> u16 { #prop_code }
         }
-    })
+    }
 }
 
-#[allow(clippy::unnecessary_wraps)]
 fn generate_conversion_profile_impl(
     type_name: &Ident,
     repr_type: &Ident,
     repr_type_32: &Ident,
-) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+) -> TokenStream {
+    quote! {
         impl crate::ptp::option::ConversionProfileField for #type_name {
             fn try_write_conversion_profile_field_ptp(
                 &self, buf: &mut Vec<u8>,
@@ -406,5 +387,5 @@ fn generate_conversion_profile_impl(
                 Self::try_from_wire(raw)
             }
         }
-    })
+    }
 }

@@ -55,7 +55,7 @@ fn generate_one(
         return Ok(quote! {});
     };
 
-    let settings = build_settings(options, &simulation.settings)?;
+    let settings = build_settings(options, &simulation.settings);
 
     let aliases: Vec<NormalizedTransformation> = simulation
         .transformations
@@ -177,7 +177,7 @@ fn generate_inherent_impl(
     let warnings_infos =
         generate_emit_warnings_and_infos(settings, effective_rules, Scopes::new(&self_acc))?;
     let solve = generate_solve(settings, effective_rules, false)?;
-    let try_update_from = generate_try_update_from(settings, &simulation.settings)?;
+    let try_update_from = generate_try_update_from(settings, &simulation.settings);
     let name = generate_name(settings, options_path);
 
     Ok(quote! {
@@ -193,11 +193,10 @@ fn generate_inherent_impl(
     })
 }
 
-#[allow(clippy::unnecessary_wraps)]
 fn generate_try_update_from(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     fields: &[Setting],
-) -> anyhow::Result<TokenStream> {
+) -> TokenStream {
     let init_fields = fields.iter().map(|s| {
         let info = settings.get(s.id.as_str()).expect("settings indexed");
         let ident = info.field_ident();
@@ -221,7 +220,7 @@ fn generate_try_update_from(
 
     let pin_set_expr = generate_pin_set(settings, &quote! { partial_profile });
 
-    Ok(quote! {
+    quote! {
         pub fn try_update_from(
             &mut self,
             partial: &crate::generated::simulations::SimulationBase,
@@ -243,7 +242,7 @@ fn generate_try_update_from(
             *self = candidate;
             Ok(())
         }
-    })
+    }
 }
 
 fn generate_name(

@@ -50,7 +50,7 @@ fn generate_one(
         return Ok(quote! {});
     };
 
-    let settings = build_settings(options, &render.fields)?;
+    let settings = build_settings(options, &render.fields);
 
     let aliases: Vec<NormalizedTransformation> = render
         .transformations
@@ -168,7 +168,7 @@ fn generate_inherent_impl(
         Scopes::with_original(&self_acc, &original_acc),
     )?;
     let solve = generate_solve(settings, effective_rules, true)?;
-    let try_update_from = generate_try_update_from(settings, &render.fields, renders_path)?;
+    let try_update_from = generate_try_update_from(settings, &render.fields, renders_path);
 
     Ok(quote! {
         impl #struct_ident {
@@ -182,12 +182,11 @@ fn generate_inherent_impl(
     })
 }
 
-#[allow(clippy::unnecessary_wraps)]
 fn generate_try_update_from(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     fields: &[Field],
     renders_path: &TokenStream,
-) -> anyhow::Result<TokenStream> {
+) -> TokenStream {
     let init_fields = fields.iter().map(|f| {
         let info = settings.get(f.id()).expect("settings indexed");
         let ident = info.field_ident();
@@ -211,7 +210,7 @@ fn generate_try_update_from(
 
     let pin_set_expr = generate_pin_set(settings, &quote! { partial_profile });
 
-    Ok(quote! {
+    quote! {
         pub fn try_update_from(
             &mut self,
             partial: &#renders_path::RenderBase,
@@ -234,7 +233,7 @@ fn generate_try_update_from(
             *self = candidate;
             Ok(())
         }
-    })
+    }
 }
 
 fn generate_ptp_serialize_impl(

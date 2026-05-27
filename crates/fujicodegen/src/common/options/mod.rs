@@ -55,8 +55,7 @@ pub fn generate(
             },
             OptionSpec::String {
                 rules, encoding, ..
-            } => string::generate(id, rules.as_ref(), encoding)
-                .with_context(|| format!("generating string option `{id}`"))?,
+            } => string::generate(id, rules.as_ref(), encoding),
         };
         blocks.push(block);
     }
