@@ -1,0 +1,28 @@
+[package]
+name = "fujitui"
+version = "0.2.0"
+edition = "2024"
+description = "A TUI to manage Fujifilm devices, simulations, backups, and rendering"
+authors = [
+    "Nikolaos Karaolidis <nick@karaolidis.com>",
+]
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "fujitui"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.102"
+clap = { version = "4.6.1", features = ["derive", "wrap_help"] }
+crossbeam-channel = "0.5.15"
+crossterm = "0.29.0"
+directories = "6.0.0"
+fujicore = { path = "../fujicore" }
+log = "0.4.30"
+log4rs = "1.4.0"
+ratatui = "0.30.0"
+rusb = "0.9.4"
+thiserror = "2.0.18"
