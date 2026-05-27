@@ -1,0 +1,83 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::{Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, List, ListItem},
+};
+
+use crate::tui::{
+    common::usb::DeviceCandidate,
+    modal::{ModalEffect, ModalHandler, ModalOutcome, centered},
+};
+
+pub struct DevicePickerModal {
+    candidates: Vec<DeviceCandidate>,
+    cursor: usize,
+}
+
+impl DevicePickerModal {
+    #[must_use]
+    pub const fn new(candidates: Vec<DeviceCandidate>) -> Self {
+        Self {
+            candidates,
+            cursor: 0,
+        }
+    }
+}
+
+impl ModalHandler for DevicePickerModal {
+    fn handle_key(&mut self, key: KeyEvent) -> ModalOutcome {
+        if key.kind != KeyEventKind::Press {
+            return ModalOutcome::Continue;
+        }
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.cursor > 0 {
+                    self.cursor -= 1;
+                }
+                ModalOutcome::Continue
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.cursor + 1 < self.candidates.len() {
+                    self.cursor += 1;
+                }
+                ModalOutcome::Continue
+            }
+            KeyCode::Enter => {
+                let candidate = self.candidates.swap_remove(self.cursor);
+                ModalOutcome::Effect(ModalEffect::SelectDevice(candidate))
+            }
+            KeyCode::Esc | KeyCode::Char('q') => ModalOutcome::Effect(ModalEffect::Quit),
+            _ => ModalOutcome::Continue,
+        }
+    }
+
+    fn render(&self, frame: &mut Frame, area: Rect) {
+        let popup = centered(60, 40, area);
+        frame.render_widget(Clear, popup);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title("Select a camera");
+        let items: Vec<ListItem> = self
+            .candidates
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let line = format!(
+                    "{} ({:04x}:{:04x}) {}.{}",
+                    c.name, c.vendor, c.product, c.bus, c.address
+                );
+                let style = if i == self.cursor {
+                    Style::default().add_modifier(Modifier::REVERSED)
+                } else {
+                    Style::default()
+                };
+                ListItem::new(Line::from(Span::styled(line, style)))
+            })
+            .collect();
+        frame.render_widget(List::new(items).block(block), popup);
+    }
+}

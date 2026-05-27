@@ -4,6 +4,7 @@ members = [
     "crates/fujicli",
     "crates/fujicodegen",
     "crates/fujicore",
+    "crates/fujitui",
     "crates/ptp-cursor",
     "crates/ptp-macro",
 ]

@@ -5,7 +5,10 @@ use serde::Serialize;
 
 use crate::{Camera, generated::options::UsbMode};
 
-pub trait CameraInfo: fmt::Display + erased_serde::Serialize {}
+pub trait CameraInfo: fmt::Display + erased_serde::Serialize {
+    fn battery(&self) -> u32;
+}
+
 serialize_trait_object!(CameraInfo);
 
 #[derive(Serialize)]
@@ -30,7 +33,11 @@ impl fmt::Display for DefaultCameraInfo {
     }
 }
 
-impl CameraInfo for DefaultCameraInfo {}
+impl CameraInfo for DefaultCameraInfo {
+    fn battery(&self) -> u32 {
+        self.battery
+    }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

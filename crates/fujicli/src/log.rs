@@ -14,10 +14,11 @@ pub fn init(verbose: u8) -> anyhow::Result<()> {
         _ => LevelFilter::Trace,
     };
 
+    #[allow(clippy::literal_string_with_formatting_args)]
     let pattern = if verbose > 0 {
-        "{d} {h({l})} {M}::{L} - {m}{n}"
+        "{d} {h({l:5})} {M}::{L} - {m}{n}"
     } else {
-        "{h({l})} - {m}{n}"
+        "{h({l:5})} - {m}{n}"
     };
 
     let encoder = Box::new(PatternEncoder::new(pattern));
