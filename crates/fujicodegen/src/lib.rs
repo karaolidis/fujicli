@@ -15,8 +15,7 @@ pub fn generate(json: &str, out_dir: &Path) -> anyhow::Result<()> {
 
     std::fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
 
-    let options =
-        common::options::generate(&fml.options, &fml.cameras).context("generating option types")?;
+    let options = common::options::generate(&fml.options).context("generating option types")?;
     write(out_dir, "options", options)?;
 
     let cameras = common::cameras::generate(&fml.cameras).context("generating camera registry")?;

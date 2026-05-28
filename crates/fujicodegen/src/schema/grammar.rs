@@ -122,15 +122,6 @@ impl SettingInfo<'_> {
         )
     }
 
-    pub fn discriminant_expr(&self) -> TokenStream {
-        let options_path = options::path();
-        let variant = self.option.map_or_else(
-            || upper_camel_case_ident!("{}", self.id),
-            |option| upper_camel_case_ident!("{}", option.id),
-        );
-        quote! { #options_path::OptionDiscriminant::#variant }
-    }
-
     fn int(&self, accessor: &TokenStream) -> TokenStream {
         if self.option.is_some() {
             quote! { i32::from(#accessor) }

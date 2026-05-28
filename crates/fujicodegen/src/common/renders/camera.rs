@@ -15,7 +15,7 @@ use crate::{
         },
         inverse::generate_inverses,
         presence::PresenceDag,
-        repair::{generate_pin_set, generate_solve},
+        repair::generate_solve,
     },
     snake_case_ident, upper_camel_case_ident,
     util::dag::Dag,
@@ -202,14 +202,17 @@ fn generate_try_update_from(
     let merge_assigns = fields.iter().map(|f| {
         let info = &settings[f.id()];
         let ident = info.field_ident();
+        let read = if info.is_copy {
+            quote! { partial_profile.#ident }
+        } else {
+            quote! { partial_profile.#ident.clone() }
+        };
         quote! {
-            if let Some(value) = partial_profile.#ident.take() {
+            if let Some(value) = #read {
                 candidate.#ident = Some(value);
             }
         }
     });
-
-    let pin_set_expr = generate_pin_set(settings, &quote! { partial_profile });
 
     quote! {
         pub fn try_update_from(
@@ -222,13 +225,11 @@ fn generate_try_update_from(
             };
             partial_profile.apply_transformations();
 
-            let pin = #pin_set_expr;
-
             let mut candidate = self.clone();
             #( #merge_assigns )*
             candidate.apply_transformations();
 
-            candidate.solve(&pin, &original)?;
+            candidate.solve(&partial_profile, &original)?;
             candidate.emit_warnings_and_infos(&original)?;
 
             *self = candidate;
