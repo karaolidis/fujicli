@@ -4,6 +4,10 @@ import "list"
 
 import "strconv"
 
+import "math"
+
+import "struct"
+
 options: [string]: #Option
 
 #Option: #DefinitionBase & {
@@ -18,6 +22,7 @@ options: [string]: #Option
 		category?: string
 		rules?:    _
 		encoding:  _
+		default?:  _
 
 		#SpecKind: "integer" | "float" | "string" | "enum"
 	}
@@ -33,10 +38,26 @@ options: [string]: #Option
 		rules?:   #Rules
 		encoding: #Encoding
 
+		default?: int
+		if rules != _|_ {
+			if rules.min != _|_ {
+				default?: >=rules.min
+			}
+			if rules.max != _|_ {
+				default?: <=rules.max
+			}
+			if rules.step != _|_ && default != _|_ {
+				_default_step: 0.0 & math.Mod(default, rules.step)
+			}
+		}
+		if encoding.kind == "lookup" {
+			default?: or([for k, _ in encoding.spec.values {strconv.ParseInt(k, 10, 64)}])
+		}
+
 		#Rules: {
 			min?:  int
 			max?:  int
-			step?: int
+			step?: uint & >0
 
 			if min != _|_ && max != _|_ {
 				min: <=max
@@ -57,7 +78,7 @@ options: [string]: #Option
 			spec: #Scale
 
 			#Scale: {
-				scale: int
+				scale: uint & >0
 			}
 		}
 
@@ -68,7 +89,7 @@ options: [string]: #Option
 			#Lookup: {
 				values: {
 					[string]: int | [int, ...int]
-				}
+				} & struct.MinFields(1)
 
 				_validation: {
 					for k, _ in values {
@@ -78,6 +99,9 @@ options: [string]: #Option
 						if rules != _|_ {
 							if rules.min != _|_ {"\(k)": >=rules.min}
 							if rules.max != _|_ {"\(k)": <=rules.max}
+							if rules.step != _|_ {
+								"\(k)_step": 0.0 & math.Mod(i, rules.step)
+							}
 						}
 					}
 				}
@@ -90,10 +114,26 @@ options: [string]: #Option
 		rules?:   #Rules
 		encoding: #Encoding
 
+		default?: float
+		if rules != _|_ {
+			if rules.min != _|_ {
+				default?: >=rules.min
+			}
+			if rules.max != _|_ {
+				default?: <=rules.max
+			}
+			if rules.step != _|_ && default != _|_ {
+				_default_step: 0.0 & math.Mod(default, rules.step)
+			}
+		}
+		if encoding.kind == "lookup" {
+			default?: or([for k, _ in encoding.spec.values {strconv.ParseFloat(k, 64)}])
+		}
+
 		#Rules: {
 			min?:  float
 			max?:  float
-			step?: float
+			step?: float & >0
 
 			if min != _|_ && max != _|_ {
 				min: <=max
@@ -114,7 +154,7 @@ options: [string]: #Option
 			spec: #Scale
 
 			#Scale: {
-				scale: int
+				scale: uint & >0
 			}
 		}
 
@@ -125,7 +165,7 @@ options: [string]: #Option
 			#Lookup: {
 				values: {
 					[string]: int | [int, ...int]
-				}
+				} & struct.MinFields(1)
 
 				_validation: {
 					for k, _ in values {
@@ -135,6 +175,9 @@ options: [string]: #Option
 						if rules != _|_ {
 							if rules.min != _|_ {"\(k)": >=rules.min}
 							if rules.max != _|_ {"\(k)": <=rules.max}
+							if rules.step != _|_ {
+								"\(k)_step": 0.0 & math.Mod(f, rules.step)
+							}
 						}
 					}
 				}
@@ -146,6 +189,21 @@ options: [string]: #Option
 		kind:     "string"
 		rules?:   #Rules
 		encoding: #Encoding
+
+		default?: string
+		if rules != _|_ {
+			if rules.min_length != _|_ if rules.min_length > 0 {
+				default: string
+			}
+			if default != _|_ {
+				if rules.min_length != _|_ {
+					_default_min_len: true & (len(default) >= rules.min_length)
+				}
+				if rules.max_length != _|_ {
+					_default_max_len: true & (len(default) <= rules.max_length)
+				}
+			}
+		}
 
 		#Rules: {
 			min_length?: uint
@@ -168,19 +226,19 @@ options: [string]: #Option
 		rules:    #Rules
 		encoding: #Encoding
 
+		default?: or([for v in rules.variants {v.id}])
+
 		#Rules: {
-			variants: [...#Variant]
+			variants: [#Variant, ...#Variant]
 
 			#Variant: {
 				id:   string
 				name: string
-				aliases: [...string]
+				aliases: [string, ...string]
 			}
 
-			_validation: {
-				ids: list.UniqueItems & [for v in variants {v.id}]
-				aliases: list.UniqueItems & [for v in variants for a in v.aliases {a}]
-			}
+			_unique_ids: list.UniqueItems & [for v in variants {v.id}]
+			_unique_aliases: list.UniqueItems & [for v in variants for a in v.aliases {a}]
 		}
 
 		#Encoding: #EncodingLookup
@@ -572,6 +630,7 @@ options: {
 			category: "White Balance"
 			kind:     "integer"
 			rules: {min: 2500, max: 10000, step: 10}
+			default: 5400
 			encoding: {
 				prop_code: 0xD19C
 				kind:      "scale"

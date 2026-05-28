@@ -20,7 +20,12 @@ impl Bounds {
     }
 }
 
-pub fn generate(id: &str, rules: Option<&StringRules>, encoding: &StringEncoding) -> TokenStream {
+pub fn generate(
+    id: &str,
+    rules: Option<&StringRules>,
+    encoding: &StringEncoding,
+    default: Option<&str>,
+) -> TokenStream {
     let StringEncoding::Raw { prop_code } = encoding;
 
     let bounds = Bounds::resolve(rules);
@@ -34,6 +39,7 @@ pub fn generate(id: &str, rules: Option<&StringRules>, encoding: &StringEncoding
         || quote! {},
         |code| generate_simulation_setting_impl(&type_name, *code),
     );
+    let default_impl = generate_default_impl(&type_name, default);
 
     quote! {
         #struct_def
@@ -41,6 +47,19 @@ pub fn generate(id: &str, rules: Option<&StringRules>, encoding: &StringEncoding
         #from_str_impl
         #display_impl
         #simulation_setting_impl
+        #default_impl
+    }
+}
+
+fn generate_default_impl(type_name: &Ident, default: Option<&str>) -> TokenStream {
+    let chosen = default.unwrap_or("");
+    quote! {
+        #[allow(clippy::derivable_impls)]
+        impl ::std::default::Default for #type_name {
+            fn default() -> Self {
+                Self(::std::string::String::from(#chosen))
+            }
+        }
     }
 }
 

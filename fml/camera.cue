@@ -23,7 +23,7 @@ cameras: [string]: #Camera
 
 			vendor_id:  uint16 | *#FujifilmVendorID
 			product_id: uint16
-			chunk_size: uint | *#DefaultCameraUSBChunkSize
+			chunk_size: uint & >0 | *#DefaultCameraUSBChunkSize
 		}
 
 		#Features: {
@@ -63,9 +63,7 @@ cameras: [string]: #Camera
 					when: #Grammar.#Predicate
 				}
 
-				_validation: {
-					ids: list.UniqueItems & [for s in settings {s.id}]
-				}
+				_unique_ids: list.UniqueItems & [for s in settings {s.id}]
 			}
 
 			#Render: {
@@ -112,9 +110,7 @@ cameras: [string]: #Camera
 					when: #Grammar.#Predicate
 				}
 
-				_validation: {
-					ids: list.UniqueItems & [for f in fields {f.id}]
-				}
+				_unique_ids: list.UniqueItems & [for f in fields {f.id}]
 			}
 		}
 	}

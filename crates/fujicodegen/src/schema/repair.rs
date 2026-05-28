@@ -298,7 +298,9 @@ fn leaf_flip<'a>(
             quote! { #accessor.#ident = Some(#value); }
         }
         Leaf::NotIn(l) => {
-            let first = l.values.first().expect("non-empty `in` list");
+            let Some(first) = l.values.first() else {
+                return Ok(None);
+            };
             let value = generate_value_expr(info, first)?;
             quote! { #accessor.#ident = Some(#value); }
         }

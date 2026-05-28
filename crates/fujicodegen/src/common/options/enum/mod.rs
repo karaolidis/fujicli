@@ -40,6 +40,7 @@ pub fn generate(
     id: &str,
     rules: &EnumRules,
     encoding: &EnumEncoding,
+    default: Option<&str>,
 ) -> anyhow::Result<TokenStream> {
     let EnumEncoding::Lookup { spec, prop_code } = encoding;
 
@@ -92,6 +93,9 @@ pub fn generate(
         &repr_type_32,
     );
 
+    let default_impl =
+        generate_default_impl(&upper_camel_case_ident!("{}", id), &resolved, default);
+
     Ok(quote! {
         #enum_def
         #try_from_wire_impl
@@ -100,7 +104,33 @@ pub fn generate(
         #ptp_serde_impl
         #simulation_setting_impl
         #conversion_profile_impl
+        #default_impl
     })
+}
+
+fn generate_default_impl(
+    type_name: &Ident,
+    resolved: &[Resolved<'_>],
+    default: Option<&str>,
+) -> TokenStream {
+    let chosen = default.map_or_else(
+        || &resolved[0],
+        |want| {
+            resolved
+                .iter()
+                .find(|r| r.variant.id == want)
+                .expect("default is a known variant id")
+        },
+    );
+    let variant = upper_camel_case_ident!("{}", chosen.variant.id);
+    quote! {
+        #[allow(clippy::derivable_impls)]
+        impl ::std::default::Default for #type_name {
+            fn default() -> Self {
+                Self::#variant
+            }
+        }
+    }
 }
 
 fn wire_items(resolved: &[Resolved<'_>]) -> Vec<(Ident, Vec<i32>)> {

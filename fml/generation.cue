@@ -67,7 +67,6 @@ generations: {
 					{ref: "dynamic_range_priority"},
 				]
 
-				// TODO: Limit generation option values
 				rules: [
 					{
 						message: "Monochromatic color settings only apply to black and white simulations."

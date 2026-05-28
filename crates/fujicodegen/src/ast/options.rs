@@ -27,24 +27,28 @@ pub enum OptionSpec {
         category: Option<String>,
         rules: Option<NumericRules<i32>>,
         encoding: NumericEncoding,
+        default: Option<i32>,
     },
     Float {
         name: String,
         category: Option<String>,
         rules: Option<NumericRules<f32>>,
         encoding: NumericEncoding,
+        default: Option<f32>,
     },
     String {
         name: String,
         category: Option<String>,
         rules: Option<StringRules>,
         encoding: StringEncoding,
+        default: Option<String>,
     },
     Enum {
         name: String,
         category: Option<String>,
         rules: EnumRules,
         encoding: EnumEncoding,
+        default: Option<String>,
     },
 }
 
@@ -276,6 +280,49 @@ mod tests {
             }"#,
         );
         assert_eq!(with.spec.category(), Some("Tone"));
+    }
+
+    #[test]
+    fn default_is_optional_per_kind_and_round_trips() {
+        let int_without = parse_option(
+            r#"{ "id": "i", "spec": { "name": "I", "kind": "integer", "encoding": { "kind": "raw" } } }"#,
+        );
+        let OptionSpec::Integer { default, .. } = int_without.spec else {
+            panic!()
+        };
+        assert_eq!(default, None);
+
+        let int_with = parse_option(
+            r#"{ "id": "i", "spec": { "name": "I", "kind": "integer", "encoding": { "kind": "raw" }, "default": 3 } }"#,
+        );
+        let OptionSpec::Integer { default, .. } = int_with.spec else {
+            panic!()
+        };
+        assert_eq!(default, Some(3));
+
+        let flt_with = parse_option(
+            r#"{ "id": "f", "spec": { "name": "F", "kind": "float", "encoding": { "kind": "scale", "spec": { "scale": 10 } }, "default": 0.5 } }"#,
+        );
+        let OptionSpec::Float { default, .. } = flt_with.spec else {
+            panic!()
+        };
+        assert_eq!(default, Some(0.5));
+
+        let s_with = parse_option(
+            r#"{ "id": "s", "spec": { "name": "S", "kind": "string", "encoding": { "kind": "raw" }, "default": "hello" } }"#,
+        );
+        let OptionSpec::String { default, .. } = s_with.spec else {
+            panic!()
+        };
+        assert_eq!(default.as_deref(), Some("hello"));
+
+        let e_with = parse_option(
+            r#"{ "id": "e", "spec": { "name": "E", "kind": "enum", "rules": { "variants": [{ "id": "a", "name": "A", "aliases": [] }] }, "encoding": { "kind": "lookup", "spec": { "values": { "a": 1 } } }, "default": "a" } }"#,
+        );
+        let OptionSpec::Enum { default, .. } = e_with.spec else {
+            panic!()
+        };
+        assert_eq!(default.as_deref(), Some("a"));
     }
 
     #[test]

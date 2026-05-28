@@ -551,34 +551,31 @@ fn generate_write_one(
     let type_path = info.type_path();
     let is_optional = optional.contains(id);
 
-    if info.option.is_some() {
-        if is_optional {
+    let write = |value: TokenStream| {
+        if info.option.is_some() {
             quote! {
-                match self.#ident.as_ref() {
-                    Some(value) => {
-                        <#type_path as crate::ptp::option::ConversionProfileField>
-                            ::try_write_conversion_profile_field_ptp(value, buf)?;
-                    }
-                    None => {
-                        ::ptp_cursor::PtpSerialize::try_write_ptp(&0i32, buf)?;
-                    }
-                }
+                <#type_path as crate::ptp::option::ConversionProfileField>
+                    ::try_write_conversion_profile_field_ptp(#value, buf)?;
             }
         } else {
             quote! {
-                <#type_path as crate::ptp::option::ConversionProfileField>
-                    ::try_write_conversion_profile_field_ptp(&self.#ident, buf)?;
+                ::ptp_cursor::PtpSerialize::try_write_ptp(#value, buf)?;
             }
         }
-    } else if is_optional {
+    };
+
+    if is_optional {
+        let write_some = write(quote! { value });
         quote! {
-            let value: i32 = self.#ident.unwrap_or(0);
-            ::ptp_cursor::PtpSerialize::try_write_ptp(&value, buf)?;
+            match self.#ident.as_ref() {
+                Some(value) => { #write_some }
+                None => {
+                    ::ptp_cursor::PtpSerialize::try_write_ptp(&0i32, buf)?;
+                }
+            }
         }
     } else {
-        quote! {
-            ::ptp_cursor::PtpSerialize::try_write_ptp(&self.#ident, buf)?;
-        }
+        write(quote! { &self.#ident })
     }
 }
 
