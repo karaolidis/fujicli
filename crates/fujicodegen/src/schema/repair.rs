@@ -15,40 +15,47 @@ use crate::{
 pub fn generate_solve(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     rules: &[NormalizedRule],
-    has_original: bool,
+    scopes: Scopes<'_>,
+    buf_ty: &TokenStream,
 ) -> anyhow::Result<TokenStream> {
+    let accessor = scopes.current;
+    let original_param = match scopes.original {
+        Some(_) => quote! { , original: &#buf_ty },
+        None => quote! {},
+    };
+    let original_arg = match scopes.original {
+        Some(_) => quote! { , original },
+        None => quote! {},
+    };
+
     let error_rules: Vec<&NormalizedRule> = rules
         .iter()
         .filter(|r| r.severity == Severity::Error)
         .collect();
+
+    if error_rules.is_empty() {
+        let empty_original_param = match scopes.original {
+            Some(_) => quote! { , _original: &#buf_ty },
+            None => quote! {},
+        };
+        return Ok(quote! {
+            #[allow(clippy::needless_pass_by_ref_mut, clippy::unnecessary_wraps)]
+            pub const fn solve(
+                _buf: &mut #buf_ty,
+                _partial: &#buf_ty
+                #empty_original_param,
+            ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
+                ::std::result::Result::Ok(())
+            }
+        });
+    }
+
     let n_lit = Literal::usize_suffixed(error_rules.len());
 
-    let self_acc = quote! { self };
     let state_acc = quote! { state };
-    let original_acc = quote! { original };
-
-    let original_param = if has_original {
-        quote! { , original: &Self }
-    } else {
-        TokenStream::new()
-    };
-    let original_arg = if has_original {
-        quote! { , original }
-    } else {
-        TokenStream::new()
-    };
-    let original_acc_opt: Option<&TokenStream> = if has_original {
-        Some(&original_acc)
-    } else {
-        None
-    };
-    let seed_scopes = Scopes {
-        current: &self_acc,
-        original: original_acc_opt,
-    };
     let break_scopes = Scopes {
         current: &state_acc,
-        original: original_acc_opt,
+        original: scopes.original,
     };
 
     let seeds = error_rules
@@ -56,7 +63,7 @@ pub fn generate_solve(
         .enumerate()
         .map(|(i, r)| {
             let i_lit = Literal::usize_suffixed(i);
-            let pred = generate_dnf(settings, &r.when, seed_scopes)?;
+            let pred = generate_dnf(settings, &r.when, scopes)?;
             Ok(quote! { ok[#i_lit] = !( #pred ); })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -70,7 +77,7 @@ pub fn generate_solve(
             let msg = &r.message;
             quote! {
                 if !ok[#i_lit] {
-                    if !self.#fn_name(partial, &ok #original_arg) {
+                    if !#fn_name(#accessor, partial, &ok #original_arg) {
                         return Err(crate::features::simulation::SimulationError::RuleViolation(#msg));
                     }
                     ok[#i_lit] = true;
@@ -86,7 +93,7 @@ pub fn generate_solve(
             let fn_name = format_ident!("try_repair_rule_{}", i);
             let i_lit = Literal::usize_suffixed(i);
             let mut counter = 0usize;
-            let walk = generate_dnf_walk(settings, &r.when, &mut counter, has_original)?;
+            let walk = generate_dnf_walk(settings, &r.when, scopes, &mut counter)?;
             Ok(quote! {
                 #[allow(
                     unused_variables,
@@ -94,8 +101,8 @@ pub fn generate_solve(
                     clippy::trivially_copy_pass_by_ref,
                 )]
                 fn #fn_name(
-                    &mut self,
-                    partial: &Self,
+                    #accessor: &mut #buf_ty,
+                    partial: &#buf_ty,
                     ok: &[bool; #n_lit]
                     #original_param,
                 ) -> bool {
@@ -126,8 +133,8 @@ pub fn generate_solve(
             clippy::needless_late_init,
         )]
         pub fn solve(
-            &mut self,
-            partial: &Self
+            #accessor: &mut #buf_ty,
+            partial: &#buf_ty
             #original_param,
         ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
             let mut ok: [bool; #n_lit] = [false; #n_lit];
@@ -144,7 +151,7 @@ pub fn generate_solve(
             clippy::trivially_copy_pass_by_ref,
         )]
         fn re_fires_other_ok(
-            state: &Self,
+            state: &#buf_ty,
             ok: &[bool; #n_lit],
             current: usize
             #original_param,
@@ -158,8 +165,8 @@ pub fn generate_solve(
 fn generate_dnf_walk(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     dnf: &Dnf,
+    scopes: Scopes<'_>,
     counter: &mut usize,
-    has_original: bool,
 ) -> anyhow::Result<TokenStream> {
     if dnf.is_contradiction() {
         return Ok(quote! { true });
@@ -168,24 +175,19 @@ fn generate_dnf_walk(
         return Ok(quote! { false });
     }
 
+    let accessor = scopes.current;
     let depth = *counter;
     *counter += 1;
     let outer = walk_label(depth);
     let inner = inner_label(depth);
 
-    let self_acc = quote! { self };
-    let original_acc = quote! { original };
-    let scopes = Scopes {
-        current: &self_acc,
-        original: has_original.then_some(&original_acc),
-    };
     let dnf_eval = generate_dnf(settings, dnf, scopes)?;
 
     let steps = dnf
         .0
         .iter()
         .map(|conj| {
-            let sub = generate_conjunction_walk(settings, conj, counter, has_original)?;
+            let sub = generate_conjunction_walk(settings, conj, scopes, counter)?;
             Ok(quote! {
                 {
                     let succ: bool = #sub;
@@ -198,12 +200,12 @@ fn generate_dnf_walk(
     Ok(quote! {
         #outer: {
             if !( #dnf_eval ) { break #outer true; }
-            let snap = self.clone();
+            let snap = #accessor.clone();
             let all: bool = #inner: {
                 #( #steps )*
                 true
             };
-            if !all { *self = snap; break #outer false; }
+            if !all { *#accessor = snap; break #outer false; }
             break #outer true;
         }
     })
@@ -212,8 +214,8 @@ fn generate_dnf_walk(
 fn generate_conjunction_walk(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     conj: &Conjunction,
+    scopes: Scopes<'_>,
     counter: &mut usize,
-    has_original: bool,
 ) -> anyhow::Result<TokenStream> {
     if conj.is_empty() {
         return Ok(quote! { false });
@@ -223,17 +225,11 @@ fn generate_conjunction_walk(
     *counter += 1;
     let label = walk_label(depth);
 
-    let self_acc = quote! { self };
-    let original_acc = quote! { original };
-    let scopes = Scopes {
-        current: &self_acc,
-        original: has_original.then_some(&original_acc),
-    };
     let conj_eval = generate_conjunction(settings, conj, scopes)?;
 
     let attempts = conj
         .iter()
-        .map(|leaf| generate_leaf_attempt(settings, leaf, &label, has_original))
+        .map(|leaf| generate_leaf_attempt(settings, leaf, scopes, &label))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     Ok(quote! {
@@ -248,30 +244,32 @@ fn generate_conjunction_walk(
 fn generate_leaf_attempt(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     leaf: &Leaf,
+    scopes: Scopes<'_>,
     parent: &Lifetime,
-    has_original: bool,
 ) -> anyhow::Result<TokenStream> {
     if leaf.scope() == Scope::Original {
-        return Ok(TokenStream::new());
+        return Ok(quote! {});
     }
-    let Some((info, mutation)) = leaf_flip(settings, leaf)? else {
-        return Ok(TokenStream::new());
+
+    let accessor = scopes.current;
+    let original_arg = match scopes.original {
+        Some(_) => quote! { , original },
+        None => quote! {},
+    };
+
+    let Some((info, mutation)) = leaf_flip(settings, leaf, accessor)? else {
+        return Ok(quote! {});
     };
     let field_ident = info.field_ident();
-    let original_arg = if has_original {
-        quote! { , original }
-    } else {
-        TokenStream::new()
-    };
     Ok(quote! {
         {
             if partial.#field_ident.is_none() {
-                let saved = self.#field_ident.take();
+                let saved = #accessor.#field_ident.take();
                 #mutation
-                if !Self::re_fires_other_ok(self, ok, current #original_arg) {
+                if !re_fires_other_ok(#accessor, ok, current #original_arg) {
                     break #parent true;
                 }
-                self.#field_ident = saved;
+                #accessor.#field_ident = saved;
             }
         }
     })
@@ -280,6 +278,7 @@ fn generate_leaf_attempt(
 fn leaf_flip<'a>(
     settings: &'a BTreeMap<&str, SettingInfo<'a>>,
     leaf: &Leaf,
+    accessor: &TokenStream,
 ) -> anyhow::Result<Option<(&'a SettingInfo<'a>, TokenStream)>> {
     let r#ref = leaf.r#ref();
     let info = &settings[r#ref];
@@ -292,20 +291,20 @@ fn leaf_flip<'a>(
         | Leaf::LessThan(_)
         | Leaf::LessThanOrEqual(_)
         | Leaf::GreaterThan(_)
-        | Leaf::GreaterThanOrEqual(_) => quote! { self.#ident = None; },
-        Leaf::Present(p) if p.present => quote! { self.#ident = None; },
+        | Leaf::GreaterThanOrEqual(_) => quote! { #accessor.#ident = None; },
+        Leaf::Present(p) if p.present => quote! { #accessor.#ident = None; },
         Leaf::NotEquals(l) => {
             let value = generate_value_expr(info, &l.equals)?;
-            quote! { self.#ident = Some(#value); }
+            quote! { #accessor.#ident = Some(#value); }
         }
         Leaf::NotIn(l) => {
             let first = l.values.first().expect("non-empty `in` list");
             let value = generate_value_expr(info, first)?;
-            quote! { self.#ident = Some(#value); }
+            quote! { #accessor.#ident = Some(#value); }
         }
         Leaf::NotBetween(l) => {
             let value = generate_value_expr(info, &l.min)?;
-            quote! { self.#ident = Some(#value); }
+            quote! { #accessor.#ident = Some(#value); }
         }
         Leaf::Present(_)
         | Leaf::NotLessThan(_)
@@ -362,9 +361,15 @@ mod tests {
     #[test]
     fn empty_rule_set_emits_solve_that_does_nothing() {
         let settings = BTreeMap::new();
-        let out = generate_solve(&settings, &[], false).unwrap().to_string();
+        let out = generate_solve(
+            &settings,
+            &[],
+            Scopes::new(&quote! { buf }),
+            &quote! { Buf },
+        )
+        .unwrap()
+        .to_string();
         assert!(out.contains("fn solve"));
-        assert!(out.contains("[bool ; 0usize]"));
     }
 
     #[test]
@@ -380,14 +385,19 @@ mod tests {
             .into(),
             "bad a",
         )];
-        let out = generate_solve(&settings, &rules, false)
-            .unwrap()
-            .to_string();
+        let out = generate_solve(
+            &settings,
+            &rules,
+            Scopes::new(&quote! { buf }),
+            &quote! { Buf },
+        )
+        .unwrap()
+        .to_string();
         assert!(out.contains("try_repair_rule_0"));
         assert!(out.contains("partial . a . is_none ()"));
         assert!(out.contains("re_fires_other_ok"));
-        assert!(out.contains("self . a = None"));
-        assert!(out.contains("self . a = saved"));
+        assert!(out.contains("buf . a = None"));
+        assert!(out.contains("buf . a = saved"));
     }
 
     #[test]
@@ -416,11 +426,15 @@ mod tests {
                 .into(),
             },
         ];
-        let out = generate_solve(&settings, &rules, false)
-            .unwrap()
-            .to_string();
+        let out = generate_solve(
+            &settings,
+            &rules,
+            Scopes::new(&quote! { buf }),
+            &quote! { Buf },
+        )
+        .unwrap()
+        .to_string();
         assert!(!out.contains("try_repair_rule_0"));
-        assert!(out.contains("[bool ; 0usize]"));
     }
 
     #[test]
@@ -447,12 +461,17 @@ mod tests {
             }
             .into(),
         )];
-        let out = generate_solve(&settings, &rules, false)
-            .unwrap()
-            .to_string();
+        let out = generate_solve(
+            &settings,
+            &rules,
+            Scopes::new(&quote! { buf }),
+            &quote! { Buf },
+        )
+        .unwrap()
+        .to_string();
         assert!(out.contains("partial . a . is_none ()"));
         assert!(out.contains("partial . b . is_none ()"));
-        assert!(out.contains("let snap = self . clone ()"));
+        assert!(out.contains("let snap = buf . clone ()"));
     }
 
     #[test]
@@ -472,10 +491,18 @@ mod tests {
             }
             .into(),
         )];
-        let out = generate_solve(&settings, &rules, false)
-            .unwrap()
-            .to_string();
-        assert!(out.contains("self . a = Some"));
+        let out = generate_solve(
+            &settings,
+            &rules,
+            Scopes::new(&quote! { buf }),
+            &quote! { Buf },
+        )
+        .unwrap()
+        .to_string();
+        assert!(
+            out.contains("buf . a = Some"),
+            "expected NotEquals flip to set field, got: {out}"
+        );
     }
 
     #[test]
@@ -502,11 +529,19 @@ mod tests {
             }
             .into(),
         )];
-        let out = generate_solve(&settings, &rules, true).unwrap().to_string();
-        assert!(out.contains("original : & Self"));
+        let original = quote! { original };
+        let out = generate_solve(
+            &settings,
+            &rules,
+            Scopes::with_original(&quote! { buf }, &original),
+            &quote! { Buf },
+        )
+        .unwrap()
+        .to_string();
+        assert!(out.contains("original : & Buf"));
         assert!(out.contains("original . a"));
-        assert!(!out.contains("self . a = None"));
-        assert!(out.contains("self . b = None"));
+        assert!(!out.contains("buf . a = None"));
+        assert!(out.contains("buf . b = None"));
     }
 
     #[test]
@@ -521,9 +556,14 @@ mod tests {
             }
             .into(),
         )];
-        let out = generate_solve(&settings, &rules, false)
-            .unwrap()
-            .to_string();
+        let out = generate_solve(
+            &settings,
+            &rules,
+            Scopes::new(&quote! { buf }),
+            &quote! { Buf },
+        )
+        .unwrap()
+        .to_string();
         assert!(!out.contains("original"));
     }
 
@@ -551,9 +591,14 @@ mod tests {
                 "r1",
             ),
         ];
-        let out = generate_solve(&settings, &rules, false)
-            .unwrap()
-            .to_string();
+        let out = generate_solve(
+            &settings,
+            &rules,
+            Scopes::new(&quote! { buf }),
+            &quote! { Buf },
+        )
+        .unwrap()
+        .to_string();
         assert!(out.contains("current != 0usize"));
         assert!(out.contains("current != 1usize"));
     }

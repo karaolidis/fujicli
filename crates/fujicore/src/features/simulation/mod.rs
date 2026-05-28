@@ -25,8 +25,6 @@ pub trait Simulation: fmt::Display + erased_serde::Serialize {
 
     fn name(&self) -> Option<CustomSettingName>;
 
-    fn try_update_from(&mut self, partial: &SimulationBase) -> CoreResult<()>;
-
     fn try_pull(ptp: &mut crate::ptp::Ptp) -> CoreResult<Self>
     where
         Self: Sized;

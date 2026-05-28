@@ -111,8 +111,7 @@ fn generate_merge_impl(union: &[UnionEntry]) -> TokenStream {
 
     quote! {
         impl RenderBase {
-            #[allow(clippy::missing_const_for_fn)]
-            pub fn merge(&mut self, overlay: &Self) {
+            pub const fn merge(&mut self, overlay: &Self) {
                 #( #assigns )*
             }
         }
@@ -144,8 +143,7 @@ fn generate_apply_simulation_impl(
 
     quote! {
         impl RenderBase {
-            #[allow(clippy::missing_const_for_fn)]
-            pub fn try_update_from(
+            pub const fn try_update_from(
                 &mut self,
                 simulation: &#simulations_path::SimulationBase,
             ) {

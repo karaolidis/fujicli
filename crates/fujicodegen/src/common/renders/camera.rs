@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Context;
 use proc_macro2::{Ident, Literal, TokenStream};
@@ -29,18 +29,28 @@ pub fn generate(
     options: &BTreeMap<String, FujiOption>,
     cameras: &BTreeMap<String, Camera>,
 ) -> anyhow::Result<TokenStream> {
+    let base_union = collect_base_union(cameras);
     let mut blocks = Vec::with_capacity(cameras.len());
     for camera in cameras.values() {
-        let block = generate_one(options, camera)
+        let block = generate_one(options, camera, &base_union)
             .with_context(|| format!("generating render profile for camera `{}`", camera.id))?;
         blocks.push(block);
     }
     Ok(quote! { #( #blocks )* })
 }
 
+fn collect_base_union(cameras: &BTreeMap<String, Camera>) -> BTreeSet<String> {
+    cameras
+        .values()
+        .filter_map(|c| c.spec.features.as_ref()?.render.as_ref())
+        .flat_map(|r| r.fields.iter().map(|f| f.id().to_string()))
+        .collect()
+}
+
 fn generate_one(
     options: &BTreeMap<String, FujiOption>,
     camera: &Camera,
+    base_union: &BTreeSet<String>,
 ) -> anyhow::Result<TokenStream> {
     let Some(render) = camera
         .spec
@@ -65,7 +75,9 @@ fn generate_one(
         .map(|r| NormalizedRule::from_rule(r, &aliases))
         .collect();
 
-    let struct_ident = upper_camel_case_ident!("{}_render_profile", camera.id);
+    let complete_ident = upper_camel_case_ident!("{}_render_profile", camera.id);
+    let draft_ident = upper_camel_case_ident!("{}_render_profile_draft", camera.id);
+    let mod_ident = snake_case_ident!("{}", camera.id);
     let camera_struct_ident = upper_camel_case_ident!("{}", camera.id);
     let cameras_path = cameras::path();
     let camera_struct_path = quote! { #cameras_path::#camera_struct_ident };
@@ -91,42 +103,103 @@ fn generate_one(
         .with_context(|| format!("too many render fields on camera `{}`", camera.id))?;
     let profile_code = render.profile_code;
 
-    let struct_def = generate_struct_def(&settings, &render.fields, &struct_ident);
-    let inherent_impl = generate_inherent_impl(
+    let optional_field_ids: BTreeSet<String> = presence_info.conditions.keys().cloned().collect();
+    let foreign_field_ids: Vec<&str> = base_union
+        .iter()
+        .map(String::as_str)
+        .filter(|id| !settings.contains_key(*id))
+        .collect();
+
+    let draft_struct = generate_draft_struct(&settings, &render.fields, &draft_ident);
+    let rule_module = generate_rule_module(
         &settings,
         render,
         &effective_rules,
-        &struct_ident,
-        &renders_path,
-        profile_code,
+        &mod_ident,
+        &draft_ident,
     )?;
-    let serialize_impl =
-        generate_ptp_serialize_impl(&settings, &render.fields, &struct_ident, n_props);
-    let deserialize_impl = generate_ptp_deserialize_impl(
+    let complete_struct = generate_complete_struct(
         &settings,
         &render.fields,
-        &struct_ident,
+        &optional_field_ids,
+        &complete_ident,
+    );
+    let inherent_impl = generate_inherent_impl(&complete_ident, profile_code);
+    let from_complete_for_draft = generate_from_complete_for_draft(
+        &settings,
+        &render.fields,
+        &optional_field_ids,
+        &complete_ident,
+        &draft_ident,
+    );
+    let from_complete_for_base = generate_from_complete_for_base(
+        &settings,
+        &render.fields,
+        &optional_field_ids,
+        &foreign_field_ids,
+        &complete_ident,
+        &renders_path,
+    );
+    let try_from_draft_for_complete = generate_try_from_draft_for_complete(
+        &settings,
+        &render.fields,
+        &optional_field_ids,
+        &complete_ident,
+        &draft_ident,
+        &mod_ident,
+    );
+    let try_from_base_for_draft = generate_try_from_base_for_draft(
+        &settings,
+        &render.fields,
+        &foreign_field_ids,
+        &complete_ident,
+        &draft_ident,
+        &renders_path,
+    );
+    let ptp_serialize = generate_ptp_serialize_impl(
+        &settings,
+        &render.fields,
+        &optional_field_ids,
+        &complete_ident,
+        n_props,
+    );
+    let ptp_deserialize = generate_ptp_deserialize_impl(
+        &settings,
+        &render.fields,
+        &complete_ident,
+        &draft_ident,
         n_props,
         &presence_info.conditions,
         &render.transformations,
         &convert_order,
     )?;
-    let trait_impl =
-        generate_camera_render_manager_impl(&struct_ident, &camera_struct_path, &renders_path);
+    let manager_impl = generate_camera_render_manager_impl(
+        &complete_ident,
+        &draft_ident,
+        &mod_ident,
+        &camera_struct_path,
+        &renders_path,
+    );
 
     Ok(quote! {
-        #struct_def
+        #draft_struct
+        #rule_module
+        #complete_struct
         #inherent_impl
-        #serialize_impl
-        #deserialize_impl
-        #trait_impl
+        #from_complete_for_draft
+        #from_complete_for_base
+        #try_from_draft_for_complete
+        #try_from_base_for_draft
+        #ptp_serialize
+        #ptp_deserialize
+        #manager_impl
     })
 }
 
-fn generate_struct_def(
+fn generate_draft_struct(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     fields: &[Field],
-    struct_ident: &Ident,
+    draft_ident: &Ident,
 ) -> TokenStream {
     let field_defs = fields.iter().map(|f| {
         let info = &settings[f.id()];
@@ -144,39 +217,34 @@ fn generate_struct_def(
             ::serde::Deserialize,
         )]
         #[serde(default, rename_all = "camelCase")]
-        pub struct #struct_ident {
+        pub struct #draft_ident {
             #( #field_defs )*
         }
     }
 }
 
-fn generate_inherent_impl(
+fn generate_rule_module(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     render: &Render,
     effective_rules: &[NormalizedRule],
-    struct_ident: &Ident,
-    renders_path: &TokenStream,
-    profile_code: u32,
+    mod_ident: &Ident,
+    draft_ident: &Ident,
 ) -> anyhow::Result<TokenStream> {
-    let profile_code_lit = Literal::u32_suffixed(profile_code);
-
-    let apply_transformations = generate_apply_transformations(settings, &render.transformations)?;
-    let self_acc = quote! { self };
+    let buf_ty = quote! { super::#draft_ident };
+    let buf_acc = quote! { buf };
     let original_acc = quote! { original };
-    let warnings_infos = generate_emit_warnings_and_infos(
-        settings,
-        effective_rules,
-        Scopes::with_original(&self_acc, &original_acc),
-    )?;
-    let solve = generate_solve(settings, effective_rules, true)?;
-    let try_update_from = generate_try_update_from(settings, &render.fields, renders_path);
+    let scopes = Scopes::with_original(&buf_acc, &original_acc);
+    let apply_transformations =
+        generate_apply_transformations(settings, &render.transformations, &buf_acc, &buf_ty)?;
+    let emit_warnings_and_infos =
+        generate_emit_warnings_and_infos(settings, effective_rules, scopes, &buf_ty)?;
+    let solve = generate_solve(settings, effective_rules, scopes, &buf_ty)?;
+    let try_update_from = generate_try_update_from(&render.fields, settings, &buf_ty);
 
     Ok(quote! {
-        impl #struct_ident {
-            pub const PROFILE_CODE: u32 = #profile_code_lit;
-
+        pub mod #mod_ident {
             #apply_transformations
-            #warnings_infos
+            #emit_warnings_and_infos
             #solve
             #try_update_from
         }
@@ -184,28 +252,17 @@ fn generate_inherent_impl(
 }
 
 fn generate_try_update_from(
-    settings: &BTreeMap<&str, SettingInfo<'_>>,
     fields: &[Field],
-    renders_path: &TokenStream,
+    settings: &BTreeMap<&str, SettingInfo<'_>>,
+    buf_ty: &TokenStream,
 ) -> TokenStream {
-    let init_fields = fields.iter().map(|f| {
-        let info = &settings[f.id()];
-        let ident = info.field_ident();
-        let value = if info.is_copy {
-            quote! { partial.#ident }
-        } else {
-            quote! { partial.#ident.clone() }
-        };
-        quote! { #ident: #value, }
-    });
-
     let merge_assigns = fields.iter().map(|f| {
         let info = &settings[f.id()];
         let ident = info.field_ident();
         let read = if info.is_copy {
-            quote! { partial_profile.#ident }
+            quote! { partial_normalized.#ident }
         } else {
-            quote! { partial_profile.#ident.clone() }
+            quote! { partial_normalized.#ident.clone() }
         };
         quote! {
             if let Some(value) = #read {
@@ -216,24 +273,226 @@ fn generate_try_update_from(
 
     quote! {
         pub fn try_update_from(
-            &mut self,
-            partial: &#renders_path::RenderBase,
+            buf: &mut #buf_ty,
+            partial: &#buf_ty,
         ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
-            let original = self.clone();
-            let mut partial_profile = Self {
-                #( #init_fields )*
-            };
-            partial_profile.apply_transformations();
+            let original = buf.clone();
+            let mut partial_normalized = partial.clone();
+            apply_transformations(&mut partial_normalized);
 
-            let mut candidate = self.clone();
+            let mut candidate = buf.clone();
             #( #merge_assigns )*
-            candidate.apply_transformations();
+            apply_transformations(&mut candidate);
 
-            candidate.solve(&partial_profile, &original)?;
-            candidate.emit_warnings_and_infos(&original)?;
+            solve(&mut candidate, &partial_normalized, &original)?;
+            emit_warnings_and_infos(&candidate, &original)?;
 
-            *self = candidate;
+            *buf = candidate;
             Ok(())
+        }
+    }
+}
+
+fn generate_complete_struct(
+    settings: &BTreeMap<&str, SettingInfo<'_>>,
+    fields: &[Field],
+    optional: &BTreeSet<String>,
+    complete_ident: &Ident,
+) -> TokenStream {
+    let field_defs = fields.iter().map(|f| {
+        let info = &settings[f.id()];
+        let ident = info.field_ident();
+        let type_path = info.type_path();
+        if optional.contains(f.id()) {
+            quote! { pub #ident: Option<#type_path>, }
+        } else {
+            quote! { pub #ident: #type_path, }
+        }
+    });
+
+    quote! {
+        #[derive(::std::fmt::Debug, ::std::clone::Clone)]
+        pub struct #complete_ident {
+            #( #field_defs )*
+        }
+    }
+}
+
+fn generate_inherent_impl(complete_ident: &Ident, profile_code: u32) -> TokenStream {
+    let profile_code_lit = Literal::u32_suffixed(profile_code);
+    quote! {
+        impl #complete_ident {
+            pub const PROFILE_CODE: u32 = #profile_code_lit;
+        }
+    }
+}
+
+fn lift_field(info: &SettingInfo<'_>, source: &TokenStream) -> TokenStream {
+    let ident = info.field_ident();
+    if info.is_copy {
+        quote! { Some(#source.#ident) }
+    } else {
+        quote! { Some(#source.#ident.clone()) }
+    }
+}
+
+fn copy_field(info: &SettingInfo<'_>, source: &TokenStream) -> TokenStream {
+    let ident = info.field_ident();
+    if info.is_copy {
+        quote! { #source.#ident }
+    } else {
+        quote! { #source.#ident.clone() }
+    }
+}
+
+fn generate_from_complete_for_draft(
+    settings: &BTreeMap<&str, SettingInfo<'_>>,
+    fields: &[Field],
+    optional: &BTreeSet<String>,
+    complete_ident: &Ident,
+    draft_ident: &Ident,
+) -> TokenStream {
+    let inits = fields.iter().map(|f| {
+        let info = &settings[f.id()];
+        let ident = info.field_ident();
+        let value = if optional.contains(f.id()) {
+            copy_field(info, &quote! { profile })
+        } else {
+            lift_field(info, &quote! { profile })
+        };
+        quote! { #ident: #value, }
+    });
+
+    quote! {
+        impl ::std::convert::From<&#complete_ident> for #draft_ident {
+            fn from(profile: &#complete_ident) -> Self {
+                Self {
+                    #( #inits )*
+                }
+            }
+        }
+    }
+}
+
+fn generate_from_complete_for_base(
+    settings: &BTreeMap<&str, SettingInfo<'_>>,
+    fields: &[Field],
+    optional: &BTreeSet<String>,
+    foreign_field_ids: &[&str],
+    complete_ident: &Ident,
+    renders_path: &TokenStream,
+) -> TokenStream {
+    let inits = fields.iter().map(|f| {
+        let info = &settings[f.id()];
+        let ident = info.field_ident();
+        let value = if optional.contains(f.id()) {
+            copy_field(info, &quote! { profile })
+        } else {
+            lift_field(info, &quote! { profile })
+        };
+        quote! { #ident: #value, }
+    });
+    let tail = if foreign_field_ids.is_empty() {
+        quote! {}
+    } else {
+        quote! { ..::std::default::Default::default() }
+    };
+
+    quote! {
+        impl ::std::convert::From<&#complete_ident> for #renders_path::RenderBase {
+            fn from(profile: &#complete_ident) -> Self {
+                Self {
+                    #( #inits )*
+                    #tail
+                }
+            }
+        }
+    }
+}
+
+fn generate_try_from_draft_for_complete(
+    settings: &BTreeMap<&str, SettingInfo<'_>>,
+    fields: &[Field],
+    optional: &BTreeSet<String>,
+    complete_ident: &Ident,
+    draft_ident: &Ident,
+    mod_ident: &Ident,
+) -> TokenStream {
+    let complete_name = complete_ident.to_string();
+    let inits = fields.iter().map(|f| {
+        let id = f.id();
+        let info = &settings[id];
+        let ident = info.field_ident();
+        if optional.contains(id) {
+            quote! { #ident: candidate.#ident, }
+        } else {
+            let id_str = id.to_string();
+            quote! {
+                #ident: candidate.#ident.ok_or(
+                    crate::features::simulation::SimulationError::MissingField {
+                        simulation: #complete_name,
+                        field: #id_str,
+                    },
+                )?,
+            }
+        }
+    });
+
+    quote! {
+        impl ::std::convert::TryFrom<#draft_ident> for #complete_ident {
+            type Error = crate::features::simulation::SimulationError;
+            fn try_from(
+                draft: #draft_ident,
+            ) -> ::std::result::Result<Self, crate::features::simulation::SimulationError> {
+                let mut candidate = draft;
+                #mod_ident::try_update_from(&mut candidate, &#draft_ident::default())?;
+                Ok(Self {
+                    #( #inits )*
+                })
+            }
+        }
+    }
+}
+
+fn generate_try_from_base_for_draft(
+    settings: &BTreeMap<&str, SettingInfo<'_>>,
+    fields: &[Field],
+    foreign_field_ids: &[&str],
+    complete_ident: &Ident,
+    draft_ident: &Ident,
+    renders_path: &TokenStream,
+) -> TokenStream {
+    let complete_name = complete_ident.to_string();
+    let foreign_checks = foreign_field_ids.iter().map(|id| {
+        let ident = snake_case_ident!("{}", id);
+        let id_str = (*id).to_string();
+        quote! {
+            if base.#ident.is_some() {
+                return Err(crate::features::simulation::SimulationError::ForeignField {
+                    simulation: #complete_name,
+                    field: #id_str,
+                });
+            }
+        }
+    });
+    let inits = fields.iter().map(|f| {
+        let info = &settings[f.id()];
+        let ident = info.field_ident();
+        let value = copy_field(info, &quote! { base });
+        quote! { #ident: #value, }
+    });
+
+    quote! {
+        impl ::std::convert::TryFrom<#renders_path::RenderBase> for #draft_ident {
+            type Error = crate::features::simulation::SimulationError;
+            fn try_from(
+                base: #renders_path::RenderBase,
+            ) -> ::std::result::Result<Self, crate::features::simulation::SimulationError> {
+                #( #foreign_checks )*
+                Ok(Self {
+                    #( #inits )*
+                })
+            }
         }
     }
 }
@@ -241,7 +500,8 @@ fn generate_try_update_from(
 fn generate_ptp_serialize_impl(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     fields: &[Field],
-    struct_ident: &Ident,
+    optional: &BTreeSet<String>,
+    complete_ident: &Ident,
     n_props: i16,
 ) -> TokenStream {
     let n_props_lit = Literal::i16_suffixed(n_props);
@@ -249,10 +509,10 @@ fn generate_ptp_serialize_impl(
 
     let writes = fields
         .iter()
-        .map(|field| generate_write_one(settings, field));
+        .map(|field| generate_write_one(settings, optional, field));
 
     quote! {
-        impl ::ptp_cursor::PtpSerialize for #struct_ident {
+        impl ::ptp_cursor::PtpSerialize for #complete_ident {
             fn try_into_ptp(&self) -> ::std::io::Result<Vec<u8>> {
                 let mut buf = Vec::new();
                 <Self as ::ptp_cursor::PtpSerialize>::try_write_ptp(self, &mut buf)?;
@@ -277,37 +537,57 @@ fn generate_ptp_serialize_impl(
     }
 }
 
-fn generate_write_one(settings: &BTreeMap<&str, SettingInfo<'_>>, field: &Field) -> TokenStream {
+fn generate_write_one(
+    settings: &BTreeMap<&str, SettingInfo<'_>>,
+    optional: &BTreeSet<String>,
+    field: &Field,
+) -> TokenStream {
     if field.skip_write() {
         return quote! {};
     }
-    let info = &settings[field.id()];
+    let id = field.id();
+    let info = &settings[id];
     let ident = info.field_ident();
     let type_path = info.type_path();
+    let is_optional = optional.contains(id);
+
     if info.option.is_some() {
-        quote! {
-            match self.#ident.as_ref() {
-                Some(value) => {
-                    <#type_path as crate::ptp::option::ConversionProfileField>
-                        ::try_write_conversion_profile_field_ptp(value, buf)?;
-                }
-                None => {
-                    ::ptp_cursor::PtpSerialize::try_write_ptp(&0i32, buf)?;
+        if is_optional {
+            quote! {
+                match self.#ident.as_ref() {
+                    Some(value) => {
+                        <#type_path as crate::ptp::option::ConversionProfileField>
+                            ::try_write_conversion_profile_field_ptp(value, buf)?;
+                    }
+                    None => {
+                        ::ptp_cursor::PtpSerialize::try_write_ptp(&0i32, buf)?;
+                    }
                 }
             }
+        } else {
+            quote! {
+                <#type_path as crate::ptp::option::ConversionProfileField>
+                    ::try_write_conversion_profile_field_ptp(&self.#ident, buf)?;
+            }
         }
-    } else {
+    } else if is_optional {
         quote! {
             let value: i32 = self.#ident.unwrap_or(0);
             ::ptp_cursor::PtpSerialize::try_write_ptp(&value, buf)?;
         }
+    } else {
+        quote! {
+            ::ptp_cursor::PtpSerialize::try_write_ptp(&self.#ident, buf)?;
+        }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_ptp_deserialize_impl(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     fields: &[Field],
-    struct_ident: &Ident,
+    complete_ident: &Ident,
+    draft_ident: &Ident,
     n_props: i16,
     presence_conditions: &BTreeMap<String, Dnf>,
     transformations: &[Transformation],
@@ -339,17 +619,17 @@ fn generate_ptp_deserialize_impl(
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
-    let inverses = generate_inverses(settings, transformations, &quote! { profile })?;
+    let inverses = generate_inverses(settings, transformations, &quote! { staged })?;
 
     Ok(quote! {
-        impl ::ptp_cursor::PtpDeserialize for #struct_ident {
+        impl ::ptp_cursor::PtpDeserialize for #complete_ident {
             fn try_from_ptp(buf: &[u8]) -> ::std::io::Result<Self> {
                 let mut cur = ::std::io::Cursor::new(buf);
                 let val = <Self as ::ptp_cursor::PtpDeserialize>::try_read_ptp(&mut cur)?;
                 Ok(val)
             }
 
-            #[allow(clippy::field_reassign_with_default, clippy::nonminimal_bool)]
+            #[allow(clippy::nonminimal_bool)]
             fn try_read_ptp<R: ::ptp_cursor::Read>(
                 cur: &mut R,
             ) -> ::std::io::Result<Self> {
@@ -359,7 +639,7 @@ fn generate_ptp_deserialize_impl(
                         ::std::io::ErrorKind::InvalidData,
                         format!(
                             "{}: expected {} props on the wire, got {}",
-                            stringify!(#struct_ident),
+                            stringify!(#complete_ident),
                             #n_props_lit,
                             n_props,
                         ),
@@ -373,7 +653,7 @@ fn generate_ptp_deserialize_impl(
                         ::std::io::ErrorKind::InvalidData,
                         format!(
                             "{}: invalid profile-code hex `{}`: {}",
-                            stringify!(#struct_ident),
+                            stringify!(#complete_ident),
                             profile_code_str.as_str(),
                             err,
                         ),
@@ -383,7 +663,7 @@ fn generate_ptp_deserialize_impl(
                         ::std::io::ErrorKind::InvalidData,
                         format!(
                             "{}: expected profile code {:#x}, got {:#x}",
-                            stringify!(#struct_ident),
+                            stringify!(#complete_ident),
                             Self::PROFILE_CODE,
                             parsed,
                         ),
@@ -394,12 +674,16 @@ fn generate_ptp_deserialize_impl(
 
                 #( #raw_reads )*
 
-                let mut profile = Self::default();
+                let mut staged = #draft_ident::default();
                 #( #conversions )*
 
                 #inverses
 
-                Ok(profile)
+                <Self as ::std::convert::TryFrom<#draft_ident>>::try_from(staged)
+                    .map_err(|err| ::std::io::Error::new(
+                        ::std::io::ErrorKind::InvalidData,
+                        format!("{}: {err}", stringify!(#complete_ident)),
+                    ))
             }
         }
     })
@@ -419,27 +703,26 @@ fn generate_convert_one(
     let type_path = info.type_path();
     let raw_ident = raw_local_ident(&ident);
 
-    let convert = if info.option.is_some() {
+    let value_expr = if info.option.is_some() {
         quote! {
-            profile.#ident = Some(
-                <#type_path as crate::ptp::option::ConversionProfileField>
-                    ::try_from_conversion_profile_field_ptp(&#raw_ident.to_le_bytes())?,
-            );
+            <#type_path as crate::ptp::option::ConversionProfileField>
+                ::try_from_conversion_profile_field_ptp(&#raw_ident.to_le_bytes())?
         }
     } else {
-        quote! { profile.#ident = Some(#raw_ident); }
+        quote! { #raw_ident }
     };
 
     if let Some(condition) = presence_conditions.get(field.id()) {
-        let profile_accessor = quote! { profile };
-        let cond = generate_dnf(settings, condition, Scopes::new(&profile_accessor))?;
+        let staged_accessor = quote! { staged };
+        let cond = generate_dnf(settings, condition, Scopes::new(&staged_accessor))?;
         Ok(quote! {
-            if #cond {
-                #convert
-            }
+            staged.#ident = {
+                let present = #cond;
+                if present { Some(#value_expr) } else { None }
+            };
         })
     } else {
-        Ok(convert)
+        Ok(quote! { staged.#ident = Some(#value_expr); })
     }
 }
 
@@ -448,7 +731,9 @@ fn raw_local_ident(ident: &Ident) -> Ident {
 }
 
 fn generate_camera_render_manager_impl(
-    struct_ident: &Ident,
+    complete_ident: &Ident,
+    draft_ident: &Ident,
+    mod_ident: &Ident,
     camera_struct_path: &TokenStream,
     renders_path: &TokenStream,
 ) -> TokenStream {
@@ -462,13 +747,18 @@ fn generate_camera_render_manager_impl(
                 draft: bool,
             ) -> crate::error::CoreResult<Vec<u8>> {
                 <Self as crate::features::render::CameraRenderManager>::send_image(self, ptp, image)?;
-                let mut profile: #struct_ident = ptp.get_prop(
+                let current: #complete_ident = ptp.get_prop(
                     crate::ptp::DevicePropCode::FujiRawConversionProfile,
                 )?;
-                profile.try_update_from(partial)?;
+                let partial_draft = <#draft_ident as ::std::convert::TryFrom<
+                    #renders_path::RenderBase,
+                >>::try_from(partial.clone())?;
+                let mut buf = #draft_ident::from(&current);
+                #mod_ident::try_update_from(&mut buf, &partial_draft)?;
+                let next = <#complete_ident as ::std::convert::TryFrom<#draft_ident>>::try_from(buf)?;
                 ptp.set_prop(
                     crate::ptp::DevicePropCode::FujiRawConversionProfile,
-                    &profile,
+                    &next,
                 )?;
                 <Self as crate::features::render::CameraRenderManager>::render_image(
                     self, ptp, draft,
