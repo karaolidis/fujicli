@@ -12,7 +12,7 @@ use crate::{
     },
     common::options,
     schema::alias::NormalizedRule,
-    util::ident::safe_upper_camel_case_ident,
+    upper_camel_case_ident,
 };
 
 #[derive(Clone, Copy)]
@@ -116,7 +116,7 @@ impl SettingInfo<'_> {
             },
             |option| {
                 let options_path = options::path();
-                let type_ident = safe_upper_camel_case_ident(&option.id);
+                let type_ident = upper_camel_case_ident!("{}", option.id);
                 quote! { #options_path::#type_ident }
             },
         )
@@ -125,8 +125,8 @@ impl SettingInfo<'_> {
     pub fn discriminant_expr(&self) -> TokenStream {
         let options_path = options::path();
         let variant = self.option.map_or_else(
-            || safe_upper_camel_case_ident(self.id),
-            |option| safe_upper_camel_case_ident(&option.id),
+            || upper_camel_case_ident!("{}", self.id),
+            |option| upper_camel_case_ident!("{}", option.id),
         );
         quote! { #options_path::OptionDiscriminant::#variant }
     }
@@ -154,7 +154,7 @@ pub fn build_settings<'a, F: OptionLike + 'a>(
                 is_copy: true,
             },
             |name| {
-                let option = options.get(name).expect("ref validated during cue export");
+                let option = &options[name];
                 SettingInfo {
                     id: item.id(),
                     kind: option.spec.kind(),
@@ -214,9 +214,7 @@ pub fn generate_predicate(
             quote! { !( #inner ) }
         }
         Predicate::Present(p) => {
-            let info = settings
-                .get(p.r#ref.as_str())
-                .expect("ref validated during cue export");
+            let info = &settings[p.r#ref.as_str()];
             let field = info.field_ident();
             let accessor = scopes.pick(p.scope);
             if p.present {
@@ -226,15 +224,11 @@ pub fn generate_predicate(
             }
         }
         Predicate::Equals(p) => {
-            let info = settings
-                .get(p.r#ref.as_str())
-                .expect("ref validated during cue export");
+            let info = &settings[p.r#ref.as_str()];
             generate_compare(info, scopes.pick(p.scope), &p.equals, CompareOp::Eq)?
         }
         Predicate::In(p) => {
-            let info = settings
-                .get(p.r#ref.as_str())
-                .expect("ref validated during cue export");
+            let info = &settings[p.r#ref.as_str()];
             let field = info.field_ident();
             let accessor = scopes.pick(p.scope);
             let arms = p
@@ -264,9 +258,7 @@ pub fn generate_predicate(
             }
         }
         Predicate::Between(p) => {
-            let info = settings
-                .get(p.r#ref.as_str())
-                .expect("ref validated during cue export");
+            let info = &settings[p.r#ref.as_str()];
             let field = info.field_ident();
             let accessor = scopes.pick(p.scope);
             let lo = generate_value_expr(info, &p.min)?;
@@ -286,33 +278,25 @@ pub fn generate_predicate(
             }
         }
         Predicate::LessThan(p) => generate_compare(
-            settings
-                .get(p.r#ref.as_str())
-                .expect("ref validated during cue export"),
+            &settings[p.r#ref.as_str()],
             scopes.pick(p.scope),
             &p.lt,
             CompareOp::Lt,
         )?,
         Predicate::LessThanOrEqual(p) => generate_compare(
-            settings
-                .get(p.r#ref.as_str())
-                .expect("ref validated during cue export"),
+            &settings[p.r#ref.as_str()],
             scopes.pick(p.scope),
             &p.lte,
             CompareOp::Lte,
         )?,
         Predicate::GreaterThan(p) => generate_compare(
-            settings
-                .get(p.r#ref.as_str())
-                .expect("ref validated during cue export"),
+            &settings[p.r#ref.as_str()],
             scopes.pick(p.scope),
             &p.gt,
             CompareOp::Gt,
         )?,
         Predicate::GreaterThanOrEqual(p) => generate_compare(
-            settings
-                .get(p.r#ref.as_str())
-                .expect("ref validated during cue export"),
+            &settings[p.r#ref.as_str()],
             scopes.pick(p.scope),
             &p.gte,
             CompareOp::Gte,
@@ -325,9 +309,7 @@ pub fn generate_assignment(
     assignment: &Assignment,
     accessor: &TokenStream,
 ) -> anyhow::Result<TokenStream> {
-    let info = settings
-        .get(assignment.r#ref.as_str())
-        .expect("ref validated during cue export");
+    let info = &settings[assignment.r#ref.as_str()];
     let field = info.field_ident();
     Ok(match &assignment.effect {
         AssignmentEffect::Set(value) => {
@@ -529,7 +511,7 @@ pub fn generate_value_expr(info: &SettingInfo<'_>, value: &Value) -> anyhow::Res
                 .as_str()
                 .expect("enum predicate value validated during cue export");
             let path = info.type_path();
-            let variant = safe_upper_camel_case_ident(s);
+            let variant = upper_camel_case_ident!("{}", s);
             Ok(quote! { #path::#variant })
         }
     }
@@ -591,6 +573,7 @@ mod tests {
             id,
             kind: SpecKind::Integer,
             option: None,
+            is_copy: true,
         }
     }
 

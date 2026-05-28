@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use anyhow::Context;
 use proc_macro2::{Ident, Literal, TokenStream};
-use quote::{format_ident, quote};
+use quote::quote;
 
 use crate::{
     ast::{Camera, Dnf, Field, FujiOption, Render, Transformation},
@@ -17,7 +17,8 @@ use crate::{
         presence::PresenceDag,
         repair::{generate_pin_set, generate_solve},
     },
-    util::{dag::Dag, ident::safe_upper_camel_case_ident},
+    snake_case_ident, upper_camel_case_ident,
+    util::dag::Dag,
 };
 
 // NOTE: Naively assume the same padding holds for all Fujifilm cameras
@@ -64,8 +65,8 @@ fn generate_one(
         .map(|r| NormalizedRule::from_rule(r, &aliases))
         .collect();
 
-    let struct_ident = format_ident!("{}RenderProfile", safe_upper_camel_case_ident(&camera.id));
-    let camera_struct_ident = safe_upper_camel_case_ident(&camera.id);
+    let struct_ident = upper_camel_case_ident!("{}_render_profile", camera.id);
+    let camera_struct_ident = upper_camel_case_ident!("{}", camera.id);
     let cameras_path = cameras::path();
     let camera_struct_path = quote! { #cameras_path::#camera_struct_ident };
     let renders_path = renders::path();
@@ -128,7 +129,7 @@ fn generate_struct_def(
     struct_ident: &Ident,
 ) -> TokenStream {
     let field_defs = fields.iter().map(|f| {
-        let info = settings.get(f.id()).expect("settings indexed");
+        let info = &settings[f.id()];
         let ident = info.field_ident();
         let type_path = info.type_path();
         quote! { pub #ident: Option<#type_path>, }
@@ -188,7 +189,7 @@ fn generate_try_update_from(
     renders_path: &TokenStream,
 ) -> TokenStream {
     let init_fields = fields.iter().map(|f| {
-        let info = settings.get(f.id()).expect("settings indexed");
+        let info = &settings[f.id()];
         let ident = info.field_ident();
         let value = if info.is_copy {
             quote! { partial.#ident }
@@ -199,7 +200,7 @@ fn generate_try_update_from(
     });
 
     let merge_assigns = fields.iter().map(|f| {
-        let info = settings.get(f.id()).expect("settings indexed");
+        let info = &settings[f.id()];
         let ident = info.field_ident();
         quote! {
             if let Some(value) = partial_profile.#ident.take() {
@@ -279,7 +280,7 @@ fn generate_write_one(settings: &BTreeMap<&str, SettingInfo<'_>>, field: &Field)
     if field.skip_write() {
         return quote! {};
     }
-    let info = settings.get(field.id()).expect("settings indexed");
+    let info = &settings[field.id()];
     let ident = info.field_ident();
     let type_path = info.type_path();
     if info.option.is_some() {
@@ -318,7 +319,7 @@ fn generate_ptp_deserialize_impl(
         .iter()
         .filter(|f| !f.skip_read())
         .map(|field| {
-            let info = settings.get(field.id()).expect("settings indexed");
+            let info = &settings[field.id()];
             let raw_ident = raw_local_ident(&info.field_ident());
             quote! {
                 let #raw_ident = <i32 as ::ptp_cursor::PtpDeserialize>::try_read_ptp(cur)?;
@@ -412,7 +413,7 @@ fn generate_convert_one(
         return Ok(quote! {});
     }
 
-    let info = settings.get(field.id()).expect("settings indexed");
+    let info = &settings[field.id()];
     let ident = info.field_ident();
     let type_path = info.type_path();
     let raw_ident = raw_local_ident(&ident);
@@ -442,7 +443,7 @@ fn generate_convert_one(
 }
 
 fn raw_local_ident(ident: &Ident) -> Ident {
-    format_ident!("raw_{}", ident)
+    snake_case_ident!("raw_{}", ident)
 }
 
 fn generate_camera_render_manager_impl(

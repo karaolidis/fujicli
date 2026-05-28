@@ -1,25 +1,44 @@
-use heck::ToUpperCamelCase;
 use proc_macro2::{Ident, Span};
 
-fn safe_ident(raw: &str) -> Ident {
-    let raw = raw.replace('-', "_");
-    let safe = if raw.chars().next().is_none_or(|c| c.is_ascii_digit()) {
-        format!("X{raw}")
-    } else {
-        raw
-    };
-
-    Ident::new(&safe, Span::call_site())
+#[macro_export]
+macro_rules! upper_camel_case_ident {
+    ($($arg:tt)*) => {{
+        let raw = ::std::format!($($arg)*).replace('-', "_");
+        let cased = <str as ::heck::ToUpperCamelCase>::to_upper_camel_case(&raw);
+        let safe = if cased.chars().next().is_none_or(|c| c.is_ascii_digit()) {
+            ::std::format!("X{cased}")
+        } else {
+            cased
+        };
+        ::proc_macro2::Ident::new(&safe, ::proc_macro2::Span::call_site())
+    }};
 }
 
-pub fn safe_upper_camel_case_ident(s: &str) -> Ident {
-    let raw = s.to_upper_camel_case();
-    safe_ident(&raw)
+#[macro_export]
+macro_rules! uppercase_ident {
+    ($($arg:tt)*) => {{
+        let cased = ::std::format!($($arg)*).replace('-', "_").to_uppercase();
+        let safe = if cased.chars().next().is_none_or(|c| c.is_ascii_digit()) {
+            ::std::format!("X{cased}")
+        } else {
+            cased
+        };
+        ::proc_macro2::Ident::new(&safe, ::proc_macro2::Span::call_site())
+    }};
 }
 
-pub fn safe_uppercase_ident(s: &str) -> Ident {
-    let raw = s.to_uppercase();
-    safe_ident(&raw)
+#[macro_export]
+macro_rules! snake_case_ident {
+    ($($arg:tt)*) => {{
+        let raw = ::std::format!($($arg)*).replace('-', "_");
+        let cased = <str as ::heck::ToSnakeCase>::to_snake_case(&raw);
+        let safe = if cased.chars().next().is_none_or(|c| c.is_ascii_digit()) {
+            ::std::format!("x_{cased}")
+        } else {
+            cased
+        };
+        ::proc_macro2::Ident::new(&safe, ::proc_macro2::Span::call_site())
+    }};
 }
 
 /// Convert a numeric lookup key (e.g. `"-4"`, `"0"`, `"3.0"`, `"-0.3"`)
@@ -51,21 +70,62 @@ mod tests {
     use super::*;
 
     #[test]
-    fn variant_ident_prepends_x_for_digit_start() {
+    fn upper_camel_case_prepends_x_for_digit_start() {
         // Rust idents can't start with a digit, so e.g. an enum variant for
         // image size `7728x5152` becomes `X7728x5152`.
         assert_eq!(
-            safe_upper_camel_case_ident("7728x5152").to_string(),
+            upper_camel_case_ident!("7728x5152").to_string(),
             "X7728x5152"
         );
     }
 
     #[test]
-    fn variant_ident_normal_case() {
+    fn upper_camel_case_normal_case() {
         assert_eq!(
-            safe_upper_camel_case_ident("film_simulation").to_string(),
+            upper_camel_case_ident!("film_simulation").to_string(),
             "FilmSimulation",
         );
+    }
+
+    #[test]
+    fn upper_camel_case_composes_suffix() {
+        assert_eq!(
+            upper_camel_case_ident!("{}_simulation", "x_t5").to_string(),
+            "XT5Simulation",
+        );
+    }
+
+    #[test]
+    fn uppercase_composes_prefix_and_id() {
+        assert_eq!(
+            uppercase_ident!("C_{}_SIMULATION", "x_t5").to_string(),
+            "C_X_T5_SIMULATION",
+        );
+        assert_eq!(
+            uppercase_ident!("OPT_{}", "film_simulation").to_string(),
+            "OPT_FILM_SIMULATION",
+        );
+    }
+
+    #[test]
+    fn snake_case_normalises_camel_input() {
+        assert_eq!(
+            snake_case_ident!("FilmSimulation").to_string(),
+            "film_simulation",
+        );
+    }
+
+    #[test]
+    fn snake_case_passes_through_snake_input() {
+        assert_eq!(
+            snake_case_ident!("film_simulation").to_string(),
+            "film_simulation",
+        );
+    }
+
+    #[test]
+    fn snake_case_prepends_x_for_digit_start() {
+        assert_eq!(snake_case_ident!("7_eleven").to_string(), "x_7_eleven");
     }
 
     #[test]

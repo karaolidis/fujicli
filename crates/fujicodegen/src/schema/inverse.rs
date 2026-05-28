@@ -103,7 +103,7 @@ fn generate_one_inverse(
         if a.r#ref == when_leaf.r#ref {
             continue;
         }
-        let info = settings.get(a.r#ref.as_str()).expect("ctx validated field");
+        let info = &settings[a.r#ref.as_str()];
         let ident = info.field_ident();
         clears.extend(quote! { #accessor.#ident = ::std::option::Option::None; });
     }

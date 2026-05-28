@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Context;
 use proc_macro2::{Ident, TokenStream};
-use quote::{format_ident, quote};
+use quote::quote;
 
 use crate::{
     ast::{Camera, Dnf, FujiOption, Leaf, Setting},
@@ -16,7 +16,8 @@ use crate::{
         presence::PresenceDag,
         repair::{generate_pin_set, generate_solve},
     },
-    util::{dag::Dag, ident::safe_upper_camel_case_ident},
+    upper_camel_case_ident,
+    util::dag::Dag,
 };
 
 pub fn generate(
@@ -69,8 +70,8 @@ fn generate_one(
         .map(|r| NormalizedRule::from_rule(r, &aliases))
         .collect();
 
-    let struct_ident = format_ident!("{}Simulation", safe_upper_camel_case_ident(&camera.id));
-    let camera_struct_ident = safe_upper_camel_case_ident(&camera.id);
+    let struct_ident = upper_camel_case_ident!("{}_simulation", camera.id);
+    let camera_struct_ident = upper_camel_case_ident!("{}", camera.id);
     let cameras_path = cameras::path();
     let camera_struct_path = quote! { #cameras_path::#camera_struct_ident };
     let options_path = options::path();
@@ -138,7 +139,7 @@ fn generate_struct_def(
     struct_ident: &Ident,
 ) -> TokenStream {
     let field_defs = fields.iter().map(|s| {
-        let info = settings.get(s.id.as_str()).expect("settings indexed");
+        let info = &settings[s.id.as_str()];
         let ident = info.field_ident();
         let type_path = info.type_path();
         quote! {
@@ -198,7 +199,7 @@ fn generate_try_update_from(
     fields: &[Setting],
 ) -> TokenStream {
     let init_fields = fields.iter().map(|s| {
-        let info = settings.get(s.id.as_str()).expect("settings indexed");
+        let info = &settings[s.id.as_str()];
         let ident = info.field_ident();
         let value = if info.is_copy {
             quote! { partial.#ident }
@@ -209,7 +210,7 @@ fn generate_try_update_from(
     });
 
     let merge_assigns = fields.iter().map(|s| {
-        let info = settings.get(s.id.as_str()).expect("settings indexed");
+        let info = &settings[s.id.as_str()];
         let ident = info.field_ident();
         quote! {
             if let Some(value) = partial_profile.#ident.take() {
@@ -269,7 +270,7 @@ fn generate_from_sim_for_base_impl(
     base_union: &BTreeSet<String>,
 ) -> TokenStream {
     let init_fields = fields.iter().map(|s| {
-        let info = settings.get(s.id.as_str()).expect("settings indexed");
+        let info = &settings[s.id.as_str()];
         let ident = info.field_ident();
         let value = if matches!(info.kind, crate::ast::SpecKind::String) {
             quote! { simulation.#ident.clone() }
@@ -350,7 +351,7 @@ fn generate_required_field_checks(
         if optional.contains(id) {
             return None;
         }
-        let info = settings.get(id).expect("settings indexed");
+        let info = &settings[id];
         let ident = info.field_ident();
         let id_str = id.to_string();
         Some(quote! {
@@ -371,7 +372,7 @@ fn generate_display_impl(
     struct_ident: &Ident,
 ) -> TokenStream {
     let lines = fields.iter().map(|s| {
-        let info = settings.get(s.id.as_str()).expect("settings indexed");
+        let info = &settings[s.id.as_str()];
         let ident = info.field_ident();
         let label = info
             .option
@@ -440,9 +441,7 @@ fn generate_try_pull(
     let reads = read_order
         .iter()
         .map(|id| {
-            let info = settings
-                .get(id.as_str())
-                .expect("read order references known setting");
+            let info = &settings[id.as_str()];
             let ident = info.field_ident();
             let type_path = info.type_path();
 
@@ -481,9 +480,7 @@ fn generate_try_push(
     write_order: &[String],
 ) -> TokenStream {
     let writes = write_order.iter().map(|id| {
-        let info = settings
-            .get(id.as_str())
-            .expect("write order references known setting");
+        let info = &settings[id.as_str()];
         let ident = info.field_ident();
 
         quote! {

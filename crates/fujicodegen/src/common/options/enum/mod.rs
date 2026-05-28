@@ -8,7 +8,7 @@ use super::common::{
 };
 use crate::{
     ast::{EnumEncoding, EnumRules, EnumVariant, LookupSpec, LookupValue},
-    util::ident::safe_upper_camel_case_ident,
+    upper_camel_case_ident,
 };
 
 struct Resolved<'a> {
@@ -18,28 +18,21 @@ struct Resolved<'a> {
 }
 
 impl<'a> Resolved<'a> {
-    fn from_variant(variant: &'a EnumVariant, spec: &LookupSpec) -> anyhow::Result<Self> {
-        let lookup_value = spec
-            .values
-            .get(&variant.id)
-            .with_context(|| format!("missing lookup entry for variant `{}`", variant.id))?;
-
+    fn from_variant(variant: &'a EnumVariant, spec: &LookupSpec) -> Self {
+        let lookup_value = &spec.values[&variant.id];
         let (canonical, alternates) = match lookup_value {
             LookupValue::Single(n) => (*n, Vec::new()),
             LookupValue::Multi(list) => {
-                let (&canonical, rest) = list.split_first().with_context(|| {
-                    format!("empty multi-value lookup for variant `{}`", variant.id)
-                })?;
-
+                let (&canonical, rest) = list.split_first().expect("multi-value non-empty by CUE");
                 (canonical, rest.to_vec())
             }
         };
 
-        Ok(Self {
+        Self {
             variant,
             canonical,
             alternates,
-        })
+        }
     }
 }
 
@@ -50,11 +43,11 @@ pub fn generate(
 ) -> anyhow::Result<TokenStream> {
     let EnumEncoding::Lookup { spec, prop_code } = encoding;
 
-    let resolved = rules
+    let resolved: Vec<_> = rules
         .variants
         .iter()
         .map(|v| Resolved::from_variant(v, spec))
-        .collect::<anyhow::Result<Vec<_>>>()?;
+        .collect();
 
     let wire_values: Vec<_> = resolved
         .iter()
@@ -68,33 +61,33 @@ pub fn generate(
     let repr_type_32 = resolve_repr_type_32(signed);
 
     let enum_def = generate_enum_def(
-        &safe_upper_camel_case_ident(id),
+        &upper_camel_case_ident!("{}", id),
         &repr_type,
         signed,
         &resolved,
     )
     .with_context(|| format!("generating enum definition for enum option `{id}`"))?;
     let try_from_wire_impl = generate_try_from_wire_impl(
-        &safe_upper_camel_case_ident(id),
+        &upper_camel_case_ident!("{}", id),
         signed,
         &repr_type,
         &wire_items(&resolved),
     )
     .with_context(|| format!("generating try_from_wire impl for enum option `{id}`"))?;
-    let display_impl = generate_display_impl(&safe_upper_camel_case_ident(id), &resolved);
-    let from_str_impl = generate_from_str_impl(&safe_upper_camel_case_ident(id), &resolved);
+    let display_impl = generate_display_impl(&upper_camel_case_ident!("{}", id), &resolved);
+    let from_str_impl = generate_from_str_impl(&upper_camel_case_ident!("{}", id), &resolved);
     let (ptp_serde_impl, simulation_setting_impl) = prop_code.as_ref().map_or_else(
         || (quote! {}, quote! {}),
         |prop_code| {
-            let serde = generate_ptp_serde_impl(&safe_upper_camel_case_ident(id), &repr_type);
+            let serde = generate_ptp_serde_impl(&upper_camel_case_ident!("{}", id), &repr_type);
             let setting =
-                generate_simulation_setting_impl(&safe_upper_camel_case_ident(id), *prop_code);
+                generate_simulation_setting_impl(&upper_camel_case_ident!("{}", id), *prop_code);
             (serde, setting)
         },
     );
 
     let conversion_profile_impl = generate_conversion_profile_impl(
-        &safe_upper_camel_case_ident(id),
+        &upper_camel_case_ident!("{}", id),
         &repr_type,
         &repr_type_32,
     );
@@ -117,7 +110,7 @@ fn wire_items(resolved: &[Resolved<'_>]) -> Vec<(Ident, Vec<i32>)> {
             let mut wires = Vec::with_capacity(1 + r.alternates.len());
             wires.push(r.canonical);
             wires.extend(r.alternates.iter().copied());
-            (safe_upper_camel_case_ident(&r.variant.id), wires)
+            (upper_camel_case_ident!("{}", r.variant.id), wires)
         })
         .collect()
 }
@@ -131,7 +124,7 @@ fn generate_enum_def(
     let defs = resolved
         .iter()
         .map(|r| {
-            let v = safe_upper_camel_case_ident(&r.variant.id);
+            let v = upper_camel_case_ident!("{}", r.variant.id);
             let canonical = wire_literal(r.canonical, signed)?;
             Ok(quote! { #v = #canonical, })
         })
@@ -159,7 +152,7 @@ fn generate_display_impl(type_name: &Ident, resolved: &[Resolved<'_>]) -> TokenS
     let arms = resolved
         .iter()
         .map(|r| {
-            let v = safe_upper_camel_case_ident(&r.variant.id);
+            let v = upper_camel_case_ident!("{}", r.variant.id);
             let display = &r.variant.name;
             quote! { Self::#v => write!(f, #display), }
         })
@@ -180,7 +173,7 @@ fn generate_from_str_impl(type_name: &Ident, resolved: &[Resolved<'_>]) -> Token
     let arms = resolved
         .iter()
         .map(|r| {
-            let v = safe_upper_camel_case_ident(&r.variant.id);
+            let v = upper_camel_case_ident!("{}", r.variant.id);
             let aliases = &r.variant.aliases;
             quote! {
                 #(#aliases)|* => return Ok(Self::#v),

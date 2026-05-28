@@ -12,7 +12,7 @@ use quote::quote;
 
 use crate::{
     ast::{Camera, Field, FujiOption, NumericEncoding, OptionSpec},
-    util::ident::safe_upper_camel_case_ident,
+    upper_camel_case_ident,
 };
 
 pub fn generate(
@@ -88,17 +88,17 @@ fn generate_discriminant(
         .collect();
 
     let option_variants = options.keys().map(|id| {
-        let ident = safe_upper_camel_case_ident(id);
+        let ident = upper_camel_case_ident!("{}", id);
         quote! { #ident, }
     });
 
     let inline_variants = inline_ids.iter().map(|id| {
-        let ident = safe_upper_camel_case_ident(id);
+        let ident = upper_camel_case_ident!("{}", id);
         quote! { #ident, }
     });
 
     let option_impls = options.keys().map(|id| {
-        let ident = safe_upper_camel_case_ident(id);
+        let ident = upper_camel_case_ident!("{}", id);
         quote! {
             impl #ident {
                 pub const DISCRIMINANT: OptionDiscriminant = OptionDiscriminant::#ident;

@@ -3,10 +3,7 @@ use std::collections::BTreeMap;
 use proc_macro2::{Literal, TokenStream};
 use quote::quote;
 
-use crate::{
-    ast::Camera,
-    util::ident::{safe_upper_camel_case_ident, safe_uppercase_ident},
-};
+use crate::{ast::Camera, upper_camel_case_ident, uppercase_ident};
 
 pub fn generate(cameras: &BTreeMap<String, Camera>) -> anyhow::Result<TokenStream> {
     let mut sorted: Vec<&Camera> = cameras.values().collect();
@@ -19,8 +16,8 @@ pub fn generate(cameras: &BTreeMap<String, Camera>) -> anyhow::Result<TokenStrea
     let mut supported_entries = Vec::new();
 
     for camera in sorted {
-        let struct_name = safe_upper_camel_case_ident(&camera.id);
-        let const_name = safe_uppercase_ident(&format!("C_{}", camera.id));
+        let struct_name = upper_camel_case_ident!("{}", camera.id);
+        let const_name = uppercase_ident!("C_{}", camera.id);
         let name_str = &camera.spec.name;
         let vendor = Literal::u16_suffixed(camera.spec.usb.vendor_id);
         let product = Literal::u16_suffixed(camera.spec.usb.product_id);

@@ -311,7 +311,7 @@ fn leaf_flip<'a>(
     leaf: &Leaf,
 ) -> anyhow::Result<Option<(&'a SettingInfo<'a>, TokenStream)>> {
     let r#ref = leaf.r#ref();
-    let info = settings.get(r#ref).expect("ref validated");
+    let info = &settings[r#ref];
     let ident = info.field_ident();
 
     let mutation = match leaf {
