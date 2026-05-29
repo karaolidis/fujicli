@@ -1,3 +1,5 @@
+use thiserror::Error;
+
 use crate::{
     features::simulation::SimulationError,
     generated::{options::OptionCategory, simulations::SimulationBase},
@@ -34,7 +36,7 @@ pub enum OptionOps<B: 'static> {
 #[derive(Debug, Clone, Copy)]
 pub struct EnumOps<B: 'static> {
     pub variants: &'static [&'static str],
-    pub cycle: fn(&mut B, Direction, &Validator<'_, B>) -> bool,
+    pub cycle: fn(&mut B, Direction, &Validator<'_, B>) -> Result<(), BumpError>,
     pub set_by_index: fn(&mut B, usize, &Validator<'_, B>) -> SetOutcome,
     pub set_default: fn(&mut B),
 }
@@ -45,8 +47,8 @@ pub struct IntegerOps<B: 'static> {
     pub max: i32,
     pub step: i32,
     pub jump: i32,
-    pub step_fn: fn(&mut B, Direction, Magnitude, &Validator<'_, B>) -> bool,
-    pub jump_fn: fn(&mut B, Extreme, &Validator<'_, B>) -> bool,
+    pub step_fn: fn(&mut B, Direction, Magnitude, &Validator<'_, B>) -> Result<(), BumpError>,
+    pub jump_fn: fn(&mut B, Extreme, &Validator<'_, B>) -> Result<(), BumpError>,
     pub set_default: fn(&mut B),
 }
 
@@ -56,8 +58,8 @@ pub struct FloatOps<B: 'static> {
     pub max: f32,
     pub step: f32,
     pub jump: f32,
-    pub step_fn: fn(&mut B, Direction, Magnitude, &Validator<'_, B>) -> bool,
-    pub jump_fn: fn(&mut B, Extreme, &Validator<'_, B>) -> bool,
+    pub step_fn: fn(&mut B, Direction, Magnitude, &Validator<'_, B>) -> Result<(), BumpError>,
+    pub jump_fn: fn(&mut B, Extreme, &Validator<'_, B>) -> Result<(), BumpError>,
     pub set_default: fn(&mut B),
 }
 
@@ -91,6 +93,14 @@ pub enum SetOutcome {
     Set,
     Rejected,
     InvalidInput(OptionError),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum BumpError {
+    #[error("validator rejected every candidate in the requested direction")]
+    Exhausted,
+    #[error("field has no current value to bump from")]
+    Unset,
 }
 
 pub type Validator<'a, B> = dyn Fn(B) -> Option<B> + 'a;
@@ -137,7 +147,7 @@ mod tests {
         display: |b| b.film_simulation.as_ref().map(ToString::to_string),
         ops: OptionOps::Enum(EnumOps {
             variants: &["Provia"],
-            cycle: |_, _, _| false,
+            cycle: |_, _, _| Err(BumpError::Exhausted),
             set_by_index: |_, _, _| SetOutcome::Rejected,
             set_default: |b| b.film_simulation = Some(FilmSimulation::default()),
         }),
@@ -156,8 +166,8 @@ mod tests {
             max: 9,
             step: 1,
             jump: 10,
-            step_fn: |_, _, _, _| false,
-            jump_fn: |_, _, _| false,
+            step_fn: |_, _, _, _| Err(BumpError::Exhausted),
+            jump_fn: |_, _, _| Err(BumpError::Exhausted),
             set_default: |b| {
                 b.monochromatic_color_temperature = Some(MonochromaticColorTemperature::default());
             },
