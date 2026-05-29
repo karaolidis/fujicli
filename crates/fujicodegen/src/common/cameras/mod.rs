@@ -3,11 +3,15 @@ use std::collections::BTreeMap;
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::quote;
 
-use crate::{ast::Camera, upper_camel_case_ident, uppercase_ident};
+use crate::{ast::Camera, snake_case_ident, upper_camel_case_ident, uppercase_ident};
 
 struct CameraNames {
     r#struct: Ident,
     r#const: Ident,
+    simulation_mod: Ident,
+    simulation_const: Ident,
+    simulation_draft: Ident,
+    simulation_complete: Ident,
 }
 
 impl From<&Camera> for CameraNames {
@@ -15,6 +19,10 @@ impl From<&Camera> for CameraNames {
         Self {
             r#struct: upper_camel_case_ident!("{}", camera.id),
             r#const: uppercase_ident!("C_{}", camera.id),
+            simulation_mod: snake_case_ident!("{}", camera.id),
+            simulation_const: uppercase_ident!("C_{}_SIMULATION", camera.id),
+            simulation_draft: upper_camel_case_ident!("{}_simulation_draft", camera.id),
+            simulation_complete: upper_camel_case_ident!("{}_simulation", camera.id),
         }
     }
 }
@@ -74,12 +82,14 @@ fn generate_one(camera: &Camera, names: &CameraNames) -> anyhow::Result<TokenStr
     let struct_name = &names.r#struct;
 
     let base_impl = generate_base_impl(camera, names, &features)?;
-    let supported_const = generate_supported_camera_const(camera, names);
+    let simulation_const = generate_simulation_descriptors_const(names, &features);
+    let supported_const = generate_supported_camera_const(camera, names, &features);
 
     Ok(quote! {
         pub struct #struct_name;
 
         #base_impl
+        #simulation_const
         #supported_const
     })
 }
@@ -181,12 +191,22 @@ fn generate_feature_overrides(
     (backup, simulation, render)
 }
 
-fn generate_supported_camera_const(camera: &Camera, names: &CameraNames) -> TokenStream {
+fn generate_supported_camera_const(
+    camera: &Camera,
+    names: &CameraNames,
+    features: &Features,
+) -> TokenStream {
     let const_name = &names.r#const;
     let struct_name = &names.r#struct;
     let name_str = &camera.spec.name;
     let vendor = Literal::u16_suffixed(camera.spec.usb.vendor_id);
     let product = Literal::u16_suffixed(camera.spec.usb.product_id);
+    let simulation = if features.has_simulation {
+        let simulation_const = &names.simulation_const;
+        quote! { Some(&#simulation_const) }
+    } else {
+        quote! { None }
+    };
 
     quote! {
         pub const #const_name: crate::SupportedCamera = crate::SupportedCamera {
@@ -194,6 +214,55 @@ fn generate_supported_camera_const(camera: &Camera, names: &CameraNames) -> Toke
             vendor: #vendor,
             product: #product,
             camera_factory: || Box::new(#struct_name),
+            simulation: #simulation,
         };
     }
+}
+
+fn generate_simulation_descriptors_const(
+    names: &CameraNames,
+    features: &Features,
+) -> Option<TokenStream> {
+    if !features.has_simulation {
+        return None;
+    }
+
+    let const_name = &names.simulation_const;
+    let complete = &names.simulation_complete;
+    let draft = &names.simulation_draft;
+    let r#mod = &names.simulation_mod;
+
+    Some(quote! {
+        pub const #const_name: crate::features::simulation::SimulationDescriptors =
+            crate::features::simulation::SimulationDescriptors {
+                fields: <crate::generated::simulations::#complete>::FIELDS,
+                validate: |base| {
+                    let draft = <crate::generated::simulations::#draft as ::std::convert::TryFrom<
+                        crate::generated::simulations::SimulationBase,
+                    >>::try_from(base)?;
+                    let complete = <crate::generated::simulations::#complete as ::std::convert::TryFrom<
+                        crate::generated::simulations::#draft,
+                    >>::try_from(draft)?;
+                    ::std::result::Result::Ok(
+                        <crate::generated::simulations::SimulationBase as ::std::convert::From<
+                            &crate::generated::simulations::#complete,
+                        >>::from(&complete),
+                    )
+                },
+                validate_partial: |base| {
+                    let mut draft = <crate::generated::simulations::#draft as ::std::convert::TryFrom<
+                        crate::generated::simulations::SimulationBase,
+                    >>::try_from(base)?;
+                    crate::generated::simulations::#r#mod::try_update_from(
+                        &mut draft,
+                        &<crate::generated::simulations::#draft as ::std::default::Default>::default(),
+                    )?;
+                    ::std::result::Result::Ok(
+                        <crate::generated::simulations::SimulationBase as ::std::convert::From<
+                            &crate::generated::simulations::#draft,
+                        >>::from(&draft),
+                    )
+                },
+            };
+    })
 }

@@ -16,7 +16,7 @@ use crate::{
         presence::PresenceDag,
         repair::generate_solve,
     },
-    snake_case_ident, upper_camel_case_ident,
+    snake_case_ident, upper_camel_case_ident, uppercase_ident,
     util::dag::Dag,
 };
 
@@ -119,6 +119,7 @@ fn generate_one(
     );
     let inherent_impl = generate_inherent_impl(
         &settings,
+        &simulation.settings,
         &optional_field_ids,
         &complete_ident,
         &options_path,
@@ -334,6 +335,7 @@ fn generate_complete_struct(
 
 fn generate_inherent_impl(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
+    fields: &[Setting],
     optional: &BTreeSet<String>,
     complete_ident: &Ident,
     options_path: &TokenStream,
@@ -351,9 +353,18 @@ fn generate_inherent_impl(
         quote! { None }
     };
 
+    let field_refs = fields.iter().map(|s| {
+        let const_ident = uppercase_ident!("OPT_{}", s.id);
+        quote! { &crate::generated::descriptors::#const_ident }
+    });
+
     quote! {
         impl #complete_ident {
             pub const SLOTS: u32 = #slots_lit;
+
+            pub const FIELDS: &'static [&'static crate::features::simulation::OptionDescriptor<
+                crate::generated::simulations::SimulationBase,
+            >] = &[ #( #field_refs ),* ];
 
             #[must_use]
             pub fn name(&self) -> Option<#options_path::CustomSettingName> {

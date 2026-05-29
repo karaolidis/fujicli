@@ -8,7 +8,7 @@ pub use error::{Capability, CoreError, CoreResult};
 
 use features::{
     base::{CameraBase, info::CameraInfo},
-    simulation::Simulation,
+    simulation::{Simulation, SimulationDescriptors},
 };
 use log::{debug, error};
 use ptp::Ptp;
@@ -158,6 +158,7 @@ pub struct SupportedCamera {
     pub vendor: u16,
     pub product: u16,
     pub camera_factory: CameraFactory,
+    pub simulation: Option<&'static SimulationDescriptors>,
 }
 
 impl Camera {
@@ -219,6 +220,17 @@ impl Camera {
             .as_simulation_parser()
             .ok_or(CoreError::Unsupported(Capability::SimulationParsing))?;
         parser.deserialize_simulation(simulation)
+    }
+
+    pub fn simulation_descriptors(&self) -> Option<&'static SimulationDescriptors> {
+        self.r#impl.camera_definition().simulation
+    }
+
+    pub fn validate_simulation(&self, base: SimulationBase) -> CoreResult<SimulationBase> {
+        let descriptors = self
+            .simulation_descriptors()
+            .ok_or(CoreError::Unsupported(Capability::SimulationManagement))?;
+        (descriptors.validate)(base).map_err(Into::into)
     }
 
     pub fn custom_settings_slots(&self) -> CoreResult<Vec<CustomSetting>> {
