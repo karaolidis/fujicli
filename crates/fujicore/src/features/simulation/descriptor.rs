@@ -215,4 +215,21 @@ mod tests {
             Some(MonochromaticColorTemperature::default()),
         );
     }
+
+    #[test]
+    fn canonical_default_simulation_validates_for_every_supported_camera() {
+        for cam in crate::generated::cameras::SUPPORTED {
+            let Some(descriptors) = cam.simulation else {
+                continue;
+            };
+            let canonical = descriptors.new_canonical_default_simulation();
+            let result = (descriptors.validate)(canonical);
+            assert!(
+                result.is_ok(),
+                "{}: validate(canonical default) failed: {:?}",
+                cam.name,
+                result.err(),
+            );
+        }
+    }
 }
