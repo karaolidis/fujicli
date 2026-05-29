@@ -29,6 +29,9 @@ pub fn generate(json: &str, out_dir: &Path) -> anyhow::Result<()> {
         .context("generating render profile types")?;
     write(out_dir, "renders", renders)?;
 
+    let descriptors = common::descriptors::generate(&fml.options, &fml.cameras);
+    write(out_dir, "descriptors", descriptors)?;
+
     let cli = cli::generate(&fml.options, &fml.cameras);
     write(out_dir, "cli", cli)?;
 
@@ -37,7 +40,15 @@ pub fn generate(json: &str, out_dir: &Path) -> anyhow::Result<()> {
 
     prune(
         out_dir,
-        &["options", "cameras", "simulations", "renders", "cli", "mod"],
+        &[
+            "options",
+            "cameras",
+            "simulations",
+            "renders",
+            "descriptors",
+            "cli",
+            "mod",
+        ],
     )?;
 
     Ok(())
@@ -59,6 +70,7 @@ fn root(fml: &ast::Fml) -> TokenStream {
         pub mod options;
         pub mod simulations;
         pub mod renders;
+        pub mod descriptors;
         pub mod cli;
     }
 }

@@ -4,8 +4,8 @@ pub mod manager;
 pub mod parser;
 
 pub use descriptor::{
-    Direction, EnumOps, Extreme, FloatOps, IntegerOps, Magnitude, OptionDescriptor, OptionOps,
-    SetOutcome, SimulationDescriptors, StringOps, Validator,
+    BumpError, Direction, EnumOps, Extreme, FloatOps, IntegerOps, Magnitude, OptionDescriptor,
+    OptionOps, SetOutcome, SimulationDescriptors, StringOps, Validator,
 };
 pub use error::SimulationError;
 pub use manager::CameraSimulationManager;
