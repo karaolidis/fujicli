@@ -1,5 +1,6 @@
 use clap::Parser;
 
+mod library;
 mod log;
 mod tui;
 
