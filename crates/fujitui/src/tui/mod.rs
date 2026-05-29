@@ -194,6 +194,22 @@ impl App {
                 self.device = None;
                 self.modal = Some(Box::new(FatalModal::disconnect()));
             }
+            DeviceEvent::SlotFetched(slot, _base) => {
+                info!("slot {slot} fetched");
+            }
+            DeviceEvent::SlotFetchFailed(slot, e) => {
+                let msg = format!("fetch of {slot} failed: {e}");
+                warn!("{msg}");
+                self.status_message = Some(msg);
+            }
+            DeviceEvent::SlotChanged(slot) => {
+                info!("slot {slot} pushed");
+            }
+            DeviceEvent::SlotPushFailed(slot, e) => {
+                let msg = format!("push to {slot} failed: {e}");
+                warn!("{msg}");
+                self.status_message = Some(msg);
+            }
             DeviceEvent::Error(e) => {
                 let msg = e.to_string();
                 warn!("device error: {msg}");
