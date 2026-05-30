@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 
-use crate::tui::Tab;
+use crate::ui::Tab;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Action {

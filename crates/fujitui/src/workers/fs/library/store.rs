@@ -3,6 +3,7 @@ use std::{
     fs::{self, File},
     io,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use fujicore::generated::simulations::SimulationBase;
@@ -95,6 +96,17 @@ pub struct SimLibrary {
     entries: BTreeMap<Slug, LibraryEntry>,
 }
 
+#[derive(Debug, Default)]
+pub struct LibrarySnapshot {
+    pub entries: BTreeMap<Slug, LibraryEntry>,
+}
+
+impl LibrarySnapshot {
+    pub fn empty() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+}
+
 impl SimLibrary {
     pub fn open(dir: PathBuf) -> Result<(Self, LoadReport), LibraryError> {
         fs::create_dir_all(&dir).map_err(|source| LibraryError::Io {
@@ -136,6 +148,12 @@ impl SimLibrary {
 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    pub fn snapshot(&self) -> Arc<LibrarySnapshot> {
+        Arc::new(LibrarySnapshot {
+            entries: self.entries.clone(),
+        })
     }
 
     pub fn add(

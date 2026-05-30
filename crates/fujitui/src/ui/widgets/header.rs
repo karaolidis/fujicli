@@ -5,7 +5,7 @@ use ratatui::{
     widgets::Tabs,
 };
 
-use crate::tui::{Tab, common::SEPARATOR};
+use crate::ui::{Tab, widgets::SEPARATOR};
 
 pub fn render(frame: &mut Frame, area: Rect, current: Tab) {
     let titles: Vec<&'static str> = Tab::ALL.iter().map(|t| t.label()).collect();

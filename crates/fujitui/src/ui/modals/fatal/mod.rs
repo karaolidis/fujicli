@@ -5,7 +5,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 
-use crate::tui::modal::{ModalEffect, ModalHandler, ModalOutcome, centered};
+use crate::ui::modals::{ModalEffect, ModalHandler, ModalOutcome, centered};
 
 pub struct FatalModal {
     title: &'static str,
