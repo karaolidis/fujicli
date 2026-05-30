@@ -7,7 +7,7 @@ use ratatui::{
     layout::{Constraint, Flex, Layout, Rect},
 };
 
-use crate::tui::common::usb::DeviceCandidate;
+use crate::workers::device::usb::DeviceCandidate;
 
 pub fn centered(pct_x: u16, pct_y: u16, area: Rect) -> Rect {
     let [vertical] = Layout::vertical([Constraint::Percentage(pct_y)])

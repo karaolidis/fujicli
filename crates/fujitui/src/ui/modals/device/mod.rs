@@ -7,9 +7,9 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem},
 };
 
-use crate::tui::{
-    common::usb::DeviceCandidate,
-    modal::{ModalEffect, ModalHandler, ModalOutcome, centered},
+use crate::{
+    ui::modals::{ModalEffect, ModalHandler, ModalOutcome, centered},
+    workers::device::usb::DeviceCandidate,
 };
 
 pub struct DevicePickerModal {

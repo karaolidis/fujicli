@@ -5,7 +5,7 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::tui::{App, common::SEPARATOR};
+use crate::{tui::App, ui::widgets::SEPARATOR};
 
 pub fn render(frame: &mut Frame, area: Rect, app: &App) {
     let mut spans: Vec<Span> = app.snapshot.as_ref().map_or_else(

@@ -1,3 +1,5 @@
+pub mod usb;
+
 use std::{
     ops::ControlFlow,
     thread::{self, JoinHandle},
@@ -12,15 +14,26 @@ use fujicore::{
 use log::{debug, error, info};
 use rusb::{Device, GlobalContext};
 
+use crate::workers::ReqId;
+
 const TICK: Duration = Duration::from_millis(100);
 const REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum DeviceCommand {
-    FetchSlot(CustomSetting),
-    FetchAllSlots,
-    PushSlot(CustomSetting, SimulationBase),
+    FetchSlot {
+        req: ReqId,
+        slot: CustomSetting,
+    },
+    FetchAllSlots {
+        req: ReqId,
+    },
+    PushSlot {
+        req: ReqId,
+        slot: CustomSetting,
+        base: SimulationBase,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -35,11 +48,27 @@ pub enum DeviceEvent {
     Connected(DeviceSnapshot),
     InfoUpdated(DeviceSnapshot),
     Disconnected,
-    SlotFetched(CustomSetting, SimulationBase),
-    SlotFetchFailed(CustomSetting, Box<CoreError>),
-    SlotChanged(CustomSetting),
-    SlotPushFailed(CustomSetting, Box<CoreError>),
     Error(Box<CoreError>),
+    SlotFetched {
+        req: ReqId,
+        slot: CustomSetting,
+        #[allow(dead_code)]
+        base: SimulationBase,
+    },
+    SlotFetchFailed {
+        req: ReqId,
+        slot: CustomSetting,
+        error: Box<CoreError>,
+    },
+    SlotChanged {
+        req: ReqId,
+        slot: CustomSetting,
+    },
+    SlotPushFailed {
+        req: ReqId,
+        slot: CustomSetting,
+        error: Box<CoreError>,
+    },
 }
 
 pub struct DeviceHandle {
@@ -112,10 +141,14 @@ fn run(
         match command_rx.recv_timeout(TICK) {
             Ok(cmd) => {
                 let outcome = match cmd {
-                    DeviceCommand::FetchSlot(slot) => fetch_slot(&mut camera, slot, event_tx),
-                    DeviceCommand::FetchAllSlots => fetch_all_slots(&mut camera, event_tx),
-                    DeviceCommand::PushSlot(slot, base) => {
-                        push_slot(&mut camera, slot, base, event_tx)
+                    DeviceCommand::FetchSlot { req, slot } => {
+                        fetch_slot(&mut camera, req, slot, event_tx)
+                    }
+                    DeviceCommand::FetchAllSlots { req } => {
+                        fetch_all_slots(&mut camera, req, event_tx)
+                    }
+                    DeviceCommand::PushSlot { req, slot, base } => {
+                        push_slot(&mut camera, req, slot, base, event_tx)
                     }
                 };
                 if outcome.is_break() {
@@ -168,66 +201,84 @@ fn snapshot(camera: &mut Camera) -> Result<DeviceSnapshot, CoreError> {
 
 fn fetch_slot(
     camera: &mut Camera,
+    req: ReqId,
     slot: CustomSetting,
     event_tx: &Sender<DeviceEvent>,
 ) -> ControlFlow<()> {
     match camera.get_simulation(slot) {
         Ok(sim) => {
-            let _ = event_tx.send(DeviceEvent::SlotFetched(slot, sim.to_base()));
+            let _ = event_tx.send(DeviceEvent::SlotFetched {
+                req,
+                slot,
+                base: sim.to_base(),
+            });
             ControlFlow::Continue(())
         }
         Err(e) if is_disconnect(&e) => {
-            error!("camera disconnected during fetch of {slot}: {e}");
+            error!("{req}: camera disconnected during fetch of slot {slot}: {e}");
             let _ = event_tx.send(DeviceEvent::Disconnected);
             ControlFlow::Break(())
         }
         Err(e) => {
-            error!("fetch slot {slot} failed: {e}");
-            let _ = event_tx.send(DeviceEvent::SlotFetchFailed(slot, Box::new(e)));
+            error!("{req}: fetch slot {slot} failed: {e}");
+            let _ = event_tx.send(DeviceEvent::SlotFetchFailed {
+                req,
+                slot,
+                error: Box::new(e),
+            });
             ControlFlow::Continue(())
         }
     }
 }
 
-fn fetch_all_slots(camera: &mut Camera, event_tx: &Sender<DeviceEvent>) -> ControlFlow<()> {
+fn fetch_all_slots(
+    camera: &mut Camera,
+    req: ReqId,
+    event_tx: &Sender<DeviceEvent>,
+) -> ControlFlow<()> {
     let slots = match camera.custom_settings_slots() {
         Ok(s) => s,
         Err(e) if is_disconnect(&e) => {
-            error!("camera disconnected enumerating slots: {e}");
+            error!("{req}: camera disconnected enumerating slots: {e}");
             let _ = event_tx.send(DeviceEvent::Disconnected);
             return ControlFlow::Break(());
         }
         Err(e) => {
-            error!("enumerating slots failed: {e}");
+            error!("{req}: enumerating slots failed: {e}");
             let _ = event_tx.send(DeviceEvent::Error(Box::new(e)));
             return ControlFlow::Continue(());
         }
     };
     for slot in slots {
-        fetch_slot(camera, slot, event_tx)?;
+        fetch_slot(camera, req, slot, event_tx)?;
     }
     ControlFlow::Continue(())
 }
 
 fn push_slot(
     camera: &mut Camera,
+    req: ReqId,
     slot: CustomSetting,
     base: SimulationBase,
     event_tx: &Sender<DeviceEvent>,
 ) -> ControlFlow<()> {
     match camera.update_simulation(slot, base) {
         Ok(()) => {
-            let _ = event_tx.send(DeviceEvent::SlotChanged(slot));
+            let _ = event_tx.send(DeviceEvent::SlotChanged { req, slot });
             ControlFlow::Continue(())
         }
         Err(e) if is_disconnect(&e) => {
-            error!("camera disconnected during push to {slot}: {e}");
+            error!("{req}: camera disconnected during push to slot {slot}: {e}");
             let _ = event_tx.send(DeviceEvent::Disconnected);
             ControlFlow::Break(())
         }
         Err(e) => {
-            error!("push slot {slot} failed: {e}");
-            let _ = event_tx.send(DeviceEvent::SlotPushFailed(slot, Box::new(e)));
+            error!("{req}: push slot {slot} failed: {e}");
+            let _ = event_tx.send(DeviceEvent::SlotPushFailed {
+                req,
+                slot,
+                error: Box::new(e),
+            });
             ControlFlow::Continue(())
         }
     }
