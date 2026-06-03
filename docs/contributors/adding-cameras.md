@@ -171,6 +171,10 @@ features: {
         rules: [
             // Same shape as simulation rules. Pin allowed values per camera
             // here too - same reasoning as for simulations.
+            //
+            // Render rules can additionally use `scope: "original"` on a
+            // leaf to refer to the camera-reported value of an option
+            // *before* the user's partial was merged.
         ]
     }
 }

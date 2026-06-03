@@ -81,6 +81,7 @@ cameras: [string]: #Camera
 				}
 
 				#Grammar: #GrammarBase & {
+					_scoped: true
 					_ids: {
 						all: [for _, field in fields {field.id}]
 						i: list.Concat([
@@ -93,11 +94,16 @@ cameras: [string]: #Camera
 					}
 				}
 
+				#TransformationGrammar: #GrammarBase & {
+					_scoped: false
+					_ids:    #Grammar._ids
+				}
+
 				transformations?: [...#Transformation]
 
 				#Transformation: #TransformationBase & {
-					when?: #Grammar.#Predicate
-					apply: [...#Grammar.#Assignment]
+					when?: #TransformationGrammar.#Predicate
+					apply: [...#TransformationGrammar.#Assignment]
 				}
 
 				rules?: [...#Rule]
@@ -420,6 +426,27 @@ cameras: {
 									{ref: "white_balance_shift_red", present: true},
 									{ref: "white_balance_shift_blue", present: true},
 									{ref: "white_balance_temperature", present: true},
+								]},
+							]
+						},
+						{
+							message: "Dynamic Range cannot exceed the value the image was shot with."
+							when: any: [
+								{all: [
+									{ref: "dynamic_range", scope: "original", equals: "hdr100"},
+									{not: {ref: "dynamic_range", in: ["hdr100"]}},
+								]},
+								{all: [
+									{ref: "dynamic_range", scope: "original", equals: "hdr200"},
+									{not: {ref: "dynamic_range", in: ["hdr100", "hdr200"]}},
+								]},
+								{all: [
+									{ref: "dynamic_range", scope: "original", equals: "hdr400"},
+									{not: {ref: "dynamic_range", in: ["hdr100", "hdr200", "hdr400"]}},
+								]},
+								{all: [
+									{ref: "dynamic_range", scope: "original", equals: "hdr800"},
+									{not: {ref: "dynamic_range", in: ["hdr100", "hdr200", "hdr400", "hdr800"]}},
 								]},
 							]
 						},

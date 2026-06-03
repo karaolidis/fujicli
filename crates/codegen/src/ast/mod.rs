@@ -67,7 +67,7 @@ mod tests {
                                     "settings": [{ "id": "img", "ref": "image_size" }],
                                     "rules": [{
                                         "message": "demo rule",
-                                        "when": { "ref": "img", "present": true }
+                                        "when": { "ref": "img", "scope": "current", "present": true }
                                     }]
                                 }
                             }

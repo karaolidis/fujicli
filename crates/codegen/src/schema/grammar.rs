@@ -7,13 +7,47 @@ use serde_json::Value;
 
 use crate::{
     ast::{
-        Assignment, AssignmentEffect, Conjunction, Dnf, Field, FujiOption, Leaf, Predicate,
+        Assignment, AssignmentEffect, Conjunction, Dnf, Field, FujiOption, Leaf, Predicate, Scope,
         Setting, Severity, SpecKind, Transformation,
     },
     common::options,
     schema::alias::NormalizedRule,
     util::ident::safe_upper_camel_case_ident,
 };
+
+#[derive(Clone, Copy)]
+pub struct Scopes<'a> {
+    pub current: &'a TokenStream,
+    pub original: Option<&'a TokenStream>,
+}
+
+impl<'a> Scopes<'a> {
+    pub fn new(accessor: &'a TokenStream) -> Self {
+        Self {
+            current: accessor,
+            original: None,
+        }
+    }
+
+    pub fn with_original(current: &'a TokenStream, original: &'a TokenStream) -> Self {
+        Self {
+            current,
+            original: Some(original),
+        }
+    }
+
+    fn pick(&self, scope: Scope) -> &'a TokenStream {
+        match scope {
+            Scope::Current => self.current,
+            Scope::Original => match self.original {
+                Some(o) => o,
+                None => {
+                    unreachable!("original-scope leaf reached a context with no original accessor")
+                }
+            },
+        }
+    }
+}
 
 pub trait OptionLike {
     fn id(&self) -> &str;
@@ -127,7 +161,7 @@ pub fn build_settings<'a, F: OptionLike + 'a>(
 pub fn generate_predicate(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     pred: &Predicate,
-    accessor: &TokenStream,
+    scopes: Scopes<'_>,
 ) -> anyhow::Result<TokenStream> {
     Ok(match pred {
         Predicate::Bool(b) => {
@@ -141,12 +175,12 @@ pub fn generate_predicate(
             if p.all.is_empty() {
                 quote! { true }
             } else if p.all.len() == 1 {
-                generate_predicate(settings, &p.all[0], accessor)?
+                generate_predicate(settings, &p.all[0], scopes)?
             } else {
                 let parts = p
                     .all
                     .iter()
-                    .map(|c| generate_predicate(settings, c, accessor))
+                    .map(|c| generate_predicate(settings, c, scopes))
                     .collect::<anyhow::Result<Vec<_>>>()?;
                 quote! { #( ( #parts ) )&&* }
             }
@@ -155,18 +189,18 @@ pub fn generate_predicate(
             if p.any.is_empty() {
                 quote! { false }
             } else if p.any.len() == 1 {
-                generate_predicate(settings, &p.any[0], accessor)?
+                generate_predicate(settings, &p.any[0], scopes)?
             } else {
                 let parts = p
                     .any
                     .iter()
-                    .map(|c| generate_predicate(settings, c, accessor))
+                    .map(|c| generate_predicate(settings, c, scopes))
                     .collect::<anyhow::Result<Vec<_>>>()?;
                 quote! { #( ( #parts ) )||* }
             }
         }
         Predicate::Not(p) => {
-            let inner = generate_predicate(settings, &p.not, accessor)?;
+            let inner = generate_predicate(settings, &p.not, scopes)?;
             quote! { !( #inner ) }
         }
         Predicate::Present(p) => {
@@ -174,6 +208,7 @@ pub fn generate_predicate(
                 .get(p.r#ref.as_str())
                 .expect("ref validated during cue export");
             let field = info.field_ident();
+            let accessor = scopes.pick(p.scope);
             if p.present {
                 quote! { #accessor.#field.is_some() }
             } else {
@@ -184,13 +219,14 @@ pub fn generate_predicate(
             let info = settings
                 .get(p.r#ref.as_str())
                 .expect("ref validated during cue export");
-            generate_compare(info, accessor, &p.equals, CompareOp::Eq)?
+            generate_compare(info, scopes.pick(p.scope), &p.equals, CompareOp::Eq)?
         }
         Predicate::In(p) => {
             let info = settings
                 .get(p.r#ref.as_str())
                 .expect("ref validated during cue export");
             let field = info.field_ident();
+            let accessor = scopes.pick(p.scope);
             let arms = p
                 .values
                 .iter()
@@ -222,6 +258,7 @@ pub fn generate_predicate(
                 .get(p.r#ref.as_str())
                 .expect("ref validated during cue export");
             let field = info.field_ident();
+            let accessor = scopes.pick(p.scope);
             let lo = generate_value_expr(info, &p.min)?;
             let hi = generate_value_expr(info, &p.max)?;
             match info.kind {
@@ -242,7 +279,7 @@ pub fn generate_predicate(
             settings
                 .get(p.r#ref.as_str())
                 .expect("ref validated during cue export"),
-            accessor,
+            scopes.pick(p.scope),
             &p.lt,
             CompareOp::Lt,
         )?,
@@ -250,7 +287,7 @@ pub fn generate_predicate(
             settings
                 .get(p.r#ref.as_str())
                 .expect("ref validated during cue export"),
-            accessor,
+            scopes.pick(p.scope),
             &p.lte,
             CompareOp::Lte,
         )?,
@@ -258,7 +295,7 @@ pub fn generate_predicate(
             settings
                 .get(p.r#ref.as_str())
                 .expect("ref validated during cue export"),
-            accessor,
+            scopes.pick(p.scope),
             &p.gt,
             CompareOp::Gt,
         )?,
@@ -266,7 +303,7 @@ pub fn generate_predicate(
             settings
                 .get(p.r#ref.as_str())
                 .expect("ref validated during cue export"),
-            accessor,
+            scopes.pick(p.scope),
             &p.gte,
             CompareOp::Gte,
         )?,
@@ -304,7 +341,8 @@ pub fn generate_transformation(
     let body = quote! { #( #assignments )* };
     Ok(match &transformation.when {
         Some(pred) => {
-            let cond = generate_predicate(settings, pred, accessor)?;
+            let scopes = Scopes::new(accessor);
+            let cond = generate_predicate(settings, pred, scopes)?;
             quote! { if #cond { #body } }
         }
         None => body,
@@ -330,15 +368,20 @@ pub fn generate_apply_transformations(
 pub fn generate_emit_warnings_and_infos(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     rules: &[NormalizedRule],
+    scopes: Scopes<'_>,
 ) -> anyhow::Result<TokenStream> {
-    let accessor = quote! { self };
     let parts = rules
         .iter()
         .filter(|r| !matches!(r.severity, Severity::Error))
-        .map(|r| generate_normalized_rule(settings, r, &accessor))
+        .map(|r| generate_normalized_rule(settings, r, scopes))
         .collect::<anyhow::Result<Vec<_>>>()?;
+    let original_param = match scopes.original {
+        Some(_) => quote! { , original: &Self },
+        None => quote! {},
+    };
     Ok(quote! {
-        fn emit_warnings_and_infos(&self) -> ::anyhow::Result<()> {
+        #[allow(unused_variables)]
+        fn emit_warnings_and_infos(&self #original_param) -> ::anyhow::Result<()> {
             #( #parts )*
             Ok(())
         }
@@ -348,9 +391,9 @@ pub fn generate_emit_warnings_and_infos(
 pub fn generate_normalized_rule(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     rule: &NormalizedRule,
-    accessor: &TokenStream,
+    scopes: Scopes<'_>,
 ) -> anyhow::Result<TokenStream> {
-    let cond = generate_dnf(settings, &rule.when, accessor)?;
+    let cond = generate_dnf(settings, &rule.when, scopes)?;
     Ok({
         let severity = rule.severity;
         let message: &str = &rule.message;
@@ -366,7 +409,7 @@ pub fn generate_normalized_rule(
 pub fn generate_dnf(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     dnf: &Dnf,
-    accessor: &TokenStream,
+    scopes: Scopes<'_>,
 ) -> anyhow::Result<TokenStream> {
     if dnf.is_contradiction() {
         return Ok(quote! { false });
@@ -376,7 +419,7 @@ pub fn generate_dnf(
     }
     let parts = dnf
         .iter()
-        .map(|c| generate_conjunction(settings, c, accessor))
+        .map(|c| generate_conjunction(settings, c, scopes))
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(if parts.len() == 1 {
         parts
@@ -391,14 +434,14 @@ pub fn generate_dnf(
 pub fn generate_conjunction(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     conj: &Conjunction,
-    accessor: &TokenStream,
+    scopes: Scopes<'_>,
 ) -> anyhow::Result<TokenStream> {
     if conj.0.is_empty() {
         return Ok(quote! { true });
     }
     let parts = conj
         .iter()
-        .map(|l| generate_leaf(settings, l, accessor))
+        .map(|l| generate_leaf(settings, l, scopes))
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(if parts.len() == 1 {
         parts
@@ -413,10 +456,10 @@ pub fn generate_conjunction(
 pub fn generate_leaf(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     leaf: &Leaf,
-    accessor: &TokenStream,
+    scopes: Scopes<'_>,
 ) -> anyhow::Result<TokenStream> {
     let pred: Predicate = leaf.clone().into();
-    generate_predicate(settings, &pred, accessor)
+    generate_predicate(settings, &pred, scopes)
 }
 
 pub fn generate_value_expr(info: &SettingInfo<'_>, value: &Value) -> anyhow::Result<TokenStream> {
@@ -494,4 +537,64 @@ fn generate_compare(
             ),
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::ast::{LeafEquals, Scope};
+
+    fn integer_info(id: &'static str) -> SettingInfo<'static> {
+        SettingInfo {
+            id,
+            kind: SpecKind::Integer,
+            option: None,
+        }
+    }
+
+    fn settings() -> BTreeMap<&'static str, SettingInfo<'static>> {
+        let mut settings = BTreeMap::new();
+        let _ = settings.insert("x", integer_info("x"));
+        settings
+    }
+
+    fn eq_leaf(scope: Scope) -> Predicate {
+        LeafEquals {
+            r#ref: "x".into(),
+            scope,
+            equals: json!(1),
+        }
+        .into()
+    }
+
+    #[test]
+    fn current_scope_reads_the_current_accessor() {
+        let current = quote! { self };
+        let original = quote! { original };
+        let out = generate_predicate(
+            &settings(),
+            &eq_leaf(Scope::Current),
+            Scopes::with_original(&current, &original),
+        )
+        .unwrap()
+        .to_string();
+        assert!(out.contains("self . x"), "got: {out}");
+        assert!(!out.contains("original . x"), "got: {out}");
+    }
+
+    #[test]
+    fn original_scope_reads_the_original_accessor() {
+        let current = quote! { self };
+        let original = quote! { original };
+        let out = generate_predicate(
+            &settings(),
+            &eq_leaf(Scope::Original),
+            Scopes::with_original(&current, &original),
+        )
+        .unwrap()
+        .to_string();
+        assert!(out.contains("original . x"), "got: {out}");
+    }
 }

@@ -22,6 +22,33 @@ TokenStream                        (schema/grammar.rs + emitters)
 Plus a separate pass on transformations for invertibility detection
 (`schema/inverse.rs`).
 
+## Scope
+
+Every `Leaf` carries `scope: Scope` (`Current` or `Original`, defaulting to
+`Current`). The codegen helpers in
+[`schema/grammar.rs`](../../crates/codegen/src/schema/grammar.rs) take a
+`Scopes { current: &TokenStream, original: Option<&TokenStream> }` and route
+each leaf to the right accessor via `Scopes::pick(scope)`. An `Original` leaf in
+a context with no original accessor fires `unreachable!()` - CUE typing should
+keep that path unreachable.
+
+Bindings differ by call site:
+
+| Site                                            | `current` | `original` |
+| ----------------------------------------------- | --------- | ---------- |
+| `solve` seeds + repair walks                    | `self`    | `original` |
+| `re_fires_other_ok`                             | `state`   | `original` |
+| `emit_warnings_and_infos`                       | `self`    | `original` |
+| `apply_transformations`                         | `self`    | none       |
+| Simulation `try_pull`                           | `staged`  | none       |
+| Render deserialization (`generate_convert_one`) | `profile` | none       |
+
+The render path snapshots `original = self.clone()` before merging the user
+partial in `try_update_from`; simulation has no original because simulation
+settings carry no immutable shot-time state. Read deserialization runs over wire
+bytes alone; there is no "original" yet (it's what the read is producing). The
+per-pass sections below note where scope changes behaviour.
+
 ## DNF Normalization
 
 [`ast/dnf.rs`](../../crates/codegen/src/ast/dnf.rs) turns any `Predicate` into a
@@ -62,6 +89,9 @@ explicitly, and minimization would muddle that.
 Conjunction equality is **multiset** equality
 ([`util::multiset`](../../crates/codegen/src/util/multiset.rs)) so `A && B && A`
 != `A && B`, but `A && B` == `B && A`. Hashing matches.
+
+Scope is part of `Leaf::PartialEq` (and `Hash`), so a `Current` leaf and an
+`Original` leaf compare unequal even if their other fields match.
 
 ## Alias Substitution
 
@@ -108,6 +138,11 @@ Important properties:
 The resulting `NormalizedRule` carries the normalized DNF, the original
 severity, and the original message.
 
+Aliases come from transformations whose `apply` always produces `Current`-scope
+leaves. Trigger matching uses multiset-subset over `Leaf`, which includes scope
+in equality, so original-scope literals in a rule conjunction are inert under
+substitution.
+
 ## The Presence DAG
 
 [`schema/presence.rs`](../../crates/codegen/src/schema/presence.rs) is the
@@ -118,27 +153,30 @@ highest-leverage analysis. From the error rules alone, it derives:
 
 For each error rule, for each conjunction in its DNF:
 
-1. Partition the literals into `Present(X, true)` anchors, `Present(X, false)`
-   anchors, and "other" literals.
-2. Pick a polarity:
+1. Drop original-scope leaves. They describe a relationship between the
+   pre-merge snapshot and the candidate; the read path has no "original" yet, so
+   they cannot anchor or gate a read.
+2. Partition the remaining literals into `Present(X, true)` anchors,
+   `Present(X, false)` anchors, and "other" literals.
+3. Pick a polarity:
    - If there are any `true` anchors -> polarity is `true`; targets are the
      true-anchors; false-anchors fold into the gating clauses.
    - Else if there are only `false` anchors -> polarity is `false`; targets are
      the false-anchors; gating clauses are as-is.
    - Else (only "other" literals) - this rule has no presence anchor, so it
      doesn't contribute to the DAG. It still validates.
-3. Collect `gating_refs` - every ref mentioned in the gating clauses.
-4. Reject self-gating: if any target ref appears in `gating_refs`, bail.
+4. Collect `gating_refs` - every ref mentioned in the gating clauses.
+5. Reject self-gating: if any target ref appears in `gating_refs`, bail.
    Deciding whether to read X would require knowing X's value.
-5. For each (gating_ref, target) pair, add an edge `gating_ref ->
+6. For each (gating_ref, target) pair, add an edge `gating_ref ->
    target`
    (target must be read after gating ref).
-6. Compute the "gate" as a `Dnf`:
+7. Compute the "gate" as a `Dnf`:
    - Polarity true -> gate is the negation of each gating literal, joined as
      separate disjuncts (`!cond -> skip X`).
    - Polarity false -> gate is the original gating literals as a single
      conjunction.
-7. Append the gate to `contributions[target]`.
+8. Append the gate to `contributions[target]`.
 
 After iterating, each target's contributions are combined with `All` (every
 contributing rule's gate must hold for the read to fire). The resulting
@@ -169,7 +207,11 @@ caused by two rules with crossed gating (`A gates B` and `B gates A`).
 ## Repair
 
 [`schema/repair.rs`](../../crates/codegen/src/schema/repair.rs) emits the
-`solve(&mut self, pin: &HashSet<&'static str>)` function. The emitted code does:
+`solve(&mut self, pin: &HashSet<&'static str>)` function. The render path gets
+an extra `original: &Self` parameter; original-scope leaves in the rule DNFs
+read from that snapshot. Simulation `solve` keeps the original-free signature.
+
+The emitted code does:
 
 ```rust
 let mut ok = [false; N];
@@ -188,7 +230,10 @@ every disjunct (a conjunction whose truth implies the rule firing), attempt to
 break the disjunct by flipping one of its literals. The flip is only attempted
 if the target field is not `pin`'d - i.e. the user did not explicitly set it.
 
-For each leaf, the flip is:
+Original-scope leaves are non-flippable; the walk skips them. If a disjunct has
+no flippable literal left, repair falls through and the outer loop bails.
+
+For each current-scope leaf, the flip is:
 
 | Literal                                                                 | Flip                                          |
 | ----------------------------------------------------------------------- | --------------------------------------------- |
@@ -234,16 +279,15 @@ runs.
 
 A transformation `T` is **invertible** iff:
 
-- `T.when` is a single `Equals` leaf (not compound).
-- No other transformation in the same list has the same `apply` set-pattern
-  (same `(field, value)` pairs).
+- `T.when` is a single current-scope `Equals` leaf.
+- No other transformation in the same list has the same `apply` set-pattern.
 
 Reasoning:
 
-- The first constraint makes the "is this pattern present on the wire" check
-  unambiguous to write: a single leaf as the reconstructed `when`.
-- The second makes it unambiguous to attribute: if two transformations produce
-  the same flat form, you can't tell from the wire which one was applied.
+- A single Equals leaf makes the "is this pattern on the wire" check unambiguous
+  to write.
+- A unique `apply` pattern makes it unambiguous to attribute - two
+  transformations producing the same flat form can't be told apart on read.
 
 For each invertible `T`, the emitted inverse:
 
@@ -302,6 +346,10 @@ candidate : <Camera>Simulation
     v
 *self = candidate
 ```
+
+The render path is identical in shape but snapshots `original = self.clone()`
+before the merge and passes it through `solve(&pin, &original)` and
+`emit_warnings_and_infos(&original)`.
 
 The `try_pull` (read) path is simpler:
 

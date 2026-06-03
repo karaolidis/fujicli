@@ -5,13 +5,16 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 use crate::{
-    ast::{Assignment, AssignmentEffect, PredAll, Predicate, Transformation},
-    schema::grammar::{SettingInfo, generate_assignment, generate_predicate},
+    ast::{Assignment, AssignmentEffect, PredAll, Predicate, Scope, Transformation},
+    schema::grammar::{Scopes, SettingInfo, generate_assignment, generate_predicate},
 };
 
 impl Transformation {
     pub fn is_invertible(&self, all: &[Self]) -> bool {
-        if !matches!(self.when, Some(Predicate::Equals(_))) {
+        let Some(Predicate::Equals(when_leaf)) = self.when.as_ref() else {
+            return false;
+        };
+        if when_leaf.scope != Scope::Current {
             return false;
         }
 
@@ -83,7 +86,7 @@ fn generate_one_inverse(
     } else {
         PredAll { all: set_leaves }.into()
     };
-    let condition = generate_predicate(settings, &match_pred, accessor)?;
+    let condition = generate_predicate(settings, &match_pred, Scopes::new(accessor))?;
 
     let Some(Predicate::Equals(when_leaf)) = t.when.as_ref() else {
         bail!("generate_one_inverse called on non-alias transformation");
@@ -123,7 +126,7 @@ fn pattern_matches(a: &[(&str, &serde_json::Value)], b: &[(&str, &serde_json::Va
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Assignment, AssignmentEffect, LeafEquals};
+    use crate::ast::{Assignment, AssignmentEffect, LeafEquals, Scope};
     use serde_json::json;
 
     fn alias_t(
@@ -135,6 +138,7 @@ mod tests {
             when: Some(
                 LeafEquals {
                     r#ref: trigger_field.into(),
+                    scope: Scope::Current,
                     equals: trigger_v,
                 }
                 .into(),
@@ -167,6 +171,26 @@ mod tests {
         let all = vec![a, b];
         assert!(!all[0].is_invertible(&all));
         assert!(!all[1].is_invertible(&all));
+    }
+
+    #[test]
+    fn original_scope_when_blocks_invertibility() {
+        let t = Transformation {
+            when: Some(
+                LeafEquals {
+                    r#ref: "dr".into(),
+                    scope: Scope::Original,
+                    equals: json!("hdr800_plus"),
+                }
+                .into(),
+            ),
+            apply: vec![Assignment {
+                r#ref: "dr".into(),
+                effect: AssignmentEffect::Set(json!("hdr800")),
+            }],
+        };
+        let all = vec![t];
+        assert!(!all[0].is_invertible(&all));
     }
 
     #[test]

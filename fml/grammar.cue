@@ -1,5 +1,7 @@
 package fml
 
+#Scope: "current" | "original"
+
 #GrammarBase: {
 	_ids: {
 		all: [...string]
@@ -8,6 +10,8 @@ package fml
 		s: [...string]
 		e: [...string]
 	}
+
+	_scoped: bool | *false
 
 	#Predicate: #Predicates.#Logic | #Predicates.#Leaf
 
@@ -31,6 +35,13 @@ package fml
 			#Predicates.#PredicatePresent |
 			#Predicates.#PredicateBool
 
+		_LeafScope: {
+			scope: #Scope | *"current"
+			if !_scoped {
+				scope: "current"
+			}
+		}
+
 		#PredicateInteger:
 			#PredicateIntegerEquals |
 			#PredicateIntegerIn |
@@ -40,13 +51,13 @@ package fml
 			#PredicateIntegerGreaterThanOrEqual |
 			#PredicateIntegerBetween
 
-		#PredicateIntegerEquals: {ref: or(_ids.i), equals: int}
-		#PredicateIntegerIn: {ref: or(_ids.i), in: [...int]}
-		#PredicateIntegerLessThan: {ref: or(_ids.i), lt: int}
-		#PredicateIntegerLessThanOrEqual: {ref: or(_ids.i), lte: int}
-		#PredicateIntegerGreaterThan: {ref: or(_ids.i), gt: int}
-		#PredicateIntegerGreaterThanOrEqual: {ref: or(_ids.i), gte: int}
-		#PredicateIntegerBetween: {ref: or(_ids.i), min: int, max: int}
+		#PredicateIntegerEquals: _LeafScope & {ref: or(_ids.i), equals: int}
+		#PredicateIntegerIn: _LeafScope & {ref: or(_ids.i), in: [...int]}
+		#PredicateIntegerLessThan: _LeafScope & {ref: or(_ids.i), lt: int}
+		#PredicateIntegerLessThanOrEqual: _LeafScope & {ref: or(_ids.i), lte: int}
+		#PredicateIntegerGreaterThan: _LeafScope & {ref: or(_ids.i), gt: int}
+		#PredicateIntegerGreaterThanOrEqual: _LeafScope & {ref: or(_ids.i), gte: int}
+		#PredicateIntegerBetween: _LeafScope & {ref: or(_ids.i), min: int, max: int}
 
 		#PredicateFloat:
 			#PredicateFloatEquals |
@@ -57,32 +68,32 @@ package fml
 			#PredicateFloatGreaterThanOrEqual |
 			#PredicateFloatBetween
 
-		#PredicateFloatEquals: {ref: or(_ids.f), equals: float}
-		#PredicateFloatIn: {ref: or(_ids.f), in: [...float]}
-		#PredicateFloatLessThan: {ref: or(_ids.f), lt: float}
-		#PredicateFloatLessThanOrEqual: {ref: or(_ids.f), lte: float}
-		#PredicateFloatGreaterThan: {ref: or(_ids.f), gt: float}
-		#PredicateFloatGreaterThanOrEqual: {ref: or(_ids.f), gte: float}
-		#PredicateFloatBetween: {ref: or(_ids.f), min: float, max: float}
+		#PredicateFloatEquals: _LeafScope & {ref: or(_ids.f), equals: float}
+		#PredicateFloatIn: _LeafScope & {ref: or(_ids.f), in: [...float]}
+		#PredicateFloatLessThan: _LeafScope & {ref: or(_ids.f), lt: float}
+		#PredicateFloatLessThanOrEqual: _LeafScope & {ref: or(_ids.f), lte: float}
+		#PredicateFloatGreaterThan: _LeafScope & {ref: or(_ids.f), gt: float}
+		#PredicateFloatGreaterThanOrEqual: _LeafScope & {ref: or(_ids.f), gte: float}
+		#PredicateFloatBetween: _LeafScope & {ref: or(_ids.f), min: float, max: float}
 
 		#PredicateString:
 			#PredicateStringEquals |
 			#PredicateStringIn
 
-		#PredicateStringEquals: {ref: or(_ids.s), equals: string}
-		#PredicateStringIn: {ref: or(_ids.s), in: [...string]}
+		#PredicateStringEquals: _LeafScope & {ref: or(_ids.s), equals: string}
+		#PredicateStringIn: _LeafScope & {ref: or(_ids.s), in: [...string]}
 
 		#PredicateEnum:
 			#PredicateEnumEquals |
 			#PredicateEnumIn
 
-		#PredicateEnumEquals: {
+		#PredicateEnumEquals: _LeafScope & {
 			ref: or(_ids.e)
 			equals: or([for v in options[ref].spec.rules.variants {v.id}])
 		}
-		#PredicateEnumIn: {ref: or(_ids.e), in: [...or([for v in options[ref].spec.rules.variants {v.id}])]}
+		#PredicateEnumIn: _LeafScope & {ref: or(_ids.e), in: [...or([for v in options[ref].spec.rules.variants {v.id}])]}
 
-		#PredicatePresent: {ref: or(_ids.all), present: bool}
+		#PredicatePresent: _LeafScope & {ref: or(_ids.all), present: bool}
 
 		#PredicateBool: bool
 	}

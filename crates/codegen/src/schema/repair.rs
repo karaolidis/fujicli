@@ -5,16 +5,17 @@ use quote::{format_ident, quote};
 use syn::Lifetime;
 
 use crate::{
-    ast::{Conjunction, Dnf, Leaf, Severity},
+    ast::{Conjunction, Dnf, Leaf, Scope, Severity},
     schema::{
         alias::NormalizedRule,
-        grammar::{SettingInfo, generate_conjunction, generate_dnf, generate_value_expr},
+        grammar::{Scopes, SettingInfo, generate_conjunction, generate_dnf, generate_value_expr},
     },
 };
 
 pub fn generate_solve(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     rules: &[NormalizedRule],
+    has_original: bool,
 ) -> anyhow::Result<TokenStream> {
     let error_rules: Vec<&NormalizedRule> = rules
         .iter()
@@ -24,13 +25,38 @@ pub fn generate_solve(
 
     let self_acc = quote! { self };
     let state_acc = quote! { state };
+    let original_acc = quote! { original };
+
+    let original_param = if has_original {
+        quote! { , original: &Self }
+    } else {
+        TokenStream::new()
+    };
+    let original_arg = if has_original {
+        quote! { , original }
+    } else {
+        TokenStream::new()
+    };
+    let original_acc_opt: Option<&TokenStream> = if has_original {
+        Some(&original_acc)
+    } else {
+        None
+    };
+    let seed_scopes = Scopes {
+        current: &self_acc,
+        original: original_acc_opt,
+    };
+    let break_scopes = Scopes {
+        current: &state_acc,
+        original: original_acc_opt,
+    };
 
     let seeds = error_rules
         .iter()
         .enumerate()
         .map(|(i, r)| {
             let i_lit = Literal::usize_suffixed(i);
-            let pred = generate_dnf(settings, &r.when, &self_acc)?;
+            let pred = generate_dnf(settings, &r.when, seed_scopes)?;
             Ok(quote! { ok[#i_lit] = !( #pred ); })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -44,7 +70,7 @@ pub fn generate_solve(
             let msg = &r.message;
             quote! {
                 if !ok[#i_lit] {
-                    if !self.#fn_name(pin, &ok) {
+                    if !self.#fn_name(pin, &ok #original_arg) {
                         ::anyhow::bail!(#msg);
                     }
                     ok[#i_lit] = true;
@@ -60,12 +86,14 @@ pub fn generate_solve(
             let fn_name = format_ident!("try_repair_rule_{}", i);
             let i_lit = Literal::usize_suffixed(i);
             let mut counter = 0usize;
-            let walk = generate_dnf_walk(settings, &r.when, &mut counter)?;
+            let walk = generate_dnf_walk(settings, &r.when, &mut counter, has_original)?;
             Ok(quote! {
+                #[allow(unused_variables)]
                 fn #fn_name(
                     &mut self,
                     pin: &::std::collections::HashSet<&'static str>,
-                    ok: &[bool; #n_lit],
+                    ok: &[bool; #n_lit]
+                    #original_param,
                 ) -> bool {
                     let current: usize = #i_lit;
                     #walk
@@ -79,7 +107,7 @@ pub fn generate_solve(
         .enumerate()
         .map(|(i, r)| {
             let i_lit = Literal::usize_suffixed(i);
-            let pred = generate_dnf(settings, &r.when, &state_acc)?;
+            let pred = generate_dnf(settings, &r.when, break_scopes)?;
             Ok(quote! {
                 if ok[#i_lit] && current != #i_lit && ( #pred ) { return true; }
             })
@@ -87,10 +115,11 @@ pub fn generate_solve(
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     Ok(quote! {
-        #[allow(unused_assignments)]
+        #[allow(unused_assignments, unused_variables)]
         pub fn solve(
             &mut self,
-            pin: &::std::collections::HashSet<&'static str>,
+            pin: &::std::collections::HashSet<&'static str>
+            #original_param,
         ) -> ::anyhow::Result<()> {
             let mut ok: [bool; #n_lit] = [false; #n_lit];
             #( #seeds )*
@@ -100,10 +129,12 @@ pub fn generate_solve(
 
         #( #repair_fns )*
 
+        #[allow(unused_variables)]
         fn re_fires_other_ok(
             state: &Self,
             ok: &[bool; #n_lit],
-            current: usize,
+            current: usize
+            #original_param,
         ) -> bool {
             #( #breakage_arms )*
             false
@@ -138,6 +169,7 @@ fn generate_dnf_walk(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     dnf: &Dnf,
     counter: &mut usize,
+    has_original: bool,
 ) -> anyhow::Result<TokenStream> {
     if dnf.is_contradiction() {
         return Ok(quote! { true });
@@ -151,13 +183,19 @@ fn generate_dnf_walk(
     let outer = walk_label(depth);
     let inner = inner_label(depth);
 
-    let dnf_eval = generate_dnf(settings, dnf, &quote! { self })?;
+    let self_acc = quote! { self };
+    let original_acc = quote! { original };
+    let scopes = Scopes {
+        current: &self_acc,
+        original: has_original.then_some(&original_acc),
+    };
+    let dnf_eval = generate_dnf(settings, dnf, scopes)?;
 
     let steps = dnf
         .0
         .iter()
         .map(|conj| {
-            let sub = generate_conjunction_walk(settings, conj, counter)?;
+            let sub = generate_conjunction_walk(settings, conj, counter, has_original)?;
             Ok(quote! {
                 {
                     let succ: bool = #sub;
@@ -185,6 +223,7 @@ fn generate_conjunction_walk(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     conj: &Conjunction,
     counter: &mut usize,
+    has_original: bool,
 ) -> anyhow::Result<TokenStream> {
     if conj.is_empty() {
         return Ok(quote! { false });
@@ -194,11 +233,17 @@ fn generate_conjunction_walk(
     *counter += 1;
     let label = walk_label(depth);
 
-    let conj_eval = generate_conjunction(settings, conj, &quote! { self })?;
+    let self_acc = quote! { self };
+    let original_acc = quote! { original };
+    let scopes = Scopes {
+        current: &self_acc,
+        original: has_original.then_some(&original_acc),
+    };
+    let conj_eval = generate_conjunction(settings, conj, scopes)?;
 
     let attempts = conj
         .iter()
-        .map(|leaf| generate_leaf_attempt(settings, leaf, &label))
+        .map(|leaf| generate_leaf_attempt(settings, leaf, &label, has_original))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     Ok(quote! {
@@ -214,18 +259,27 @@ fn generate_leaf_attempt(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     leaf: &Leaf,
     parent: &Lifetime,
+    has_original: bool,
 ) -> anyhow::Result<TokenStream> {
+    if leaf.scope() == Scope::Original {
+        return Ok(TokenStream::new());
+    }
     let Some((info, mutation)) = leaf_flip(settings, leaf)? else {
         return Ok(TokenStream::new());
     };
     let field_id = info.id;
     let field_ident = info.field_ident();
+    let original_arg = if has_original {
+        quote! { , original }
+    } else {
+        TokenStream::new()
+    };
     Ok(quote! {
         {
             if !pin.contains(#field_id) {
                 let saved = self.#field_ident.take();
                 #mutation
-                if !Self::re_fires_other_ok(self, ok, current) {
+                if !Self::re_fires_other_ok(self, ok, current #original_arg) {
                     break #parent true;
                 }
                 self.#field_ident = saved;
@@ -289,7 +343,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::ast::{LeafEquals, LeafPresent, Predicate};
+    use crate::ast::{LeafEquals, LeafPresent, Predicate, Scope};
 
     fn integer_info(id: &'static str) -> SettingInfo<'static> {
         SettingInfo {
@@ -318,7 +372,7 @@ mod tests {
     #[test]
     fn empty_rule_set_emits_solve_that_does_nothing() {
         let settings = BTreeMap::new();
-        let out = generate_solve(&settings, &[]).unwrap().to_string();
+        let out = generate_solve(&settings, &[], false).unwrap().to_string();
         assert!(out.contains("fn solve"));
         assert!(out.contains("[bool ; 0usize]"));
     }
@@ -330,12 +384,15 @@ mod tests {
         let rules = vec![nrule_msg(
             LeafEquals {
                 r#ref: "a".into(),
+                scope: Scope::Current,
                 equals: json!(1),
             }
             .into(),
             "bad a",
         )];
-        let out = generate_solve(&settings, &rules).unwrap().to_string();
+        let out = generate_solve(&settings, &rules, false)
+            .unwrap()
+            .to_string();
         assert!(out.contains("try_repair_rule_0"));
         assert!(out.contains("pin . contains (\"a\")"));
         assert!(out.contains("re_fires_other_ok"));
@@ -353,6 +410,7 @@ mod tests {
                 message: "w".into(),
                 when: Predicate::from(LeafEquals {
                     r#ref: "a".into(),
+                    scope: Scope::Current,
                     equals: json!(1),
                 })
                 .into(),
@@ -362,12 +420,15 @@ mod tests {
                 message: "i".into(),
                 when: Predicate::from(LeafEquals {
                     r#ref: "a".into(),
+                    scope: Scope::Current,
                     equals: json!(2),
                 })
                 .into(),
             },
         ];
-        let out = generate_solve(&settings, &rules).unwrap().to_string();
+        let out = generate_solve(&settings, &rules, false)
+            .unwrap()
+            .to_string();
         assert!(!out.contains("try_repair_rule_0"));
         assert!(out.contains("[bool ; 0usize]"));
     }
@@ -382,11 +443,13 @@ mod tests {
                 all: vec![
                     LeafEquals {
                         r#ref: "a".into(),
+                        scope: Scope::Current,
                         equals: json!(1),
                     }
                     .into(),
                     LeafPresent {
                         r#ref: "b".into(),
+                        scope: Scope::Current,
                         present: true,
                     }
                     .into(),
@@ -394,7 +457,9 @@ mod tests {
             }
             .into(),
         )];
-        let out = generate_solve(&settings, &rules).unwrap().to_string();
+        let out = generate_solve(&settings, &rules, false)
+            .unwrap()
+            .to_string();
         assert!(out.contains("pin . contains (\"a\")"));
         assert!(out.contains("pin . contains (\"b\")"));
         assert!(out.contains("let snap = self . clone ()"));
@@ -409,6 +474,7 @@ mod tests {
                 not: Box::new(
                     LeafEquals {
                         r#ref: "a".into(),
+                        scope: Scope::Current,
                         equals: json!(1),
                     }
                     .into(),
@@ -416,11 +482,59 @@ mod tests {
             }
             .into(),
         )];
-        let out = generate_solve(&settings, &rules).unwrap().to_string();
-        assert!(
-            out.contains("self . a = Some"),
-            "expected NotEquals flip to set field, got: {out}"
-        );
+        let out = generate_solve(&settings, &rules, false)
+            .unwrap()
+            .to_string();
+        assert!(out.contains("self . a = Some"));
+    }
+
+    #[test]
+    fn original_scope_leaf_is_non_flippable_and_threads_original_param() {
+        let mut settings = BTreeMap::new();
+        let _ = settings.insert("a", integer_info("a"));
+        let _ = settings.insert("b", integer_info("b"));
+        let rules = vec![nrule(
+            crate::ast::PredAll {
+                all: vec![
+                    LeafEquals {
+                        r#ref: "a".into(),
+                        scope: Scope::Original,
+                        equals: json!(1),
+                    }
+                    .into(),
+                    LeafPresent {
+                        r#ref: "b".into(),
+                        scope: Scope::Current,
+                        present: true,
+                    }
+                    .into(),
+                ],
+            }
+            .into(),
+        )];
+        let out = generate_solve(&settings, &rules, true).unwrap().to_string();
+        assert!(out.contains("original : & Self"));
+        assert!(out.contains("original . a"));
+        assert!(!out.contains("self . a = None"));
+        assert!(out.contains("self . b = None"));
+    }
+
+    #[test]
+    fn solve_without_original_emits_no_original_param() {
+        let mut settings = BTreeMap::new();
+        let _ = settings.insert("a", integer_info("a"));
+        let rules = vec![nrule(
+            LeafEquals {
+                r#ref: "a".into(),
+                scope: Scope::Current,
+                equals: json!(1),
+            }
+            .into(),
+        )];
+        let out = generate_solve(&settings, &rules, false)
+            .unwrap()
+            .to_string();
+        assert!(!out.contains("original"));
     }
 
     #[test]
@@ -431,6 +545,7 @@ mod tests {
             nrule_msg(
                 LeafEquals {
                     r#ref: "a".into(),
+                    scope: Scope::Current,
                     equals: json!(1),
                 }
                 .into(),
@@ -439,13 +554,16 @@ mod tests {
             nrule_msg(
                 LeafEquals {
                     r#ref: "a".into(),
+                    scope: Scope::Current,
                     equals: json!(2),
                 }
                 .into(),
                 "r1",
             ),
         ];
-        let out = generate_solve(&settings, &rules).unwrap().to_string();
+        let out = generate_solve(&settings, &rules, false)
+            .unwrap()
+            .to_string();
         assert!(out.contains("current != 0usize"));
         assert!(out.contains("current != 1usize"));
     }

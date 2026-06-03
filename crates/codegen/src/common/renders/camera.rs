@@ -10,7 +10,7 @@ use crate::{
     schema::{
         alias::{NormalizedRule, NormalizedTransformation},
         grammar::{
-            SettingInfo, build_settings, generate_apply_transformations, generate_dnf,
+            Scopes, SettingInfo, build_settings, generate_apply_transformations, generate_dnf,
             generate_emit_warnings_and_infos,
         },
         inverse::generate_inverses,
@@ -154,8 +154,14 @@ fn generate_inherent_impl(
     let profile_code_lit = Literal::u32_suffixed(profile_code);
 
     let apply_transformations = generate_apply_transformations(settings, &render.transformations)?;
-    let warnings_infos = generate_emit_warnings_and_infos(settings, effective_rules)?;
-    let solve = generate_solve(settings, effective_rules)?;
+    let self_acc = quote! { self };
+    let original_acc = quote! { original };
+    let warnings_infos = generate_emit_warnings_and_infos(
+        settings,
+        effective_rules,
+        Scopes::with_original(&self_acc, &original_acc),
+    )?;
+    let solve = generate_solve(settings, effective_rules, true)?;
     let try_update_from =
         generate_try_update_from(settings, &render.fields, renders_path, struct_ident)?;
 
@@ -200,6 +206,7 @@ fn generate_try_update_from(
             &mut self,
             partial: #renders_path::RenderBase,
         ) -> ::anyhow::Result<()> {
+            let original = self.clone();
             let mut partial_profile: #struct_ident = #struct_ident {
                 #( #init_fields )*
             };
@@ -211,8 +218,8 @@ fn generate_try_update_from(
             #( #merge_assigns )*
             candidate.apply_transformations();
 
-            candidate.solve(&pin)?;
-            candidate.emit_warnings_and_infos()?;
+            candidate.solve(&pin, &original)?;
+            candidate.emit_warnings_and_infos(&original)?;
 
             *self = candidate;
             Ok(())
@@ -414,7 +421,7 @@ fn generate_convert_one(
 
     if let Some(condition) = presence_conditions.get(field.id()) {
         let profile_accessor = quote! { profile };
-        let cond = generate_dnf(settings, condition, &profile_accessor)?;
+        let cond = generate_dnf(settings, condition, Scopes::new(&profile_accessor))?;
         Ok(quote! {
             if #cond {
                 #convert

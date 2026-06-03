@@ -49,6 +49,17 @@ Some examples:
 ]}
 ```
 
+### Scope
+
+Every leaf also carries `scope: "current" | "original"`, defaulting to
+`"current"`. `"original"` reads from the pre-merge snapshot and is only
+available in render-block _rules_ (the camera-reported profile before the user's
+partial). Transformation `when` predicates are restricted to current scope.
+Assignments never carry scope; you cannot write to the original. See
+[rules / cross-state rules](rules.md#cross-state-rules) for an
+example and [analyses / scope](../internals/analyses.md#scope) for the per-pass
+behaviour.
+
 ### Type Discipline
 
 `#GrammarBase._ids` carries four typed-ref sets keyed on the option kind:
@@ -62,6 +73,10 @@ Some examples:
 The leaf type definitions constrain `ref` to the appropriate set, which is why
 CUE rejects `{ref: "image_size", lt: 5}` at export (`image_size` is an enum, not
 in `_ids.i`).
+
+`#GrammarBase` also carries a `_scoped: bool` toggle. Render blocks set it true
+to admit `scope: "original"`; simulation blocks leave it false, which restricts
+`scope` to `"current"`.
 
 For enum `equals` / `in`, CUE also restricts the value side:
 
@@ -96,16 +111,18 @@ There is no "merge" assignment; express that as multiple `apply` entries.
 
 ## Compilation
 
-Each leaf becomes a Rust boolean expression over `self.<field>`. Sketch:
+Each leaf becomes a Rust boolean expression over `self.<field>`, or
+`original.<field>` when `scope: "original"`. Sketch:
 
 ```
-{ref: "x", equals: 5}     (integer)   -> self.x.is_some_and(|v| i32::from(v) == 5i32)
-{ref: "x", in: ["a", "b"]} (enum)     -> self.x.is_some_and(|v| matches!(v, Path::A | Path::B))
-{ref: "x", min: -1.0, max: 1.0} (f32) -> self.x.is_some_and(|v| (-1.0..=1.0).contains(&f32::from(v)))
-{ref: "x", present: true}             -> self.x.is_some()
-{all: [P, Q]}                         -> (P) && (Q)
-{any: [P, Q]}                         -> (P) || (Q)
-{not: P}                              -> !(P)
+{ref: "x", equals: 5}     (integer)        -> self.x.is_some_and(|v| i32::from(v) == 5i32)
+{ref: "x", scope: "original", equals: 5}   -> original.x.is_some_and(|v| i32::from(v) == 5i32)
+{ref: "x", in: ["a", "b"]} (enum)          -> self.x.is_some_and(|v| matches!(v, Path::A | Path::B))
+{ref: "x", min: -1.0, max: 1.0} (f32)      -> self.x.is_some_and(|v| (-1.0..=1.0).contains(&f32::from(v)))
+{ref: "x", present: true}                  -> self.x.is_some()
+{all: [P, Q]}                              -> (P) && (Q)
+{any: [P, Q]}                              -> (P) || (Q)
+{not: P}                                   -> !(P)
 ```
 
 Float equality uses `(v - x).abs() < f32::EPSILON`, not raw `==`. Strings use

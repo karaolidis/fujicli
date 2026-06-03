@@ -131,6 +131,10 @@ the `Simulation` trait impl (`try_pull` / `try_push` talking to PTP),
 respects "I set X explicitly; repair around it" without needing extra
 annotations.
 
+The render path additionally snapshots `original = self.clone()` before the
+merge and threads it through `solve` and `emit_warnings_and_infos`; see
+[analyses / scope](analyses.md#scope).
+
 `try_pull` reads each setting in topological read order (see
 [analyses / presence DAG](analyses.md#the-presence-dag)); for each field with a
 derived gate, the read is wrapped in `if gate { read }

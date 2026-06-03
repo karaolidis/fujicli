@@ -68,7 +68,7 @@ mod tests {
     use super::*;
     use crate::ast::{
         Assignment, AssignmentEffect, LeafEquals, LeafPresent, PredAll, PredNot, Predicate, Rule,
-        Severity,
+        Scope, Severity,
     };
     use serde_json::{Value, json};
 
@@ -110,6 +110,7 @@ mod tests {
     fn le(name: &str, v: Value) -> Leaf {
         Leaf::Equals(LeafEquals {
             r#ref: name.into(),
+            scope: Scope::Current,
             equals: v,
         })
     }
@@ -117,6 +118,7 @@ mod tests {
     fn lp(name: &str, present: bool) -> Leaf {
         Leaf::Present(LeafPresent {
             r#ref: name.into(),
+            scope: Scope::Current,
             present,
         })
     }
@@ -126,6 +128,7 @@ mod tests {
         let ts = vec![alias_t(
             LeafEquals {
                 r#ref: "dr".into(),
+                scope: Scope::Current,
                 equals: json!("hdr800_plus"),
             }
             .into(),
@@ -134,6 +137,7 @@ mod tests {
         let rules = vec![rule(
             LeafEquals {
                 r#ref: "dr".into(),
+                scope: Scope::Current,
                 equals: json!("hdr800_plus"),
             }
             .into(),
@@ -151,6 +155,7 @@ mod tests {
         let ts = vec![alias_t(
             LeafEquals {
                 r#ref: "dr".into(),
+                scope: Scope::Current,
                 equals: json!("hdr800_plus"),
             }
             .into(),
@@ -159,6 +164,7 @@ mod tests {
         let rules = vec![rule(
             LeafEquals {
                 r#ref: "film_simulation".into(),
+                scope: Scope::Current,
                 equals: json!("provia"),
             }
             .into(),
@@ -176,6 +182,7 @@ mod tests {
             when: Some(
                 LeafEquals {
                     r#ref: "wb".into(),
+                    scope: Scope::Current,
                     equals: json!("as_shot"),
                 }
                 .into(),
@@ -188,6 +195,7 @@ mod tests {
         let rules = vec![rule(
             LeafEquals {
                 r#ref: "wb".into(),
+                scope: Scope::Current,
                 equals: json!("as_shot"),
             }
             .into(),
@@ -202,6 +210,7 @@ mod tests {
             when: Some(
                 LeafEquals {
                     r#ref: "wb".into(),
+                    scope: Scope::Current,
                     equals: json!("as_shot"),
                 }
                 .into(),
@@ -220,6 +229,7 @@ mod tests {
         let rules = vec![rule(
             LeafEquals {
                 r#ref: "wb".into(),
+                scope: Scope::Current,
                 equals: json!("as_shot"),
             }
             .into(),
@@ -237,6 +247,7 @@ mod tests {
             alias_t(
                 LeafEquals {
                     r#ref: "dr".into(),
+                    scope: Scope::Current,
                     equals: json!("hdr800_plus"),
                 }
                 .into(),
@@ -245,6 +256,7 @@ mod tests {
             alias_t(
                 LeafEquals {
                     r#ref: "dr".into(),
+                    scope: Scope::Current,
                     equals: json!("hdr800_plus"),
                 }
                 .into(),
@@ -254,6 +266,7 @@ mod tests {
         let rules = vec![rule(
             LeafEquals {
                 r#ref: "dr".into(),
+                scope: Scope::Current,
                 equals: json!("hdr800_plus"),
             }
             .into(),
@@ -269,6 +282,7 @@ mod tests {
         let ts = vec![alias_t(
             LeafEquals {
                 r#ref: "dr".into(),
+                scope: Scope::Current,
                 equals: json!("hdr800_plus"),
             }
             .into(),
@@ -279,6 +293,7 @@ mod tests {
                 all: vec![
                     LeafEquals {
                         r#ref: "dr".into(),
+                        scope: Scope::Current,
                         equals: json!("hdr800_plus"),
                     }
                     .into(),
@@ -286,6 +301,7 @@ mod tests {
                         not: Box::new(
                             LeafEquals {
                                 r#ref: "foo".into(),
+                                scope: Scope::Current,
                                 equals: json!("bar"),
                             }
                             .into(),
@@ -310,11 +326,13 @@ mod tests {
                 all: vec![
                     LeafEquals {
                         r#ref: "a".into(),
+                        scope: Scope::Current,
                         equals: json!(1),
                     }
                     .into(),
                     LeafPresent {
                         r#ref: "b".into(),
+                        scope: Scope::Current,
                         present: true,
                     }
                     .into(),
@@ -328,11 +346,13 @@ mod tests {
                 all: vec![
                     LeafEquals {
                         r#ref: "a".into(),
+                        scope: Scope::Current,
                         equals: json!(1),
                     }
                     .into(),
                     LeafPresent {
                         r#ref: "b".into(),
+                        scope: Scope::Current,
                         present: true,
                     }
                     .into(),
@@ -354,11 +374,13 @@ mod tests {
                 all: vec![
                     LeafEquals {
                         r#ref: "a".into(),
+                        scope: Scope::Current,
                         equals: json!(1),
                     }
                     .into(),
                     LeafPresent {
                         r#ref: "b".into(),
+                        scope: Scope::Current,
                         present: true,
                     }
                     .into(),
@@ -372,11 +394,13 @@ mod tests {
                 all: vec![
                     LeafPresent {
                         r#ref: "b".into(),
+                        scope: Scope::Current,
                         present: true,
                     }
                     .into(),
                     LeafEquals {
                         r#ref: "a".into(),
+                        scope: Scope::Current,
                         equals: json!(1),
                     }
                     .into(),
@@ -393,6 +417,7 @@ mod tests {
         let ts = vec![alias_t(
             LeafPresent {
                 r#ref: "legacy_field".into(),
+                scope: Scope::Current,
                 present: true,
             }
             .into(),
@@ -403,6 +428,7 @@ mod tests {
                 not: Box::new(
                     LeafPresent {
                         r#ref: "legacy_field".into(),
+                        scope: Scope::Current,
                         present: true,
                     }
                     .into(),
@@ -420,6 +446,7 @@ mod tests {
             alias_t(
                 LeafEquals {
                     r#ref: "a".into(),
+                    scope: Scope::Current,
                     equals: json!("x"),
                 }
                 .into(),
@@ -428,6 +455,7 @@ mod tests {
             alias_t(
                 LeafEquals {
                     r#ref: "b".into(),
+                    scope: Scope::Current,
                     equals: json!("y"),
                 }
                 .into(),
@@ -437,6 +465,7 @@ mod tests {
         let rules = vec![rule(
             LeafEquals {
                 r#ref: "a".into(),
+                scope: Scope::Current,
                 equals: json!("x"),
             }
             .into(),
@@ -452,11 +481,13 @@ mod tests {
                 all: vec![
                     LeafEquals {
                         r#ref: "a".into(),
+                        scope: Scope::Current,
                         equals: json!(1),
                     }
                     .into(),
                     LeafEquals {
                         r#ref: "b".into(),
+                        scope: Scope::Current,
                         equals: json!(2),
                     }
                     .into(),
@@ -470,16 +501,19 @@ mod tests {
                 all: vec![
                     LeafEquals {
                         r#ref: "a".into(),
+                        scope: Scope::Current,
                         equals: json!(1),
                     }
                     .into(),
                     LeafEquals {
                         r#ref: "b".into(),
+                        scope: Scope::Current,
                         equals: json!(2),
                     }
                     .into(),
                     LeafEquals {
                         r#ref: "c".into(),
+                        scope: Scope::Current,
                         equals: json!(3),
                     }
                     .into(),

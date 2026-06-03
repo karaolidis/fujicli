@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::ast::{LeafEquals, LeafPresent, Predicate};
+use crate::ast::{LeafEquals, LeafPresent, Predicate, Scope};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -149,11 +149,13 @@ impl From<&Assignment> for Predicate {
         match &a.effect {
             AssignmentEffect::Set(v) => LeafEquals {
                 r#ref: a.r#ref.clone(),
+                scope: Scope::Current,
                 equals: v.clone(),
             }
             .into(),
             AssignmentEffect::Clear => LeafPresent {
                 r#ref: a.r#ref.clone(),
+                scope: Scope::Current,
                 present: false,
             }
             .into(),

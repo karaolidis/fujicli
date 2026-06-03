@@ -220,13 +220,41 @@ What this gives you:
 That's roughly 25 lines of CUE producing several hundred lines of emitted Rust
 that implements all four things consistently.
 
+## Cross-State Rules
+
+Render rules can refer to the pre-merge state via `scope: "original"` - the
+camera's reported render profile before the user's partial was merged.
+
+```cue
+{
+    message: "Dynamic Range cannot exceed the value the image was shot with."
+    when: any: [
+        {all: [
+            {ref: "dynamic_range", scope: "original", equals: "hdr200"},
+            {not: {ref: "dynamic_range", in: ["hdr100", "hdr200"]}},
+        ]},
+        {all: [
+            {ref: "dynamic_range", scope: "original", equals: "hdr400"},
+            {not: {ref: "dynamic_range", in: ["hdr100", "hdr200", "hdr400"]}},
+        ]},
+        // ... and so on
+    ]
+}
+```
+
+If the only fix would be to change the original, `solve` bails with the rule's
+message - the camera shot it that way, we can't undo it. See
+[analyses / scope](../internals/analyses.md#scope) for how each pass handles
+original-scope leaves.
+
 ## When to Use What
 
-| Need                                         | Use                                                                                         |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| "These two values are incompatible."         | A rule with `severity: error`.                                                              |
-| "This field doesn't make sense when..."      | A rule with the standard `Present(X) && ~cond` shape. The presence-DAG handles read-gating. |
-| "Allow `compound_value`; flatten to (a, b)." | A transformation with `when: equals` and a multi-`apply`.                                   |
-| "Set a default for an inline render slot."   | An unconditional transformation.                                                            |
-| "Suggest something to the user."             | A rule with `severity: warning`.                                                            |
-| "Log when an unusual combination appears."   | A rule with `severity: info`.                                                               |
+| Need                                                        | Use                                                                                         |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| "These two values are incompatible."                        | A rule with `severity: error`.                                                              |
+| "This field doesn't make sense when..."                     | A rule with the standard `Present(X) && ~cond` shape. The presence-DAG handles read-gating. |
+| "Allow `compound_value`; flatten to (a, b)."                | A transformation with `when: equals` and a multi-`apply`.                                   |
+| "Set a default for an inline render slot."                  | An unconditional transformation.                                                            |
+| "Suggest something to the user."                            | A rule with `severity: warning`.                                                            |
+| "Log when an unusual combination appears."                  | A rule with `severity: info`.                                                               |
+| "Constrain a render based on what the image was shot with." | A render rule that references `scope: "original"`.                                          |

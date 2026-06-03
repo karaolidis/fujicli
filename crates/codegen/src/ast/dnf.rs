@@ -11,7 +11,7 @@ use anyhow::bail;
 use crate::{
     ast::{
         Assignment, AssignmentEffect, LeafBetween, LeafEquals, LeafGt, LeafGte, LeafIn, LeafLt,
-        LeafLte, LeafPresent, PredAll, PredAny, PredNot, Predicate,
+        LeafLte, LeafPresent, PredAll, PredAny, PredNot, Predicate, Scope,
     },
     util::multiset,
 };
@@ -49,10 +49,28 @@ impl Leaf {
         }
     }
 
+    pub fn scope(&self) -> Scope {
+        match self {
+            Self::Present(p) => p.scope,
+            Self::Equals(p) | Self::NotEquals(p) => p.scope,
+            Self::In(p) | Self::NotIn(p) => p.scope,
+            Self::Between(p) | Self::NotBetween(p) => p.scope,
+            Self::LessThan(p) | Self::NotLessThan(p) => p.scope,
+            Self::LessThanOrEqual(p) | Self::NotLessThanOrEqual(p) => p.scope,
+            Self::GreaterThan(p) | Self::NotGreaterThan(p) => p.scope,
+            Self::GreaterThanOrEqual(p) | Self::NotGreaterThanOrEqual(p) => p.scope,
+        }
+    }
+
     pub fn negated(self) -> Self {
         match self {
-            Self::Present(LeafPresent { r#ref, present }) => Self::Present(LeafPresent {
+            Self::Present(LeafPresent {
                 r#ref,
+                scope,
+                present,
+            }) => Self::Present(LeafPresent {
+                r#ref,
+                scope,
                 present: !present,
             }),
             Self::Equals(l) => Self::NotEquals(l),
@@ -78,10 +96,12 @@ impl From<&Assignment> for Leaf {
         match &a.effect {
             AssignmentEffect::Set(v) => Leaf::Equals(LeafEquals {
                 r#ref: a.r#ref.clone(),
+                scope: Scope::Current,
                 equals: v.clone(),
             }),
             AssignmentEffect::Clear => Leaf::Present(LeafPresent {
                 r#ref: a.r#ref.clone(),
+                scope: Scope::Current,
                 present: false,
             }),
         }
@@ -399,6 +419,7 @@ mod tests {
     fn lp(name: &str, present: bool) -> Leaf {
         Leaf::Present(LeafPresent {
             r#ref: name.into(),
+            scope: Scope::Current,
             present,
         })
     }
@@ -406,6 +427,7 @@ mod tests {
     fn le(name: &str, v: serde_json::Value) -> Leaf {
         Leaf::Equals(LeafEquals {
             r#ref: name.into(),
+            scope: Scope::Current,
             equals: v,
         })
     }
@@ -446,6 +468,7 @@ mod tests {
             not: Box::new(
                 LeafEquals {
                     r#ref: "a".into(),
+                    scope: Scope::Current,
                     equals: json!(1),
                 }
                 .into(),
@@ -463,6 +486,7 @@ mod tests {
             not: Box::new(
                 LeafPresent {
                     r#ref: "a".into(),
+                    scope: Scope::Current,
                     present: true,
                 }
                 .into(),
@@ -479,6 +503,7 @@ mod tests {
                     not: Box::new(
                         LeafEquals {
                             r#ref: "a".into(),
+                            scope: Scope::Current,
                             equals: json!(1),
                         }
                         .into(),
@@ -496,6 +521,7 @@ mod tests {
             all: vec![
                 LeafPresent {
                     r#ref: "A".into(),
+                    scope: Scope::Current,
                     present: true,
                 }
                 .into(),
@@ -503,11 +529,13 @@ mod tests {
                     any: vec![
                         LeafEquals {
                             r#ref: "B".into(),
+                            scope: Scope::Current,
                             equals: json!(1),
                         }
                         .into(),
                         LeafEquals {
                             r#ref: "C".into(),
+                            scope: Scope::Current,
                             equals: json!(2),
                         }
                         .into(),
@@ -547,6 +575,7 @@ mod tests {
             all: vec![
                 LeafEquals {
                     r#ref: "A".into(),
+                    scope: Scope::Current,
                     equals: json!(1),
                 }
                 .into(),
@@ -554,11 +583,13 @@ mod tests {
                     any: vec![
                         LeafPresent {
                             r#ref: "B".into(),
+                            scope: Scope::Current,
                             present: true,
                         }
                         .into(),
                         LeafPresent {
                             r#ref: "C".into(),
+                            scope: Scope::Current,
                             present: false,
                         }
                         .into(),
@@ -581,11 +612,13 @@ mod tests {
                     all: vec![
                         LeafEquals {
                             r#ref: "A".into(),
+                            scope: Scope::Current,
                             equals: json!(1),
                         }
                         .into(),
                         LeafPresent {
                             r#ref: "B".into(),
+                            scope: Scope::Current,
                             present: true,
                         }
                         .into(),

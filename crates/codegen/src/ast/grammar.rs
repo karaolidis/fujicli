@@ -11,6 +11,14 @@ use serde_json::Value;
 
 use crate::util::multiset;
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum Scope {
+    #[default]
+    Current,
+    Original,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum Predicate {
@@ -134,61 +142,69 @@ pub struct PredNot {
     pub not: Box<Predicate>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
 pub struct LeafEquals {
     pub r#ref: String,
+    pub scope: Scope,
     pub equals: Value,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
 pub struct LeafIn {
     pub r#ref: String,
+    pub scope: Scope,
     #[serde(rename = "in")]
     pub values: Vec<Value>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
 pub struct LeafBetween {
     pub r#ref: String,
+    pub scope: Scope,
     pub min: Value,
     pub max: Value,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
 pub struct LeafLt {
     pub r#ref: String,
+    pub scope: Scope,
     pub lt: Value,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
 pub struct LeafLte {
     pub r#ref: String,
+    pub scope: Scope,
     pub lte: Value,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
 pub struct LeafGt {
     pub r#ref: String,
+    pub scope: Scope,
     pub gt: Value,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
 pub struct LeafGte {
     pub r#ref: String,
+    pub scope: Scope,
     pub gte: Value,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
 pub struct LeafPresent {
     pub r#ref: String,
+    pub scope: Scope,
     pub present: bool,
 }
 
@@ -267,8 +283,8 @@ mod tests {
     fn nested_logic_round_trips() {
         let pred = parse(
             r#"{ "all": [
-                { "ref": "x", "equals": 5 },
-                { "not": { "ref": "y", "present": true } }
+                { "ref": "x", "scope": "current", "equals": 5 },
+                { "not": { "ref": "y", "scope": "current", "present": true } }
             ] }"#,
         );
         assert!(matches!(pred, Predicate::All(_)));
@@ -288,7 +304,8 @@ mod tests {
 
     #[test]
     fn not_is_recursively_boxed() {
-        let pred = parse(r#"{ "not": { "not": { "ref": "x", "present": true } } }"#);
+        let pred =
+            parse(r#"{ "not": { "not": { "ref": "x", "scope": "current", "present": true } } }"#);
         let Predicate::Not(outer) = pred else {
             panic!()
         };
@@ -301,32 +318,32 @@ mod tests {
     #[test]
     fn comparator_leaves_disambiguate_by_key_name() {
         assert!(matches!(
-            parse(r#"{ "ref": "x", "lt": 5 }"#),
+            parse(r#"{ "ref": "x", "scope": "current", "lt": 5 }"#),
             Predicate::LessThan(_)
         ));
         assert!(matches!(
-            parse(r#"{ "ref": "x", "lte": 5 }"#),
+            parse(r#"{ "ref": "x", "scope": "current", "lte": 5 }"#),
             Predicate::LessThanOrEqual(_)
         ));
         assert!(matches!(
-            parse(r#"{ "ref": "x", "gt": 5 }"#),
+            parse(r#"{ "ref": "x", "scope": "current", "gt": 5 }"#),
             Predicate::GreaterThan(_)
         ));
         assert!(matches!(
-            parse(r#"{ "ref": "x", "gte": 5 }"#),
+            parse(r#"{ "ref": "x", "scope": "current", "gte": 5 }"#),
             Predicate::GreaterThanOrEqual(_)
         ));
     }
 
     #[test]
     fn equals_accepts_any_json_scalar() {
-        let eq: Predicate = parse(r#"{ "ref": "x", "equals": "hello" }"#);
+        let eq: Predicate = parse(r#"{ "ref": "x", "scope": "current", "equals": "hello" }"#);
         let Predicate::Equals(leaf) = eq else {
             panic!()
         };
         assert!(leaf.equals.is_string());
 
-        let eq: Predicate = parse(r#"{ "ref": "x", "equals": true }"#);
+        let eq: Predicate = parse(r#"{ "ref": "x", "scope": "current", "equals": true }"#);
         let Predicate::Equals(leaf) = eq else {
             panic!()
         };
@@ -335,16 +352,16 @@ mod tests {
 
     #[test]
     fn between_requires_both_bounds() {
-        parse_err(r#"{ "ref": "x", "min": 5 }"#);
-        parse_err(r#"{ "ref": "x", "max": 5 }"#);
-        let bt = parse(r#"{ "ref": "x", "min": 0, "max": 10 }"#);
+        parse_err(r#"{ "ref": "x", "scope": "current", "min": 5 }"#);
+        parse_err(r#"{ "ref": "x", "scope": "current", "max": 5 }"#);
+        let bt = parse(r#"{ "ref": "x", "scope": "current", "min": 0, "max": 10 }"#);
         assert!(matches!(bt, Predicate::Between(_)));
     }
 
     #[test]
     fn present_accepts_both_polarities() {
-        let t = parse(r#"{ "ref": "x", "present": true }"#);
-        let f = parse(r#"{ "ref": "x", "present": false }"#);
+        let t = parse(r#"{ "ref": "x", "scope": "current", "present": true }"#);
+        let f = parse(r#"{ "ref": "x", "scope": "current", "present": false }"#);
         let Predicate::Present(t) = t else { panic!() };
         let Predicate::Present(f) = f else { panic!() };
         assert!(t.present);
@@ -368,16 +385,19 @@ mod tests {
         let mut out = BTreeSet::new();
         Predicate::from(LeafEquals {
             r#ref: "A".into(),
+            scope: Scope::Current,
             equals: json!("x"),
         })
         .refs(&mut out);
         Predicate::from(LeafPresent {
             r#ref: "B".into(),
+            scope: Scope::Current,
             present: true,
         })
         .refs(&mut out);
         Predicate::from(LeafIn {
             r#ref: "C".into(),
+            scope: Scope::Current,
             values: vec![json!(1), json!(2)],
         })
         .refs(&mut out);
@@ -393,6 +413,7 @@ mod tests {
                     not: Box::new(
                         LeafEquals {
                             r#ref: "A".into(),
+                            scope: Scope::Current,
                             equals: json!("x"),
                         }
                         .into(),
@@ -403,11 +424,13 @@ mod tests {
                     any: vec![
                         LeafPresent {
                             r#ref: "B".into(),
+                            scope: Scope::Current,
                             present: true,
                         }
                         .into(),
                         LeafEquals {
                             r#ref: "C".into(),
+                            scope: Scope::Current,
                             equals: json!(1),
                         }
                         .into(),

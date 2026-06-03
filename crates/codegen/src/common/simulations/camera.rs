@@ -10,7 +10,7 @@ use crate::{
     schema::{
         alias::{NormalizedRule, NormalizedTransformation},
         grammar::{
-            SettingInfo, build_settings, generate_apply_transformations, generate_dnf,
+            Scopes, SettingInfo, build_settings, generate_apply_transformations, generate_dnf,
             generate_emit_warnings_and_infos,
         },
         presence::PresenceDag,
@@ -167,8 +167,10 @@ fn generate_inherent_impl(
 
     let apply_transformations =
         generate_apply_transformations(settings, &simulation.transformations)?;
-    let warnings_infos = generate_emit_warnings_and_infos(settings, effective_rules)?;
-    let solve = generate_solve(settings, effective_rules)?;
+    let self_acc = quote! { self };
+    let warnings_infos =
+        generate_emit_warnings_and_infos(settings, effective_rules, Scopes::new(&self_acc))?;
+    let solve = generate_solve(settings, effective_rules, false)?;
     let try_update_from = generate_try_update_from(settings, &simulation.settings, struct_ident)?;
     let name = generate_name(settings, options_path);
 
@@ -439,7 +441,7 @@ fn generate_try_pull(
             };
 
             let body = if let Some(dnf) = presence_conditions.get(id) {
-                let cond = generate_dnf(settings, dnf, &staging_accessor)?;
+                let cond = generate_dnf(settings, dnf, Scopes::new(&staging_accessor))?;
                 quote! {
                     if #cond { #read_call } else { None }
                 }

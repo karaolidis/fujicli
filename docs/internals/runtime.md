@@ -104,6 +104,9 @@ render-capable camera must override `render`, which the codegen does: send the
 image, fetch the current `<Camera>RenderProfile`, `try_update_from(partial)`,
 write back, then `render_image`.
 
+For the cross-state semantics that `try_update_from` enables, see
+[fml/rules / cross-state rules](../fml/rules.md#cross-state-rules).
+
 ## PTP and Option Traits
 
 [`src/lib/ptp/option.rs`](../../src/lib/ptp/option.rs) declares the two
