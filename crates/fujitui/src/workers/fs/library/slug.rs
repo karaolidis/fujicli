@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, fmt};
+use std::{borrow::Borrow, fmt, str::FromStr};
 
 use slug::slugify;
 
@@ -8,16 +8,20 @@ use super::store::LibraryError;
 pub struct Slug(String);
 
 impl Slug {
-    pub fn from_name(name: &str) -> Result<Self, LibraryError> {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl FromStr for Slug {
+    type Err = LibraryError;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
         let s = slugify(name);
         if s.is_empty() {
             return Err(LibraryError::InvalidName);
         }
         Ok(Self(s))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
     }
 }
 
@@ -45,40 +49,37 @@ mod tests {
 
     #[test]
     fn ascii_name_lowercases_and_hyphenates() {
-        let s = Slug::from_name("Cinestill 800T").unwrap();
+        let s = "Cinestill 800T".parse::<Slug>().unwrap();
         assert_eq!(s.as_str(), "cinestill-800t");
     }
 
     #[test]
     fn diacritics_get_folded() {
-        let s = Slug::from_name("Café Noir").unwrap();
+        let s = "Café Noir".parse::<Slug>().unwrap();
         assert_eq!(s.as_str(), "cafe-noir");
     }
 
     #[test]
     fn whitespace_collapses() {
-        let s = Slug::from_name("   multiple   spaces  ").unwrap();
+        let s = "   multiple   spaces  ".parse::<Slug>().unwrap();
         assert_eq!(s.as_str(), "multiple-spaces");
     }
 
     #[test]
     fn punctuation_dropped() {
-        let s = Slug::from_name("Velvia, the (warm) edition!").unwrap();
+        let s = "Velvia, the (warm) edition!".parse::<Slug>().unwrap();
         assert_eq!(s.as_str(), "velvia-the-warm-edition");
     }
 
     #[test]
     fn empty_input_rejected() {
-        assert!(matches!(
-            Slug::from_name(""),
-            Err(LibraryError::InvalidName)
-        ));
+        assert!(matches!("".parse::<Slug>(), Err(LibraryError::InvalidName)));
     }
 
     #[test]
     fn all_punctuation_rejected() {
         assert!(matches!(
-            Slug::from_name("!@#$%"),
+            "!@#$%".parse::<Slug>(),
             Err(LibraryError::InvalidName)
         ));
     }
@@ -86,15 +87,15 @@ mod tests {
     #[test]
     fn unicode_only_rejected_when_unmappable() {
         assert!(matches!(
-            Slug::from_name("漢字のみ"),
+            "漢字のみ".parse::<Slug>(),
             Ok(_) | Err(LibraryError::InvalidName)
         ));
     }
 
     #[test]
     fn ordering_is_lexicographic_on_inner_string() {
-        let a = Slug::from_name("aaa").unwrap();
-        let b = Slug::from_name("bbb").unwrap();
+        let a = "aaa".parse::<Slug>().unwrap();
+        let b = "bbb".parse::<Slug>().unwrap();
         assert!(a < b);
     }
 }

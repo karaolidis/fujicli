@@ -1,14 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
-use anyhow::bail;
 use clap::{ArgAction, Parser};
 use crossbeam_channel::{Receiver, Sender, after, select};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use directories::ProjectDirs;
-use fujicore::{
-    CoreError,
-    generated::{options::CustomSetting, simulations::SimulationBase},
-};
+use fujicore::CoreError;
 use log::{debug, info, warn};
 use ratatui::{
     DefaultTerminal, Frame,
@@ -21,13 +17,13 @@ use crate::{
         modals::{
             ModalEffect, ModalHandler, ModalOutcome, device::DevicePickerModal, fatal::FatalModal,
         },
-        tabs::{backup, render, simulation},
-        widgets::{header, status},
+        tabs::{AppCtx, Tabs},
+        widgets::{Header, Status},
     },
     workers::{
         ReqId, ReqIdGen,
         device::{
-            DeviceEvent, DeviceHandle, DeviceSnapshot,
+            DeviceEvent, DeviceHandle,
             usb::{self, DeviceCandidate},
         },
         fs::{
@@ -50,34 +46,29 @@ pub struct Cli {
 }
 
 pub struct App {
-    pub tab: Tab,
-    pub snapshot: Option<DeviceSnapshot>,
-    pub library: Arc<LibrarySnapshot>,
+    pub ctx: AppCtx,
+
+    pub header: Header,
+    pub tabs: Tabs,
+    pub active_tab: Tab,
+    pub status: Status,
     pub modal: Option<Box<dyn ModalHandler>>,
     pub status_message: Option<String>,
-    #[allow(dead_code)]
-    req: ReqIdGen,
+
     quitting: bool,
 
     input_rx: Receiver<KeyEvent>,
     device_rx: Receiver<DeviceEvent>,
     device_tx: Sender<DeviceEvent>,
-    device: Option<DeviceHandle>,
     fs_rx: Receiver<FsEvent>,
-    #[allow(dead_code)]
-    fs: FsHandle,
 }
 
-pub fn run() -> anyhow::Result<()> {
+pub fn run(dirs: &ProjectDirs) -> anyhow::Result<()> {
     let candidates = usb::enumerate()?;
     info!("found {} supported camera(s)", candidates.len());
 
     let (input_tx, input_rx) = crossbeam_channel::bounded(INPUT_CHANNEL_BOUND);
     input::spawn(input_tx);
-
-    let Some(dirs) = ProjectDirs::from("", "", "fujicli") else {
-        bail!("cannot determine project directories for this platform");
-    };
 
     let library = dirs.data_dir().join("library");
     info!("library directory: {}", library.display());
@@ -103,12 +94,8 @@ impl App {
             1 => {
                 let candidate = candidates.into_iter().next().expect("len > 0");
                 info!(
-                    "single camera detected: {} ({:04x}:{:04x}, bus {}.{})",
-                    candidate.name,
-                    candidate.vendor,
-                    candidate.product,
-                    candidate.bus,
-                    candidate.address
+                    "single camera detected: {} ({}, bus {}.{})",
+                    candidate.name, candidate.usb_id, candidate.bus, candidate.address
                 );
                 let handle = DeviceHandle::spawn(candidate.device, device_tx.clone());
                 (None, Some(handle))
@@ -127,19 +114,24 @@ impl App {
         fs.send(FsCommand::LoadLibrary { req: load_req });
 
         Self {
-            tab: Tab::Simulation,
-            snapshot: None,
-            library: LibrarySnapshot::empty(),
+            ctx: AppCtx {
+                device,
+                fs,
+                req,
+                device_snapshot: None,
+                library_snapshot: LibrarySnapshot::empty(),
+            },
+            header: Header,
+            tabs: Tabs::default(),
+            active_tab: Tab::Simulation,
+            status: Status,
             modal,
             status_message: None,
-            req,
             quitting: false,
             input_rx,
             device_rx,
             device_tx,
-            device,
             fs_rx,
-            fs,
         }
     }
 
@@ -177,103 +169,84 @@ impl App {
             return;
         }
 
-        let Some(action) = actions::map(key) else {
+        if key.kind != KeyEventKind::Press {
             return;
-        };
-
-        match action {
-            Action::Quit => self.handle_action_quit(),
-            Action::NextTab => self.handle_action_next_tab(),
-            Action::PrevTab => self.handle_action_prev_tab(),
-            Action::GotoTab(t) => self.handle_action_goto_tab(t),
         }
+
+        if let Some(action) = actions::map(key) {
+            match action {
+                Action::Quit => {
+                    info!("quit requested");
+                    self.quitting = true;
+                }
+                Action::NextTab => self.set_tab(self.active_tab.next()),
+                Action::PrevTab => self.set_tab(self.active_tab.prev()),
+                Action::GotoTab(t) => self.set_tab(t),
+            }
+            return;
+        }
+
+        self.tabs.handle_key(&self.ctx, self.active_tab, key);
     }
 
-    fn handle_action_quit(&mut self) {
-        info!("quit requested");
-        self.quitting = true;
-    }
-
-    const fn handle_action_next_tab(&mut self) {
-        self.tab = self.tab.next();
-    }
-
-    const fn handle_action_prev_tab(&mut self) {
-        self.tab = self.tab.prev();
-    }
-
-    const fn handle_action_goto_tab(&mut self, target: Tab) {
-        self.tab = target;
+    fn set_tab(&mut self, target: Tab) {
+        self.active_tab = target;
+        self.tabs.on_activate(&self.ctx, target);
     }
 
     fn handle_device_event(&mut self, event: DeviceEvent) {
         match event {
-            DeviceEvent::Connected(snap) => self.handle_device_connected(snap),
-            DeviceEvent::InfoUpdated(snap) => self.handle_device_info_updated(snap),
-            DeviceEvent::Disconnected => self.handle_device_disconnected(),
-            DeviceEvent::Error(error) => self.handle_device_error(error),
+            DeviceEvent::Connected(snap) => {
+                info!(
+                    "device connected: {} ({}, bus {}, battery {}%)",
+                    snap.name, snap.usb_id, snap.bus_address, snap.battery
+                );
+                self.ctx.device_snapshot = Some(snap);
+                self.tabs.on_device_connected(&self.ctx);
+            }
+            DeviceEvent::InfoUpdated(snap) => {
+                debug!("device info: battery {}%", snap.battery);
+                self.ctx.device_snapshot = Some(snap);
+            }
+            DeviceEvent::Disconnected => {
+                info!("device disconnected");
+                self.ctx.device_snapshot = None;
+                self.ctx.device = None;
+                self.modal = Some(Box::new(FatalModal::disconnect()));
+                self.tabs.on_device_disconnected(&self.ctx);
+            }
+            DeviceEvent::Error(error) => {
+                let msg = error.to_string();
+                warn!("device error: {msg}");
+                self.status_message = Some(msg);
+            }
+            DeviceEvent::SlotsEnumerated { req, slots } => {
+                debug!("{req}: slots enumerated ({} slots)", slots.len());
+                self.tabs.on_slots_enumerated(&self.ctx, req, &slots);
+            }
             DeviceEvent::SlotFetched { req, slot, base } => {
-                self.handle_slot_fetched(req, slot, base);
+                debug!("{req}: slot {slot} fetched");
+                self.tabs.on_slot_fetched(&self.ctx, slot, &base);
             }
             DeviceEvent::SlotFetchFailed { req, slot, error } => {
-                self.handle_slot_fetch_failed(req, slot, error);
+                let msg = format!("{req}: fetch of {slot} failed: {error}");
+                warn!("{msg}");
+                let error: Arc<CoreError> = error.into();
+                self.tabs.on_slot_fetch_failed(&self.ctx, slot, &error);
+                self.status_message = Some(msg);
             }
-            DeviceEvent::SlotChanged { req, slot } => self.handle_slot_changed(req, slot),
+            DeviceEvent::SlotChanged { req, slot } => {
+                info!("{req}: slot {slot} pushed");
+                self.tabs.on_slot_changed(&self.ctx, slot);
+            }
             DeviceEvent::SlotPushFailed { req, slot, error } => {
-                self.handle_slot_push_failed(req, slot, error);
+                let msg = format!("{req}: push to {slot} failed: {error}");
+                warn!("{msg}");
+                let error: Arc<CoreError> = error.into();
+                self.tabs.on_slot_push_failed(&self.ctx, slot, &error);
+                self.status_message = Some(msg);
             }
         }
-    }
-
-    fn handle_device_connected(&mut self, snap: DeviceSnapshot) {
-        info!(
-            "device connected: {} ({}, battery {}%)",
-            snap.name, snap.usb_id, snap.battery
-        );
-        self.snapshot = Some(snap);
-    }
-
-    fn handle_device_info_updated(&mut self, snap: DeviceSnapshot) {
-        debug!("device info: battery {}%", snap.battery);
-        self.snapshot = Some(snap);
-    }
-
-    fn handle_device_disconnected(&mut self) {
-        info!("device disconnected");
-        self.snapshot = None;
-        self.device = None;
-        self.modal = Some(Box::new(FatalModal::disconnect()));
-    }
-
-    #[allow(clippy::needless_pass_by_value)]
-    fn handle_device_error(&mut self, error: Box<CoreError>) {
-        let msg = error.to_string();
-        warn!("device error: {msg}");
-        self.status_message = Some(msg);
-    }
-
-    #[allow(clippy::needless_pass_by_ref_mut, clippy::unused_self)]
-    fn handle_slot_fetched(&mut self, req: ReqId, slot: CustomSetting, _base: SimulationBase) {
-        debug!("{req}: slot {slot} fetched");
-    }
-
-    #[allow(clippy::needless_pass_by_value)]
-    fn handle_slot_fetch_failed(&mut self, req: ReqId, slot: CustomSetting, error: Box<CoreError>) {
-        let msg = format!("{req}: fetch of {slot} failed: {error}");
-        warn!("{msg}");
-        self.status_message = Some(msg);
-    }
-
-    #[allow(clippy::needless_pass_by_ref_mut, clippy::unused_self)]
-    fn handle_slot_changed(&mut self, req: ReqId, slot: CustomSetting) {
-        info!("{req}: slot {slot} pushed");
-    }
-
-    #[allow(clippy::needless_pass_by_value)]
-    fn handle_slot_push_failed(&mut self, req: ReqId, slot: CustomSetting, error: Box<CoreError>) {
-        let msg = format!("{req}: push to {slot} failed: {error}");
-        warn!("{msg}");
-        self.status_message = Some(msg);
     }
 
     fn handle_fs_event(&mut self, event: FsEvent) {
@@ -328,7 +301,7 @@ impl App {
             "{req}: library loaded ({} entries, {skipped} skipped)",
             snapshot.entries.len()
         );
-        self.library = snapshot;
+        self.set_library(snapshot);
     }
 
     fn handle_library_reloaded(
@@ -341,7 +314,7 @@ impl App {
             "{req}: library reloaded ({} entries, {skipped} skipped)",
             snapshot.entries.len()
         );
-        self.library = snapshot;
+        self.set_library(snapshot);
     }
 
     #[allow(clippy::needless_pass_by_value)]
@@ -353,7 +326,7 @@ impl App {
         snapshot: Arc<LibrarySnapshot>,
     ) {
         info!("{req}: library entry added: {slug}");
-        self.library = snapshot;
+        self.set_library(snapshot);
     }
 
     #[allow(clippy::needless_pass_by_value)]
@@ -370,7 +343,7 @@ impl App {
         } else {
             info!("{req}: library entry renamed: {old_slug} -> {new_slug}");
         }
-        self.library = snapshot;
+        self.set_library(snapshot);
     }
 
     #[allow(clippy::needless_pass_by_value)]
@@ -382,7 +355,12 @@ impl App {
         snapshot: Arc<LibrarySnapshot>,
     ) {
         info!("{req}: library entry removed: {slug}");
-        self.library = snapshot;
+        self.set_library(snapshot);
+    }
+
+    fn set_library(&mut self, snapshot: Arc<LibrarySnapshot>) {
+        self.ctx.library_snapshot = snapshot;
+        self.tabs.on_library_changed(&self.ctx);
     }
 
     #[allow(clippy::needless_pass_by_value)]
@@ -413,11 +391,11 @@ impl App {
 
     fn handle_effect_select_device(&mut self, candidate: DeviceCandidate) {
         info!(
-            "device selected: {} ({:04x}:{:04x}, bus {}.{})",
-            candidate.name, candidate.vendor, candidate.product, candidate.bus, candidate.address
+            "device selected: {} ({}, bus {}.{})",
+            candidate.name, candidate.usb_id, candidate.bus, candidate.address
         );
         let handle = DeviceHandle::spawn(candidate.device, self.device_tx.clone());
-        self.device = Some(handle);
+        self.ctx.device = Some(handle);
     }
 
     fn draw(&self, frame: &mut Frame) {
@@ -428,13 +406,10 @@ impl App {
         ])
         .areas(frame.area());
 
-        header::render(frame, header_area, self.tab);
-        match self.tab {
-            Tab::Simulation => simulation::render(frame, body_area),
-            Tab::Render => render::render(frame, body_area),
-            Tab::Backup => backup::render(frame, body_area),
-        }
-        status::render(frame, status_area, self);
+        self.header.render(self, frame, header_area);
+        self.tabs
+            .render(&self.ctx, self.active_tab, frame, body_area);
+        self.status.render(self, frame, status_area);
 
         if let Some(modal) = &self.modal {
             modal.render(frame, frame.area());

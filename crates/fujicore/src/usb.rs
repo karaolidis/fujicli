@@ -3,10 +3,19 @@ use std::{fmt, num::ParseIntError, str::FromStr};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::{SupportedCamera, generated::cameras::SUPPORTED};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct UsbId {
     pub vendor: u16,
     pub product: u16,
+}
+
+impl UsbId {
+    #[must_use]
+    pub fn supported_camera(self) -> Option<&'static SupportedCamera> {
+        SUPPORTED.iter().find(|c| c.usb_id == self)
+    }
 }
 
 impl fmt::Display for UsbId {

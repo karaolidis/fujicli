@@ -66,10 +66,7 @@ impl ModalHandler for DevicePickerModal {
             .iter()
             .enumerate()
             .map(|(i, c)| {
-                let line = format!(
-                    "{} ({:04x}:{:04x}) {}.{}",
-                    c.name, c.vendor, c.product, c.bus, c.address
-                );
+                let line = format!("{} ({}) {}.{}", c.name, c.usb_id, c.bus, c.address);
                 let style = if i == self.cursor {
                     Style::default().add_modifier(Modifier::REVERSED)
                 } else {

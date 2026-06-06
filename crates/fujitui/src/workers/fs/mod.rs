@@ -8,14 +8,13 @@ use std::{
 };
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
+use fujicore::UsbId;
 use log::{debug, error, info, warn};
 use thiserror::Error;
 
 use crate::workers::{
     ReqId,
-    fs::library::{
-        EntryEdit, LibraryEntry, LibraryError, LibrarySnapshot, SimLibrary, Slug, SourceCamera,
-    },
+    fs::library::{EntryEdit, LibraryEntry, LibraryError, LibrarySnapshot, SimLibrary, Slug},
 };
 
 const TICK: Duration = Duration::from_millis(100);
@@ -38,7 +37,7 @@ pub enum FsCommand {
     AddSim {
         req: ReqId,
         init: EntryEdit,
-        source_camera: SourceCamera,
+        source_camera: UsbId,
     },
     UpdateSim {
         req: ReqId,
@@ -208,7 +207,7 @@ fn handle_add(
     library: &mut SimLibrary,
     req: ReqId,
     init: EntryEdit,
-    source_camera: SourceCamera,
+    source_camera: UsbId,
     event_tx: &Sender<FsEvent>,
 ) {
     match library.add(init, source_camera) {

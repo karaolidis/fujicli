@@ -4,4 +4,4 @@ mod slug;
 mod store;
 
 pub use slug::Slug;
-pub use store::{EntryEdit, LibraryEntry, LibraryError, LibrarySnapshot, SimLibrary, SourceCamera};
+pub use store::{EntryEdit, LibraryEntry, LibraryError, LibrarySnapshot, SimLibrary};
