@@ -35,6 +35,7 @@ pub fn generate(
     let inherent_impl = generate_inherent_impl(&type_name, &bounds);
     let from_str_impl = generate_from_str_impl(&type_name, &bounds);
     let display_impl = generate_display_impl(&type_name);
+    let deref_impl = generate_deref_impl(&type_name);
     let simulation_setting_impl = prop_code.as_ref().map_or_else(
         || quote! {},
         |code| generate_simulation_setting_impl(&type_name, *code),
@@ -46,8 +47,18 @@ pub fn generate(
         #inherent_impl
         #from_str_impl
         #display_impl
+        #deref_impl
         #simulation_setting_impl
         #default_impl
+    }
+}
+
+fn generate_deref_impl(type_name: &Ident) -> TokenStream {
+    quote! {
+        impl ::std::ops::Deref for #type_name {
+            type Target = str;
+            fn deref(&self) -> &str { &self.0 }
+        }
     }
 }
 

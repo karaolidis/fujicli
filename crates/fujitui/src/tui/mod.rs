@@ -173,6 +173,11 @@ impl App {
             return;
         }
 
+        if self.tabs.is_capturing_input(self.active_tab) {
+            self.tabs.handle_key(&self.ctx, self.active_tab, key);
+            return;
+        }
+
         if let Some(action) = actions::map(key) {
             match action {
                 Action::Quit => {

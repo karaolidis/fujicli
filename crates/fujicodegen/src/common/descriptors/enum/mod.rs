@@ -10,12 +10,25 @@ pub fn generate(id: &str, name: &str, rules: &EnumRules) -> TokenStream {
     let type_ident = upper_camel_case_ident!("{}", id);
     let field_ident = snake_case_ident!("{}", id);
 
-    let variants = rules.variants.iter().map(|v| v.name.as_str());
+    let variant_entries = rules.variants.iter().map(|v| {
+        let id = v.id.as_str();
+        let name = v.name.as_str();
+        quote! {
+            crate::features::simulation::VariantInfo { id: #id, name: #name }
+        }
+    });
+    let variant_match_arms = rules.variants.iter().map(|v| {
+        let id = v.id.as_str();
+        let variant_ident = upper_camel_case_ident!("{}", v.id);
+        quote! {
+            #id => crate::generated::options::#type_ident::#variant_ident
+        }
+    });
 
     let ops = quote! {
         crate::features::simulation::OptionOps::Enum(
             crate::features::simulation::EnumOps {
-                variants: &[#(#variants),*],
+                variants: &[#(#variant_entries),*],
                 cycle: |base, dir, validator| {
                     let ::std::option::Option::Some(current) = base.#field_ident else {
                         return ::std::result::Result::Err(
@@ -35,31 +48,33 @@ pub fn generate(id: &str, name: &str, rules: &EnumRules) -> TokenStream {
                             crate::features::simulation::Direction::Next => (start + i) % n,
                             crate::features::simulation::Direction::Prev => (start + n - i) % n,
                         };
+                        let want = variants[idx];
                         let mut candidate = base.clone();
-                        candidate.#field_ident = ::std::option::Option::Some(variants[idx]);
-                        if let ::std::option::Option::Some(v) = validator(candidate) {
+                        candidate.#field_ident = ::std::option::Option::Some(want);
+                        if let ::std::option::Option::Some(v) = validator(candidate)
+                            && v.#field_ident == ::std::option::Option::Some(want)
+                        {
                             *base = v;
                             return ::std::result::Result::Ok(());
                         }
                     }
                     ::std::result::Result::Err(crate::features::simulation::BumpError::Exhausted)
                 },
-                set_by_index: |base, idx, validator| {
-                    let variants: ::std::vec::Vec<_> = <
-                        crate::generated::options::#type_ident as ::strum::IntoEnumIterator
-                    >::iter().collect();
-                    let ::std::option::Option::Some(value) = variants.get(idx) else {
-                        return crate::features::simulation::SetOutcome::Rejected;
+                set_by_id: |base, id, validator| {
+                    let want = match id {
+                        #( #variant_match_arms, )*
+                        _ => return crate::features::simulation::SetOutcome::Rejected,
                     };
                     let mut candidate = base.clone();
-                    candidate.#field_ident = ::std::option::Option::Some(*value);
-                    validator(candidate).map_or(
-                        crate::features::simulation::SetOutcome::Rejected,
-                        |v| {
-                            *base = v;
-                            crate::features::simulation::SetOutcome::Set
-                        },
-                    )
+                    candidate.#field_ident = ::std::option::Option::Some(want);
+                    if let ::std::option::Option::Some(v) = validator(candidate)
+                        && v.#field_ident == ::std::option::Option::Some(want)
+                    {
+                        *base = v;
+                        crate::features::simulation::SetOutcome::Set
+                    } else {
+                        crate::features::simulation::SetOutcome::Rejected
+                    }
                 },
                 set_default: |base| {
                     base.#field_ident = ::std::option::Option::Some(
@@ -70,5 +85,5 @@ pub fn generate(id: &str, name: &str, rules: &EnumRules) -> TokenStream {
         )
     };
 
-    generate_descriptor(id, name, &ops)
+    generate_descriptor(id, name, &ops, true)
 }
