@@ -83,6 +83,10 @@ impl Tab {
 pub trait TabBehavior {
     fn render(&self, ctx: &AppCtx, frame: &mut Frame, area: Rect);
 
+    fn is_capturing_input(&self) -> bool {
+        false
+    }
+
     fn on_activate(&mut self, ctx: &AppCtx) {}
 
     fn on_device_connected(&mut self, ctx: &AppCtx) {}
@@ -143,6 +147,15 @@ impl Tabs {
             Tab::Simulation => self.simulation.handle_key(ctx, key),
             Tab::Render => self.rendering.handle_key(ctx, key),
             Tab::Backup => self.backup.handle_key(ctx, key),
+        }
+    }
+
+    #[must_use]
+    pub fn is_capturing_input(&self, active: Tab) -> bool {
+        match active {
+            Tab::Simulation => self.simulation.is_capturing_input(),
+            Tab::Render => self.rendering.is_capturing_input(),
+            Tab::Backup => self.backup.is_capturing_input(),
         }
     }
 

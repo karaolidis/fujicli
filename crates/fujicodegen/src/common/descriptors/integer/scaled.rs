@@ -32,22 +32,40 @@ pub fn generate(id: &str, name: &str) -> TokenStream {
                         crate::features::simulation::Direction::Next => stride,
                         crate::features::simulation::Direction::Prev => -stride,
                     };
-                    let mut try_val = cur + signed;
-                    while (
-                        crate::generated::options::#type_ident::MIN
-                        ..=crate::generated::options::#type_ident::MAX
-                    ).contains(&try_val) {
-                        if let ::std::result::Result::Ok(typed) = <
+                    let min = crate::generated::options::#type_ident::MIN;
+                    let max = crate::generated::options::#type_ident::MAX;
+                    let raw_target = cur + signed;
+                    let (mut try_val, walk_step) = if (min..=max).contains(&raw_target) {
+                        (raw_target, signed)
+                    } else {
+                        let clamped = raw_target.clamp(min, max);
+                        if clamped == cur {
+                            return ::std::result::Result::Err(
+                                crate::features::simulation::BumpError::Exhausted,
+                            );
+                        }
+                        let inward = match dir {
+                            crate::features::simulation::Direction::Next =>
+                                -crate::generated::options::#type_ident::STEP,
+                            crate::features::simulation::Direction::Prev =>
+                                crate::generated::options::#type_ident::STEP,
+                        };
+                        (clamped, inward)
+                    };
+                    while (min..=max).contains(&try_val) && try_val != cur {
+                        if let ::std::result::Result::Ok(want) = <
                             crate::generated::options::#type_ident as ::std::convert::TryFrom<i32>
                         >::try_from(try_val) {
                             let mut candidate = base.clone();
-                            candidate.#field_ident = ::std::option::Option::Some(typed);
-                            if let ::std::option::Option::Some(v) = validator(candidate) {
+                            candidate.#field_ident = ::std::option::Option::Some(want);
+                            if let ::std::option::Option::Some(v) = validator(candidate)
+                                && v.#field_ident == ::std::option::Option::Some(want)
+                            {
                                 *base = v;
                                 return ::std::result::Result::Ok(());
                             }
                         }
-                        try_val += signed;
+                        try_val += walk_step;
                     }
                     ::std::result::Result::Err(crate::features::simulation::BumpError::Exhausted)
                 },
@@ -66,12 +84,14 @@ pub fn generate(id: &str, name: &str) -> TokenStream {
                         crate::generated::options::#type_ident::MIN
                         ..=crate::generated::options::#type_ident::MAX
                     ).contains(&try_val) {
-                        if let ::std::result::Result::Ok(typed) = <
+                        if let ::std::result::Result::Ok(want) = <
                             crate::generated::options::#type_ident as ::std::convert::TryFrom<i32>
                         >::try_from(try_val) {
                             let mut candidate = base.clone();
-                            candidate.#field_ident = ::std::option::Option::Some(typed);
-                            if let ::std::option::Option::Some(v) = validator(candidate) {
+                            candidate.#field_ident = ::std::option::Option::Some(want);
+                            if let ::std::option::Option::Some(v) = validator(candidate)
+                                && v.#field_ident == ::std::option::Option::Some(want)
+                            {
                                 *base = v;
                                 return ::std::result::Result::Ok(());
                             }
@@ -89,5 +109,5 @@ pub fn generate(id: &str, name: &str) -> TokenStream {
         )
     };
 
-    generate_descriptor(id, name, &ops)
+    generate_descriptor(id, name, &ops, true)
 }

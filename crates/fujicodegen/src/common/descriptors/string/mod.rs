@@ -32,13 +32,15 @@ pub fn generate(id: &str, name: &str, rules: Option<&StringRules>) -> TokenStrea
                     };
                     let mut candidate = base.clone();
                     candidate.#field_ident = ::std::option::Option::Some(parsed);
-                    validator(candidate).map_or(
-                        crate::features::simulation::SetOutcome::Rejected,
-                        |v| {
-                            *base = v;
-                            crate::features::simulation::SetOutcome::Set
-                        },
-                    )
+                    let want = candidate.#field_ident.clone();
+                    if let ::std::option::Option::Some(v) = validator(candidate)
+                        && v.#field_ident == want
+                    {
+                        *base = v;
+                        crate::features::simulation::SetOutcome::Set
+                    } else {
+                        crate::features::simulation::SetOutcome::Rejected
+                    }
                 },
                 set_default: |base| {
                     base.#field_ident = ::std::option::Option::Some(
@@ -49,5 +51,5 @@ pub fn generate(id: &str, name: &str, rules: Option<&StringRules>) -> TokenStrea
         )
     };
 
-    generate_descriptor(id, name, &ops)
+    generate_descriptor(id, name, &ops, false)
 }
