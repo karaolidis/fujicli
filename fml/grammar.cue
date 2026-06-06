@@ -1,5 +1,7 @@
 package fml
 
+import "list"
+
 #Scope: "current" | "original"
 
 #GrammarBase: {
@@ -13,7 +15,7 @@ package fml
 
 	_scoped: bool | *false
 
-	#Predicate: #Predicates.#Logic | #Predicates.#Leaf
+	#Predicate: #Predicates.#Logic | #Predicates.#Leaf | bool
 
 	#Predicates: {
 		#Logic:
@@ -27,14 +29,6 @@ package fml
 
 		#PredicateNot: {not: #Predicate}
 
-		#Leaf:
-			#Predicates.#PredicateInteger |
-			#Predicates.#PredicateFloat |
-			#Predicates.#PredicateString |
-			#Predicates.#PredicateEnum |
-			#Predicates.#PredicatePresent |
-			#Predicates.#PredicateBool
-
 		_LeafScope: {
 			scope: #Scope | *"current"
 			if !_scoped {
@@ -42,75 +36,69 @@ package fml
 			}
 		}
 
-		#PredicateInteger:
-			#PredicateIntegerEquals |
-			#PredicateIntegerIn |
-			#PredicateIntegerLessThan |
-			#PredicateIntegerLessThanOrEqual |
-			#PredicateIntegerGreaterThan |
-			#PredicateIntegerGreaterThanOrEqual |
-			#PredicateIntegerBetween
+		#Leaf: _LeafScope & {
+			ref: or(_ids.all)
 
-		#PredicateIntegerEquals: _LeafScope & {ref: or(_ids.i), equals: int}
-		#PredicateIntegerIn: _LeafScope & {ref: or(_ids.i), in: [...int]}
-		#PredicateIntegerLessThan: _LeafScope & {ref: or(_ids.i), lt: int}
-		#PredicateIntegerLessThanOrEqual: _LeafScope & {ref: or(_ids.i), lte: int}
-		#PredicateIntegerGreaterThan: _LeafScope & {ref: or(_ids.i), gt: int}
-		#PredicateIntegerGreaterThanOrEqual: _LeafScope & {ref: or(_ids.i), gte: int}
-		#PredicateIntegerBetween: _LeafScope & {ref: or(_ids.i), min: int, max: int}
+			if list.Contains(_ids.i, ref) {
+				{equals: int} |
+				{in: [...int]} |
+				{lt: int} |
+				{lte: int} |
+				{gt: int} |
+				{gte: int} |
+				{min: int, max: int} |
+				{present: bool}
+			}
 
-		#PredicateFloat:
-			#PredicateFloatEquals |
-			#PredicateFloatIn |
-			#PredicateFloatLessThan |
-			#PredicateFloatLessThanOrEqual |
-			#PredicateFloatGreaterThan |
-			#PredicateFloatGreaterThanOrEqual |
-			#PredicateFloatBetween
+			if list.Contains(_ids.f, ref) {
+				{equals: float} |
+				{in: [...float]} |
+				{lt: float} |
+				{lte: float} |
+				{gt: float} |
+				{gte: float} |
+				{min: float, max: float} |
+				{present: bool}
+			}
 
-		#PredicateFloatEquals: _LeafScope & {ref: or(_ids.f), equals: float}
-		#PredicateFloatIn: _LeafScope & {ref: or(_ids.f), in: [...float]}
-		#PredicateFloatLessThan: _LeafScope & {ref: or(_ids.f), lt: float}
-		#PredicateFloatLessThanOrEqual: _LeafScope & {ref: or(_ids.f), lte: float}
-		#PredicateFloatGreaterThan: _LeafScope & {ref: or(_ids.f), gt: float}
-		#PredicateFloatGreaterThanOrEqual: _LeafScope & {ref: or(_ids.f), gte: float}
-		#PredicateFloatBetween: _LeafScope & {ref: or(_ids.f), min: float, max: float}
+			if list.Contains(_ids.s, ref) {
+				{equals: string} |
+				{in: [...string]} |
+				{present: bool}
+			}
 
-		#PredicateString:
-			#PredicateStringEquals |
-			#PredicateStringIn
-
-		#PredicateStringEquals: _LeafScope & {ref: or(_ids.s), equals: string}
-		#PredicateStringIn: _LeafScope & {ref: or(_ids.s), in: [...string]}
-
-		#PredicateEnum:
-			#PredicateEnumEquals |
-			#PredicateEnumIn
-
-		#PredicateEnumEquals: _LeafScope & {
-			ref: or(_ids.e)
-			equals: or([for v in options[ref].spec.rules.variants {v.id}])
+			if list.Contains(_ids.e, ref) {
+				{equals: or([for v in options[ref].spec.rules.variants {v.id}])} |
+				{in: [...or([for v in options[ref].spec.rules.variants {v.id}])]} |
+				{present: bool}
+			}
 		}
-		#PredicateEnumIn: _LeafScope & {ref: or(_ids.e), in: [...or([for v in options[ref].spec.rules.variants {v.id}])]}
-
-		#PredicatePresent: _LeafScope & {ref: or(_ids.all), present: bool}
-
-		#PredicateBool: bool
 	}
 
-	#Assignment:
-		#Assignments.#AssignmentInteger |
-		#Assignments.#AssignmentFloat |
-		#Assignments.#AssignmentString |
-		#Assignments.#AssignmentEnum |
-		#Assignments.#AssignmentClear
+	#Assignment: #Assignments.#Clear | #Assignments.#Set
 
 	#Assignments: {
-		#AssignmentInteger: {ref: or(_ids.i), value: int}
-		#AssignmentFloat: {ref: or(_ids.f), value: float}
-		#AssignmentString: {ref: or(_ids.s), value: string}
-		#AssignmentEnum: {ref: or(_ids.e), value: or([for v in options[ref].spec.rules.variants {v.id}])}
-		#AssignmentClear: {ref: or(_ids.all), present: false}
+		#Set: {
+			ref: or(_ids.all)
+
+			if list.Contains(_ids.i, ref) {
+				value: int
+			}
+
+			if list.Contains(_ids.f, ref) {
+				value: float
+			}
+
+			if list.Contains(_ids.s, ref) {
+				value: string
+			}
+
+			if list.Contains(_ids.e, ref) {
+				value: or([for v in options[ref].spec.rules.variants {v.id}])
+			}
+		}
+
+		#Clear: {ref: or(_ids.all), present: false}
 	}
 }
 
