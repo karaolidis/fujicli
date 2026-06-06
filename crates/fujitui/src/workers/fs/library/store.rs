@@ -6,7 +6,7 @@ use std::{
     sync::Arc,
 };
 
-use fujicore::generated::simulations::SimulationBase;
+use fujicore::{UsbId, generated::simulations::SimulationBase};
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
@@ -15,20 +15,13 @@ use time::OffsetDateTime;
 
 use super::slug::Slug;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct SourceCamera {
-    pub vendor: u16,
-    pub product: u16,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct LibraryEntry {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub source_camera: SourceCamera,
+    pub source_camera: UsbId,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
@@ -156,12 +149,8 @@ impl SimLibrary {
         })
     }
 
-    pub fn add(
-        &mut self,
-        init: EntryEdit,
-        source_camera: SourceCamera,
-    ) -> Result<Slug, LibraryError> {
-        let slug = Slug::from_name(&init.name)?;
+    pub fn add(&mut self, init: EntryEdit, source_camera: UsbId) -> Result<Slug, LibraryError> {
+        let slug = Slug::try_from(init.name.as_str())?;
         if let Some(existing) = self.entries.get(&slug) {
             return Err(LibraryError::SlugConflict {
                 slug,
@@ -191,7 +180,7 @@ impl SimLibrary {
             .get(slug)
             .ok_or_else(|| LibraryError::NotFound { slug: slug.clone() })?;
 
-        let new_slug = Slug::from_name(&edit.name)?;
+        let new_slug = Slug::try_from(edit.name.as_str())?;
         if new_slug != *slug
             && let Some(other) = self.entries.get(&new_slug)
         {
@@ -319,7 +308,7 @@ fn load_one(path: &Path) -> Result<(Slug, LibraryEntry), LibraryError> {
             source,
         })?;
 
-    let name_slug = Slug::from_name(&entry.name)?;
+    let name_slug = Slug::try_from(entry.name.as_str())?;
     let file_stem = path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -346,8 +335,8 @@ mod tests {
 
     use super::*;
 
-    fn cam() -> SourceCamera {
-        SourceCamera {
+    fn cam() -> UsbId {
+        UsbId {
             vendor: 0x04CB,
             product: 0x02FC,
         }
@@ -548,7 +537,7 @@ mod tests {
     fn update_missing_fails() {
         let (_tmp, path) = dir();
         let (mut lib, _) = SimLibrary::open(path).unwrap();
-        let phantom = Slug::from_name("not-there").unwrap();
+        let phantom = Slug::try_from("not-there").unwrap();
         let err = lib
             .update(
                 &phantom,
@@ -624,7 +613,7 @@ mod tests {
             modified: OffsetDateTime::now_utc(),
             simulation: sim_acros(),
         };
-        let acros_slug = Slug::from_name("Acros").unwrap();
+        let acros_slug = Slug::try_from("Acros").unwrap();
         write_atomic(&path, &acros_slug, &entry).unwrap();
 
         assert_eq!(lib.len(), 1);

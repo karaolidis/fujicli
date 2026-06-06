@@ -3,6 +3,7 @@ use std::fmt;
 use thiserror::Error;
 
 use crate::{
+    UsbId,
     features::{image::ImageError, simulation::SimulationError},
     input::OptionError,
     ptp::{DevicePropCode, PtpError},
@@ -30,8 +31,8 @@ impl fmt::Display for Capability {
 
 #[derive(Debug, Error)]
 pub enum CoreError {
-    #[error("device not supported (vendor {vendor:#06x}, product {product:#06x})")]
-    DeviceUnsupported { vendor: u16, product: u16 },
+    #[error("device {0} is not supported")]
+    DeviceUnsupported(UsbId),
 
     #[error("no PTP imaging interface found on USB device")]
     NoImagingInterface,

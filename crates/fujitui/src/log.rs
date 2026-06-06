@@ -16,16 +16,13 @@ use log4rs::{
 const ROLL_SIZE_BYTES: u64 = 5 * 1024 * 1024;
 const ROLL_COUNT: u32 = 3;
 
-pub fn init(verbose: u8) -> anyhow::Result<()> {
+pub fn init(verbose: u8, dirs: &ProjectDirs) -> anyhow::Result<()> {
     let level = match verbose {
         0 => LevelFilter::Info,
         1 => LevelFilter::Debug,
         _ => LevelFilter::Trace,
     };
 
-    let Some(dirs) = ProjectDirs::from("", "", "fujicli") else {
-        bail!("cannot resolve XDG directories (no $HOME?)");
-    };
     let state_dir = dirs.state_dir().map_or_else(
         || dirs.data_dir().to_path_buf(),
         std::path::Path::to_path_buf,

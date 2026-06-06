@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::ui::Tab;
 
@@ -11,11 +11,7 @@ pub enum Action {
 }
 
 #[must_use]
-pub fn map(key: KeyEvent) -> Option<Action> {
-    if key.kind != KeyEventKind::Press {
-        return None;
-    }
-
+pub const fn map(key: KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Char('q') => Some(Action::Quit),
         KeyCode::Tab | KeyCode::Char(']') => Some(Action::NextTab),

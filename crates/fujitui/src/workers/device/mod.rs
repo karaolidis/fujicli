@@ -8,7 +8,7 @@ use std::{
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use fujicore::{
-    Camera, CoreError,
+    Camera, CoreError, UsbId,
     generated::{options::CustomSetting, simulations::SimulationBase},
 };
 use log::{debug, error, info};
@@ -39,7 +39,8 @@ pub enum DeviceCommand {
 #[derive(Debug, Clone)]
 pub struct DeviceSnapshot {
     pub name: &'static str,
-    pub usb_id: String,
+    pub usb_id: UsbId,
+    pub bus_address: String,
     pub battery: u32,
 }
 
@@ -49,10 +50,13 @@ pub enum DeviceEvent {
     InfoUpdated(DeviceSnapshot),
     Disconnected,
     Error(Box<CoreError>),
+    SlotsEnumerated {
+        req: ReqId,
+        slots: Vec<CustomSetting>,
+    },
     SlotFetched {
         req: ReqId,
         slot: CustomSetting,
-        #[allow(dead_code)]
         base: SimulationBase,
     },
     SlotFetchFailed {
@@ -194,7 +198,8 @@ fn snapshot(camera: &mut Camera) -> Result<DeviceSnapshot, CoreError> {
     let info = camera.get_info()?;
     Ok(DeviceSnapshot {
         name: camera.name(),
-        usb_id: camera.connected_usb_id(),
+        usb_id: camera.usb_id(),
+        bus_address: camera.bus_address(),
         battery: info.battery(),
     })
 }
@@ -249,6 +254,10 @@ fn fetch_all_slots(
             return ControlFlow::Continue(());
         }
     };
+    let _ = event_tx.send(DeviceEvent::SlotsEnumerated {
+        req,
+        slots: slots.clone(),
+    });
     for slot in slots {
         fetch_slot(camera, req, slot, event_tx)?;
     }

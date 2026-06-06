@@ -13,6 +13,7 @@ use features::{
 use log::{debug, error};
 use ptp::Ptp;
 use rusb::{GlobalContext, constants::LIBUSB_CLASS_IMAGE};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     features::base::UNKNOWN_CAMERA,
@@ -21,6 +22,26 @@ use crate::{
         simulations::SimulationBase,
     },
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct UsbId {
+    pub vendor: u16,
+    pub product: u16,
+}
+
+impl UsbId {
+    #[must_use]
+    pub fn supported_camera(self) -> Option<&'static SupportedCamera> {
+        SUPPORTED.iter().find(|c| c.usb_id == self)
+    }
+}
+
+impl std::fmt::Display for UsbId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:04x}:{:04x}", self.vendor, self.product)
+    }
+}
 
 const SESSION: u32 = 1;
 
@@ -39,36 +60,33 @@ pub enum CameraMode {
 impl Camera {
     pub fn probe(device: &rusb::Device<GlobalContext>) -> CoreResult<bool> {
         let descriptor = device.device_descriptor()?;
-
-        let vendor = descriptor.vendor_id();
-        let product = descriptor.product_id();
-
-        let supported = SUPPORTED
-            .iter()
-            .any(|c| c.vendor == vendor && c.product == product);
-
-        Ok(supported)
+        let usb_id = UsbId {
+            vendor: descriptor.vendor_id(),
+            product: descriptor.product_id(),
+        };
+        Ok(SUPPORTED.iter().any(|c| c.usb_id == usb_id))
     }
 
     pub fn open_with(mode: CameraMode, device: &rusb::Device<GlobalContext>) -> CoreResult<Self> {
         let descriptor = device.device_descriptor()?;
 
-        let (vendor, product) = match mode {
-            CameraMode::Supported | CameraMode::Unknown => {
-                (descriptor.vendor_id(), descriptor.product_id())
-            }
-            CameraMode::Emulated { vendor, product } => (vendor, product),
+        let usb_id = match mode {
+            CameraMode::Supported | CameraMode::Unknown => UsbId {
+                vendor: descriptor.vendor_id(),
+                product: descriptor.product_id(),
+            },
+            CameraMode::Emulated { vendor, product } => UsbId { vendor, product },
         };
 
         let factory = match mode {
             CameraMode::Supported | CameraMode::Emulated { .. } => SUPPORTED
                 .iter()
-                .find(|c| c.vendor == vendor && c.product == product)
+                .find(|c| c.usb_id == usb_id)
                 .map(|c| {
                     debug!("Found supported camera: {}", c.name);
                     c.camera_factory
                 })
-                .ok_or(CoreError::DeviceUnsupported { vendor, product })?,
+                .ok_or(CoreError::DeviceUnsupported(usb_id))?,
             CameraMode::Unknown => UNKNOWN_CAMERA.camera_factory,
         };
 
@@ -155,8 +173,7 @@ type CameraFactory = fn() -> Box<dyn CameraBase<Context = GlobalContext>>;
 #[derive(Debug, Clone, Copy)]
 pub struct SupportedCamera {
     pub name: &'static str,
-    pub vendor: u16,
-    pub product: u16,
+    pub usb_id: UsbId,
     pub camera_factory: CameraFactory,
     pub simulation: Option<&'static SimulationDescriptors>,
 }
@@ -166,15 +183,11 @@ impl Camera {
         self.r#impl.camera_definition().name
     }
 
-    pub fn vendor_id(&self) -> u16 {
-        self.r#impl.camera_definition().vendor
+    pub fn usb_id(&self) -> UsbId {
+        self.r#impl.camera_definition().usb_id
     }
 
-    pub fn product_id(&self) -> u16 {
-        self.r#impl.camera_definition().product
-    }
-
-    pub fn connected_usb_id(&self) -> String {
+    pub fn bus_address(&self) -> String {
         format!("{}.{}", self.ptp.bus, self.ptp.address)
     }
 

@@ -89,8 +89,10 @@ pub struct UnknownCamera;
 
 pub const UNKNOWN_CAMERA: SupportedCamera = SupportedCamera {
     name: "Unknown Camera",
-    vendor: 0x0000,
-    product: 0x0000,
+    usb_id: crate::UsbId {
+        vendor: 0x0000,
+        product: 0x0000,
+    },
     camera_factory: || Box::new(UnknownCamera),
     simulation: None,
 };

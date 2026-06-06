@@ -3,7 +3,7 @@ use std::fmt;
 use erased_serde::serialize_trait_object;
 use serde::Serialize;
 
-use crate::{Camera, generated::options::UsbMode};
+use crate::{Camera, UsbId, generated::options::UsbMode};
 
 pub trait CameraInfo: fmt::Display + erased_serde::Serialize {
     fn battery(&self) -> u32;
@@ -43,18 +43,16 @@ impl CameraInfo for DefaultCameraInfo {
 #[serde(rename_all = "camelCase")]
 pub struct CameraInfoListItem {
     pub name: &'static str,
-    pub usb_id: String,
-    pub vendor_id: String,
-    pub product_id: String,
+    pub bus_address: String,
+    pub usb_id: UsbId,
 }
 
 impl From<&Camera> for CameraInfoListItem {
     fn from(camera: &Camera) -> Self {
         Self {
             name: camera.name(),
-            usb_id: camera.connected_usb_id(),
-            vendor_id: format!("0x{:04x}", camera.vendor_id()),
-            product_id: format!("0x{:04x}", camera.product_id()),
+            bus_address: camera.bus_address(),
+            usb_id: camera.usb_id(),
         }
     }
 }
@@ -63,8 +61,8 @@ impl fmt::Display for CameraInfoListItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{} ({}:{}) (USB ID: {})",
-            self.name, self.vendor_id, self.product_id, self.usb_id
+            "{} ({}) (bus {})",
+            self.name, self.usb_id, self.bus_address
         )
     }
 }

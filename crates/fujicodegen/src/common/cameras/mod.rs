@@ -211,8 +211,7 @@ fn generate_supported_camera_const(
     quote! {
         pub const #const_name: crate::SupportedCamera = crate::SupportedCamera {
             name: #name_str,
-            vendor: #vendor,
-            product: #product,
+            usb_id: crate::UsbId { vendor: #vendor, product: #product },
             camera_factory: || Box::new(#struct_name),
             simulation: #simulation,
         };
