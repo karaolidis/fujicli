@@ -74,14 +74,16 @@ fn slot_item(
     cursor: &SimulationCursor,
 ) -> ListItem<'static> {
     let selected = matches!(cursor, SimulationCursor::Slot(s) if *s == slot);
-    let (label, style) = match entry {
+    let (label, style, dirty) = match entry {
         SlotEntry::Loading => (
             format!("{slot}{COL_SEPARATOR}(loading...)"),
             Style::default().fg(Color::DarkGray),
+            false,
         ),
         SlotEntry::Failed(_) => (
             format!("{slot}{COL_SEPARATOR}(failed)"),
             Style::default().fg(Color::Red),
+            false,
         ),
         SlotEntry::Loaded(buf) => {
             let name = buf
@@ -90,7 +92,8 @@ fn slot_item(
                 .custom_setting_name
                 .as_ref()
                 .map_or_else(|| "(unnamed)".to_owned(), ToString::to_string);
-            let marker = if buf.dirty() {
+            let dirty = buf.dirty();
+            let marker = if dirty {
                 format!("{DIRTY_MARKER} ")
             } else {
                 String::new()
@@ -98,14 +101,17 @@ fn slot_item(
             (
                 format!("{marker}{slot}{COL_SEPARATOR}{name}"),
                 Style::default(),
+                dirty,
             )
         }
     };
-    let text_style = if selected {
-        style.add_modifier(Modifier::REVERSED)
-    } else {
-        style
-    };
+    let mut text_style = style;
+    if selected {
+        text_style = text_style.add_modifier(Modifier::REVERSED);
+    }
+    if dirty {
+        text_style = text_style.add_modifier(Modifier::ITALIC);
+    }
     ListItem::new(Line::from(vec![
         Span::raw(INDENT),
         Span::styled(label, text_style),
@@ -114,17 +120,20 @@ fn slot_item(
 
 fn library_item(slug: &Slug, lib: &LibraryBuffer, cursor: &SimulationCursor) -> ListItem<'static> {
     let selected = matches!(cursor, SimulationCursor::Library(s) if s == slug);
-    let marker = if lib.buffer.dirty() {
+    let dirty = lib.buffer.dirty();
+    let marker = if dirty {
         format!("{DIRTY_MARKER} ")
     } else {
         String::new()
     };
     let label = format!("{marker}{}", lib.entry.name);
-    let text_style = if selected {
-        Style::default().add_modifier(Modifier::REVERSED)
-    } else {
-        Style::default()
-    };
+    let mut text_style = Style::default();
+    if selected {
+        text_style = text_style.add_modifier(Modifier::REVERSED);
+    }
+    if dirty {
+        text_style = text_style.add_modifier(Modifier::ITALIC);
+    }
     ListItem::new(Line::from(vec![
         Span::raw(INDENT),
         Span::styled(label, text_style),

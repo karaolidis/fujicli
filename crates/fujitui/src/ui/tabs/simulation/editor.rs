@@ -64,6 +64,7 @@ impl SimulationTabState {
                     block,
                     &lib.entry.name,
                     &lib.buffer.working,
+                    &lib.buffer.fetched.canonical,
                     descriptors,
                     lib.buffer.dirty(),
                     cursor,
@@ -110,6 +111,7 @@ fn render_slot(
                 block,
                 title,
                 &buf.working,
+                &buf.fetched.canonical,
                 descriptors,
                 buf.dirty(),
                 cursor,
@@ -125,18 +127,30 @@ fn render_library(
     block: Block<'_>,
     title: &str,
     state: &SimulationState,
+    fetched: &SimulationBase,
     descriptors: &'static SimulationDescriptors,
     dirty: bool,
     cursor: Option<usize>,
     editing: Option<&InlineEdit>,
 ) {
     let title = if dirty {
-        border_title!(1, "{DIRTY_MARKER} {title}")
+        let text = border_title!(1, "{DIRTY_MARKER} {title}");
+        Line::from(Span::styled(
+            text,
+            Style::default().add_modifier(Modifier::ITALIC),
+        ))
     } else {
-        border_title!(1, "{title}")
+        Line::from(Span::raw(border_title!(1, "{title}")))
     };
     let inner_width = area.width.saturating_sub(2);
-    let items = build_field_items(descriptors, &state.canonical, cursor, inner_width, editing);
+    let items = build_field_items(
+        descriptors,
+        &state.canonical,
+        fetched,
+        cursor,
+        inner_width,
+        editing,
+    );
     let list = List::new(items).block(block.title(title));
     frame.render_widget(list, area);
 }
@@ -144,6 +158,7 @@ fn render_library(
 fn build_field_items(
     descriptors: &SimulationDescriptors,
     canonical: &SimulationBase,
+    fetched: &SimulationBase,
     cursor: Option<usize>,
     inner_width: u16,
     editing: Option<&InlineEdit>,
@@ -193,11 +208,13 @@ fn build_field_items(
             }
         } else {
             let value = (field.display)(canonical).expect("visible field has display");
+            let dirty = !(field.eq)(canonical, fetched);
             items.push(field_item(
                 prefix,
                 field.name,
                 value,
                 cursor == Some(field_idx),
+                dirty,
                 inner_width,
             ));
         }
@@ -211,23 +228,32 @@ fn field_item(
     name: &'static str,
     value: String,
     highlight: bool,
+    dirty: bool,
     inner_width: u16,
 ) -> ListItem<'static> {
-    let label_w = prefix.chars().count() + name.chars().count();
+    let marker = if dirty {
+        format!("{DIRTY_MARKER} ")
+    } else {
+        String::new()
+    };
+    let label_w = prefix.chars().count() + marker.chars().count() + name.chars().count();
     let value_w = value.chars().count();
     let gap = (inner_width as usize).saturating_sub(label_w + value_w);
     let dots_w = gap.saturating_sub(2);
     let dots: String = (0..dots_w)
         .map(|i| if i % 2 == 0 { '.' } else { ' ' })
         .collect();
-    let text_style = if highlight {
-        Style::default().add_modifier(Modifier::REVERSED)
-    } else {
-        Style::default()
-    };
+    let mut text_style = Style::default();
+    if highlight {
+        text_style = text_style.add_modifier(Modifier::REVERSED);
+    }
+    if dirty {
+        text_style = text_style.add_modifier(Modifier::ITALIC);
+    }
     let dots_style = Style::default().fg(Color::DarkGray);
     ListItem::new(Line::from(vec![
         Span::raw(prefix),
+        Span::styled(marker, text_style),
         Span::styled(name, text_style),
         Span::raw(" "),
         Span::styled(dots, dots_style),
