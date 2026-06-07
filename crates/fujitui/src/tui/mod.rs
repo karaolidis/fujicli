@@ -159,7 +159,7 @@ impl App {
         }
 
         if let Some(modal) = self.modal.as_mut() {
-            match modal.handle_key(key) {
+            match modal.on_key(key) {
                 ModalOutcome::Continue => {}
                 ModalOutcome::Effect(effect) => {
                     self.modal = None;
@@ -196,7 +196,7 @@ impl App {
 
     fn set_tab(&mut self, target: Tab) {
         self.active_tab = target;
-        self.tabs.on_activate(&self.ctx, target);
+        self.tabs.handle_activate(&self.ctx, target);
     }
 
     fn handle_device_event(&mut self, event: DeviceEvent) {
@@ -207,7 +207,7 @@ impl App {
                     snap.name, snap.usb_id, snap.bus_address, snap.battery
                 );
                 self.ctx.device_snapshot = Some(snap);
-                self.tabs.on_device_connected(&self.ctx);
+                self.tabs.handle_device_connected(&self.ctx);
             }
             DeviceEvent::InfoUpdated(snap) => {
                 debug!("device info: battery {}%", snap.battery);
@@ -218,7 +218,7 @@ impl App {
                 self.ctx.device_snapshot = None;
                 self.ctx.device = None;
                 self.modal = Some(Box::new(FatalModal::disconnect()));
-                self.tabs.on_device_disconnected(&self.ctx);
+                self.tabs.handle_device_disconnected(&self.ctx);
             }
             DeviceEvent::Error(error) => {
                 let msg = error.to_string();
@@ -227,28 +227,28 @@ impl App {
             }
             DeviceEvent::SlotsEnumerated { req, slots } => {
                 debug!("{req}: slots enumerated ({} slots)", slots.len());
-                self.tabs.on_slots_enumerated(&self.ctx, req, &slots);
+                self.tabs.handle_slots_enumerated(&self.ctx, req, &slots);
             }
             DeviceEvent::SlotFetched { req, slot, base } => {
                 debug!("{req}: slot {slot} fetched");
-                self.tabs.on_slot_fetched(&self.ctx, slot, &base);
+                self.tabs.handle_slot_fetched(&self.ctx, slot, &base);
             }
             DeviceEvent::SlotFetchFailed { req, slot, error } => {
                 let msg = format!("{req}: fetch of {slot} failed: {error}");
                 warn!("{msg}");
                 let error: Arc<CoreError> = error.into();
-                self.tabs.on_slot_fetch_failed(&self.ctx, slot, &error);
+                self.tabs.handle_slot_fetch_failed(&self.ctx, slot, &error);
                 self.status_message = Some(msg);
             }
             DeviceEvent::SlotChanged { req, slot } => {
                 info!("{req}: slot {slot} pushed");
-                self.tabs.on_slot_changed(&self.ctx, slot);
+                self.tabs.handle_slot_changed(&self.ctx, slot);
             }
             DeviceEvent::SlotPushFailed { req, slot, error } => {
                 let msg = format!("{req}: push to {slot} failed: {error}");
                 warn!("{msg}");
                 let error: Arc<CoreError> = error.into();
-                self.tabs.on_slot_push_failed(&self.ctx, slot, &error);
+                self.tabs.handle_slot_push_failed(&self.ctx, slot, &error);
                 self.status_message = Some(msg);
             }
         }
@@ -365,7 +365,7 @@ impl App {
 
     fn set_library(&mut self, snapshot: Arc<LibrarySnapshot>) {
         self.ctx.library_snapshot = snapshot;
-        self.tabs.on_library_changed(&self.ctx);
+        self.tabs.handle_library_changed(&self.ctx);
     }
 
     #[allow(clippy::needless_pass_by_value)]

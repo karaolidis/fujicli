@@ -20,7 +20,7 @@ pub fn centered(pct_x: u16, pct_y: u16, area: Rect) -> Rect {
 }
 
 pub trait ModalHandler {
-    fn handle_key(&mut self, key: KeyEvent) -> ModalOutcome;
+    fn on_key(&mut self, key: KeyEvent) -> ModalOutcome;
     fn render(&self, frame: &mut Frame, area: Rect);
 }
 

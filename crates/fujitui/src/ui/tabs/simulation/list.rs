@@ -1,10 +1,10 @@
 use fujicore::generated::options::CustomSetting;
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 
 use crate::{
@@ -12,8 +12,8 @@ use crate::{
     ui::{
         border_style,
         tabs::simulation::{
-            COL_SEPARATOR, DIRTY_MARKER, INDENT, LibraryBuffer, Pane, SimulationCursor,
-            SimulationTabState, SlotEntry,
+            COL_SEPARATOR, DIRTY_MARKER, FILTER_PROMPT, INDENT, LibraryBuffer, Pane,
+            SimulationCursor, SimulationTabState, SlotEntry, TextInputState,
         },
     },
     workers::fs::library::Slug,
@@ -26,17 +26,60 @@ impl SimulationTabState {
             .borders(Borders::ALL)
             .border_style(border_style(active))
             .title(border_title!(1, "Simulations"));
-        let items = build_list_items(self);
-        frame.render_widget(List::new(items).block(block), area);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let show_chip = self.filtering() || !self.filter().buffer.is_empty();
+        let list_area = if show_chip {
+            let [chip_area, list_area] =
+                Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
+            render_filter(frame, chip_area, self.filter(), self.filtering());
+            list_area
+        } else {
+            inner
+        };
+
+        let items = list_items(self);
+        frame.render_widget(List::new(items), list_area);
     }
 }
 
-fn build_list_items(state: &SimulationTabState) -> Vec<ListItem<'static>> {
+fn render_filter(frame: &mut Frame, area: Rect, filter: &TextInputState, filtering: bool) {
+    let prompt = Span::styled(FILTER_PROMPT, Style::default().fg(Color::DarkGray));
+    let line = if filtering {
+        let chars: Vec<char> = filter.buffer.chars().collect();
+        let cursor = filter.cursor_col;
+        let before: String = chars.iter().take(cursor).collect();
+        let at: String = chars
+            .get(cursor)
+            .map_or_else(|| " ".to_owned(), ToString::to_string);
+        let after: String = chars.iter().skip(cursor + 1).collect();
+        Line::from(vec![
+            prompt,
+            Span::raw(before),
+            Span::styled(at, Style::default().add_modifier(Modifier::REVERSED)),
+            Span::raw(after),
+        ])
+    } else {
+        Line::from(vec![
+            prompt,
+            Span::styled(filter.buffer.clone(), Style::default().fg(Color::DarkGray)),
+        ])
+    };
+    frame.render_widget(Paragraph::new(line), area);
+}
+
+fn list_items(state: &SimulationTabState) -> Vec<ListItem<'static>> {
+    let filtering = !state.filter().buffer.is_empty();
     let mut out = Vec::new();
     let slot_count = state.slot_entries().count();
     out.push(section_header(&format!("Slots ({slot_count})")));
     if slot_count == 0 {
-        out.push(placeholder("(no slots)"));
+        out.push(placeholder(if filtering {
+            "(no matches)"
+        } else {
+            "(no slots)"
+        }));
     } else {
         for (slot, entry) in state.slot_entries() {
             out.push(slot_item(slot, entry, state.list_cursor()));
@@ -45,7 +88,11 @@ fn build_list_items(state: &SimulationTabState) -> Vec<ListItem<'static>> {
     let lib_count = state.library_entries().count();
     out.push(section_header(&format!("Library ({lib_count})")));
     if lib_count == 0 {
-        out.push(placeholder("(no entries)"));
+        out.push(placeholder(if filtering {
+            "(no matches)"
+        } else {
+            "(no entries)"
+        }));
     } else {
         for (slug, lib) in state.library_entries() {
             out.push(library_item(slug, lib, state.list_cursor()));
@@ -86,11 +133,8 @@ fn slot_item(
             false,
         ),
         SlotEntry::Loaded(buf) => {
-            let name = buf
-                .working
-                .canonical
-                .custom_setting_name
-                .as_ref()
+            let name = entry
+                .name()
                 .map_or_else(|| "(unnamed)".to_owned(), ToString::to_string);
             let dirty = buf.dirty();
             let marker = if dirty {

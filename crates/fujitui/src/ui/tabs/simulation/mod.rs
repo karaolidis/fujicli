@@ -10,7 +10,10 @@ use fujicore::{
         Direction, EnumOps, Extreme, Magnitude, OptionDescriptor, OptionOps, SetOutcome,
         SimulationDescriptors,
     },
-    generated::{options::CustomSetting, simulations::SimulationBase},
+    generated::{
+        options::{CustomSetting, CustomSettingName},
+        simulations::SimulationBase,
+    },
 };
 use log::{debug, warn};
 use ratatui::{
@@ -41,6 +44,15 @@ pub enum SlotEntry {
     Loading,
     Loaded(Buffer<SimulationState>),
     Failed(Arc<CoreError>),
+}
+
+impl SlotEntry {
+    pub const fn name(&self) -> Option<&CustomSettingName> {
+        match self {
+            Self::Loaded(buf) => buf.working.canonical.custom_setting_name.as_ref(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -114,7 +126,11 @@ impl Slots {
         Ok(req)
     }
 
-    pub fn on_enumerated(&mut self, req: ReqId, slots: &[CustomSetting]) -> Result<(), SlotError> {
+    pub fn handle_enumerated(
+        &mut self,
+        req: ReqId,
+        slots: &[CustomSetting],
+    ) -> Result<(), SlotError> {
         match self.state {
             SlotsState::Requested(r) if r == req => {}
             state => return Err(SlotError::UnexpectedEnumeration { state, req }),
@@ -124,7 +140,7 @@ impl Slots {
         Ok(())
     }
 
-    pub fn on_fetched(
+    pub fn handle_fetched(
         &mut self,
         slot: CustomSetting,
         base: &SimulationBase,
@@ -145,7 +161,7 @@ impl Slots {
         Ok(())
     }
 
-    pub fn on_fetch_failed(
+    pub fn handle_fetch_failed(
         &mut self,
         slot: CustomSetting,
         error: Arc<CoreError>,
@@ -356,7 +372,7 @@ pub(super) enum InlineKind {
     Picker(PickerState),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct TextInputState {
     pub buffer: String,
     pub cursor_col: usize,
@@ -744,6 +760,8 @@ pub struct SimulationTabState {
     library: Library,
     cursor: Cursor,
     editing: Option<InlineEdit>,
+    filter: TextInputState,
+    filtering: bool,
 }
 
 impl SimulationTabState {
@@ -768,11 +786,30 @@ impl SimulationTabState {
     }
 
     pub fn slot_entries(&self) -> impl Iterator<Item = (CustomSetting, &SlotEntry)> {
-        (&self.slots).into_iter()
+        let needle = self.filter.buffer.to_lowercase();
+        (&self.slots).into_iter().filter(move |(_, entry)| {
+            if needle.is_empty() {
+                return true;
+            }
+            entry
+                .name()
+                .is_some_and(|n| n.to_lowercase().contains(&needle))
+        })
     }
 
     pub fn library_entries(&self) -> impl Iterator<Item = (&Slug, &LibraryBuffer)> {
-        (&self.library).into_iter()
+        let needle = self.filter.buffer.to_lowercase();
+        (&self.library).into_iter().filter(move |(_, lib)| {
+            needle.is_empty() || lib.entry.name.to_lowercase().contains(&needle)
+        })
+    }
+
+    pub(super) const fn filter(&self) -> &TextInputState {
+        &self.filter
+    }
+
+    pub(super) const fn filtering(&self) -> bool {
+        self.filtering
     }
 
     fn visible_field_count(&self) -> usize {
@@ -953,6 +990,121 @@ impl SimulationTabState {
         }
     }
 
+    fn handle_filter_key(&mut self, key: KeyEvent) {
+        let filter = &mut self.filter;
+        let mut order_dirty = false;
+        let mut close = false;
+        let mut clear = false;
+        match key.code {
+            KeyCode::Esc => {
+                close = true;
+                clear = !filter.buffer.is_empty();
+            }
+            KeyCode::Enter => close = true,
+            KeyCode::Backspace => {
+                if filter.buffer.is_empty() {
+                    close = true;
+                } else if filter.cursor_col > 0 {
+                    let byte_start = filter
+                        .buffer
+                        .char_indices()
+                        .nth(filter.cursor_col - 1)
+                        .map_or(filter.buffer.len(), |(i, _)| i);
+                    let byte_end = filter
+                        .buffer
+                        .char_indices()
+                        .nth(filter.cursor_col)
+                        .map_or(filter.buffer.len(), |(i, _)| i);
+                    filter.buffer.drain(byte_start..byte_end);
+                    filter.cursor_col -= 1;
+                    order_dirty = true;
+                }
+            }
+            KeyCode::Delete => {
+                let len = filter.buffer.chars().count();
+                if filter.cursor_col < len {
+                    let byte_start = filter
+                        .buffer
+                        .char_indices()
+                        .nth(filter.cursor_col)
+                        .map_or(filter.buffer.len(), |(i, _)| i);
+                    let byte_end = filter
+                        .buffer
+                        .char_indices()
+                        .nth(filter.cursor_col + 1)
+                        .map_or(filter.buffer.len(), |(i, _)| i);
+                    filter.buffer.drain(byte_start..byte_end);
+                    order_dirty = true;
+                }
+            }
+            KeyCode::Left => {
+                if filter.cursor_col > 0 {
+                    filter.cursor_col -= 1;
+                }
+            }
+            KeyCode::Right => {
+                let len = filter.buffer.chars().count();
+                if filter.cursor_col < len {
+                    filter.cursor_col += 1;
+                }
+            }
+            KeyCode::Home => filter.cursor_col = 0,
+            KeyCode::End => filter.cursor_col = filter.buffer.chars().count(),
+            KeyCode::Char(c) if !c.is_control() => {
+                let byte_pos = filter
+                    .buffer
+                    .char_indices()
+                    .nth(filter.cursor_col)
+                    .map_or(filter.buffer.len(), |(i, _)| i);
+                filter.buffer.insert(byte_pos, c);
+                filter.cursor_col += 1;
+                order_dirty = true;
+            }
+            _ => {}
+        }
+        if clear {
+            self.filter.buffer.clear();
+            self.filter.cursor_col = 0;
+            order_dirty = true;
+        }
+        if close {
+            self.filtering = false;
+        }
+        if order_dirty {
+            let order = self.cursor_order();
+            self.cursor.ensure_valid(&order);
+        }
+    }
+
+    pub fn handle_key(&mut self, key: KeyEvent) {
+        if self.editing.is_some() {
+            self.handle_edit_mode_key(key);
+            return;
+        }
+        if self.filtering {
+            self.handle_filter_key(key);
+            return;
+        }
+        if self.cursor.pane() == Pane::List
+            && matches!(key.code, KeyCode::Char('/'))
+            && !key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            self.filtering = true;
+            self.filter.cursor_col = self.filter.buffer.chars().count();
+            return;
+        }
+        let max_field = self.visible_field_count();
+        let action = if self.cursor.pane() == Pane::List {
+            let order = self.cursor_order();
+            self.cursor.handle_key(key, &order, max_field)
+        } else {
+            self.cursor.handle_key(key, &[], max_field)
+        };
+        if let Some(action) = action {
+            self.handle_editor_action(action);
+        }
+    }
+
     fn commit_text(&mut self, text: &str) {
         let Some(edit) = self.editing.as_ref() else {
             return;
@@ -1059,8 +1211,12 @@ impl SimulationTabState {
         self.slots.mark_stale();
     }
 
-    fn apply_enumeration(&mut self, req: ReqId, slots: &[CustomSetting]) -> Result<(), SlotError> {
-        self.slots.on_enumerated(req, slots)?;
+    fn handle_slots_enumerated(
+        &mut self,
+        req: ReqId,
+        slots: &[CustomSetting],
+    ) -> Result<(), SlotError> {
+        self.slots.handle_enumerated(req, slots)?;
         let order = self.cursor_order();
         match &self.cursor.simulation {
             SimulationCursor::None => self.cursor.reset(&order),
@@ -1071,20 +1227,20 @@ impl SimulationTabState {
         Ok(())
     }
 
-    fn apply_slot_fetched(
+    fn handle_slot_fetched(
         &mut self,
         slot: CustomSetting,
         base: &SimulationBase,
     ) -> Result<(), SlotError> {
-        self.slots.on_fetched(slot, base)
+        self.slots.handle_fetched(slot, base)
     }
 
-    fn apply_slot_fetch_failure(
+    fn handle_slot_fetch_failed(
         &mut self,
         slot: CustomSetting,
         error: Arc<CoreError>,
     ) -> Result<(), SlotError> {
-        self.slots.on_fetch_failed(slot, error)
+        self.slots.handle_fetch_failed(slot, error)
     }
 
     fn sync_library(&mut self, snapshot: &LibrarySnapshot) -> LibrarySyncReport {
@@ -1097,10 +1253,10 @@ impl SimulationTabState {
 
     fn cursor_order(&self) -> Vec<SimulationCursor> {
         let mut out = Vec::with_capacity(self.slots.entries.len() + self.library.entries.len());
-        for slot in self.slots.keys() {
+        for (slot, _) in self.slot_entries() {
             out.push(SimulationCursor::Slot(slot));
         }
-        for slug in self.library.keys() {
+        for (slug, _) in self.library_entries() {
             out.push(SimulationCursor::Library(slug.clone()));
         }
         out
@@ -1168,7 +1324,7 @@ impl TabBehavior for SimulationTabState {
     }
 
     fn is_capturing_input(&self) -> bool {
-        self.editing.is_some()
+        self.editing.is_some() || self.filtering
     }
 
     fn on_activate(&mut self, ctx: &AppCtx) {
@@ -1208,38 +1364,25 @@ impl TabBehavior for SimulationTabState {
     }
 
     fn on_slots_enumerated(&mut self, _ctx: &AppCtx, req: ReqId, slots: &[CustomSetting]) {
-        if let Err(anomaly) = self.apply_enumeration(req, slots) {
+        if let Err(anomaly) = self.handle_slots_enumerated(req, slots) {
             warn!("slot enumeration anomaly: {anomaly}");
         }
     }
 
     fn on_slot_fetched(&mut self, _ctx: &AppCtx, slot: CustomSetting, base: &SimulationBase) {
-        if let Err(anomaly) = self.apply_slot_fetched(slot, base) {
+        if let Err(anomaly) = self.handle_slot_fetched(slot, base) {
             warn!("slot fetched anomaly ({slot}): {anomaly}");
         }
     }
 
     fn on_slot_fetch_failed(&mut self, _ctx: &AppCtx, slot: CustomSetting, error: &Arc<CoreError>) {
-        if let Err(anomaly) = self.apply_slot_fetch_failure(slot, Arc::clone(error)) {
+        if let Err(anomaly) = self.handle_slot_fetch_failed(slot, Arc::clone(error)) {
             warn!("slot fetch-failed anomaly ({slot}): {anomaly}");
         }
     }
 
-    fn handle_key(&mut self, _ctx: &AppCtx, key: KeyEvent) {
-        if self.editing.is_some() {
-            self.handle_edit_mode_key(key);
-            return;
-        }
-        let max_field = self.visible_field_count();
-        let action = if self.cursor.pane() == Pane::List {
-            let order = self.cursor_order();
-            self.cursor.handle_key(key, &order, max_field)
-        } else {
-            self.cursor.handle_key(key, &[], max_field)
-        };
-        if let Some(action) = action {
-            self.handle_editor_action(action);
-        }
+    fn on_key(&mut self, _ctx: &AppCtx, key: KeyEvent) {
+        self.handle_key(key);
     }
 }
 
@@ -1290,7 +1433,7 @@ mod tests {
     fn enumerate(s: &mut SimulationTabState, slots: &[CustomSetting]) -> ReqId {
         let r = req();
         s.slots.state = SlotsState::Requested(r);
-        s.apply_enumeration(r, slots).unwrap();
+        s.handle_slots_enumerated(r, slots).unwrap();
         r
     }
 
@@ -1338,14 +1481,14 @@ mod tests {
     }
 
     #[test]
-    fn on_slot_fetched_marks_loaded_when_all_resolve() {
+    fn handle_slot_fetched_marks_loaded_when_all_resolve() {
         let mut s = SimulationTabState::default();
         enumerate(&mut s, &[CustomSetting::C1, CustomSetting::C2]);
         assert!(matches!(s.slots.state, SlotsState::InFlight(_)));
-        s.apply_slot_fetched(CustomSetting::C1, &SimulationBase::default())
+        s.handle_slot_fetched(CustomSetting::C1, &SimulationBase::default())
             .unwrap();
         assert!(matches!(s.slots.state, SlotsState::InFlight(_)));
-        s.apply_slot_fetched(CustomSetting::C2, &SimulationBase::default())
+        s.handle_slot_fetched(CustomSetting::C2, &SimulationBase::default())
             .unwrap();
         assert_eq!(s.slots.state, SlotsState::Loaded);
     }
@@ -1386,24 +1529,24 @@ mod tests {
     }
 
     #[test]
-    fn on_enumerated_rejects_mismatched_req() {
+    fn handle_slots_enumerated_rejects_mismatched_req() {
         let mut s = SimulationTabState::default();
         let req_gen = ReqIdGen::new();
         let issued = req_gen.next();
         let other = req_gen.next();
         s.slots.state = SlotsState::Requested(issued);
         let err = s
-            .apply_enumeration(other, &[CustomSetting::C1])
+            .handle_slots_enumerated(other, &[CustomSetting::C1])
             .unwrap_err();
         assert!(matches!(err, SlotError::UnexpectedEnumeration { .. }));
     }
 
     #[test]
-    fn on_fetched_rejects_unknown_slot() {
+    fn handle_slot_fetched_rejects_unknown_slot() {
         let mut s = SimulationTabState::default();
         enumerate(&mut s, &[CustomSetting::C1]);
         let err = s
-            .apply_slot_fetched(CustomSetting::C2, &SimulationBase::default())
+            .handle_slot_fetched(CustomSetting::C2, &SimulationBase::default())
             .unwrap_err();
         assert!(matches!(err, SlotError::UnknownSlot(CustomSetting::C2)));
     }
@@ -1540,8 +1683,8 @@ mod tests {
         s.slots.descriptors = Some(&C_X_S20_SIMULATION);
         let r = req();
         s.slots.state = SlotsState::Requested(r);
-        s.apply_enumeration(r, &[CustomSetting::C1]).unwrap();
-        s.apply_slot_fetched(CustomSetting::C1, base).unwrap();
+        s.handle_slots_enumerated(r, &[CustomSetting::C1]).unwrap();
+        s.handle_slot_fetched(CustomSetting::C1, base).unwrap();
         s
     }
 
@@ -2110,5 +2253,424 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    fn typed(c: char) -> KeyEvent {
+        key_press(KeyCode::Char(c))
+    }
+
+    fn type_into_filter(s: &mut SimulationTabState, text: &str) {
+        for c in text.chars() {
+            s.handle_filter_key(typed(c));
+        }
+    }
+
+    fn named_sim(name: &str) -> SimulationBase {
+        SimulationBase {
+            custom_setting_name: Some(name.parse().expect("valid name")),
+            ..Default::default()
+        }
+    }
+
+    fn multi_slot_setup(slots: &[(CustomSetting, Option<&str>)]) -> SimulationTabState {
+        let mut s = SimulationTabState::default();
+        s.slots.descriptors = Some(&C_X_S20_SIMULATION);
+        let ids: Vec<_> = slots.iter().map(|(c, _)| *c).collect();
+        let r = req();
+        s.slots.state = SlotsState::Requested(r);
+        s.handle_slots_enumerated(r, &ids).unwrap();
+        for (slot, name) in slots {
+            let base = name.map_or_else(SimulationBase::default, named_sim);
+            s.handle_slot_fetched(*slot, &base).unwrap();
+        }
+        s
+    }
+
+    fn slash() -> KeyEvent {
+        key_press(KeyCode::Char('/'))
+    }
+
+    #[test]
+    fn filter_default_state_is_inactive_and_empty() {
+        let s = SimulationTabState::default();
+        assert!(!s.filtering());
+        assert!(s.filter().buffer.is_empty());
+        assert_eq!(s.filter().cursor_col, 0);
+    }
+
+    #[test]
+    fn slash_in_list_pane_opens_filter() {
+        let mut s = SimulationTabState::default();
+        s.handle_key(slash());
+        assert!(s.filtering());
+    }
+
+    #[test]
+    fn slash_in_editor_pane_does_not_open_filter() {
+        let mut s = loaded_slot(&seeded_string_base());
+        assert!(focus_field(&mut s, "Custom Setting Name"));
+        assert_eq!(s.pane(), Pane::Editor);
+        s.handle_key(slash());
+        assert!(!s.filtering());
+    }
+
+    #[test]
+    fn slash_seeks_cursor_to_end_of_retained_buffer() {
+        let mut s = SimulationTabState::default();
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        s.handle_filter_key(key_press(KeyCode::Enter));
+        assert!(!s.filtering());
+        assert_eq!(s.filter().buffer, "vel");
+        s.handle_key(slash());
+        assert!(s.filtering());
+        assert_eq!(s.filter().cursor_col, 3);
+    }
+
+    #[test]
+    fn typing_into_filter_appends_chars() {
+        let mut s = SimulationTabState::default();
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        assert_eq!(s.filter().buffer, "vel");
+        assert_eq!(s.filter().cursor_col, 3);
+    }
+
+    #[test]
+    fn esc_closes_and_clears_filter() {
+        let mut s = SimulationTabState::default();
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        s.handle_filter_key(key_press(KeyCode::Esc));
+        assert!(!s.filtering());
+        assert!(s.filter().buffer.is_empty());
+        assert_eq!(s.filter().cursor_col, 0);
+    }
+
+    #[test]
+    fn enter_closes_and_keeps_filter() {
+        let mut s = SimulationTabState::default();
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        s.handle_filter_key(key_press(KeyCode::Enter));
+        assert!(!s.filtering());
+        assert_eq!(s.filter().buffer, "vel");
+    }
+
+    #[test]
+    fn backspace_on_empty_closes_filter() {
+        let mut s = SimulationTabState::default();
+        s.handle_key(slash());
+        s.handle_filter_key(key_press(KeyCode::Backspace));
+        assert!(!s.filtering());
+    }
+
+    #[test]
+    fn backspace_with_chars_removes_last_char_and_stays_open() {
+        let mut s = SimulationTabState::default();
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        s.handle_filter_key(key_press(KeyCode::Backspace));
+        assert!(s.filtering());
+        assert_eq!(s.filter().buffer, "ve");
+        assert_eq!(s.filter().cursor_col, 2);
+    }
+
+    #[test]
+    fn cursor_keys_move_within_filter_without_closing() {
+        let mut s = SimulationTabState::default();
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        s.handle_filter_key(key_press(KeyCode::Home));
+        assert_eq!(s.filter().cursor_col, 0);
+        s.handle_filter_key(key_press(KeyCode::Right));
+        assert_eq!(s.filter().cursor_col, 1);
+        s.handle_filter_key(key_press(KeyCode::End));
+        assert_eq!(s.filter().cursor_col, 3);
+        assert!(s.filtering());
+    }
+
+    #[test]
+    fn is_capturing_input_true_while_filtering() {
+        let mut s = SimulationTabState::default();
+        assert!(!<SimulationTabState as TabBehavior>::is_capturing_input(&s));
+        s.handle_key(slash());
+        assert!(<SimulationTabState as TabBehavior>::is_capturing_input(&s));
+        s.handle_filter_key(key_press(KeyCode::Esc));
+        assert!(!<SimulationTabState as TabBehavior>::is_capturing_input(&s));
+    }
+
+    #[test]
+    fn slot_entries_filter_by_name_substring() {
+        let mut s = multi_slot_setup(&[
+            (CustomSetting::C1, Some("velvia warm")),
+            (CustomSetting::C2, Some("provia")),
+            (CustomSetting::C3, Some("velvia cool")),
+        ]);
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        let visible: Vec<_> = s.slot_entries().map(|(slot, _)| slot).collect();
+        assert_eq!(visible, vec![CustomSetting::C1, CustomSetting::C3]);
+    }
+
+    #[test]
+    fn slot_entries_hides_unnamed_when_filter_active() {
+        let mut s = multi_slot_setup(&[
+            (CustomSetting::C1, Some("velvia warm")),
+            (CustomSetting::C2, None),
+        ]);
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        let visible: Vec<_> = s.slot_entries().map(|(slot, _)| slot).collect();
+        assert_eq!(visible, vec![CustomSetting::C1]);
+    }
+
+    #[test]
+    fn slot_entries_shows_unnamed_when_filter_empty() {
+        let s = multi_slot_setup(&[
+            (CustomSetting::C1, Some("velvia warm")),
+            (CustomSetting::C2, None),
+        ]);
+        let visible: Vec<_> = s.slot_entries().map(|(slot, _)| slot).collect();
+        assert_eq!(visible, vec![CustomSetting::C1, CustomSetting::C2]);
+    }
+
+    #[test]
+    fn slot_entries_hides_loading_when_filter_active() {
+        let mut s = SimulationTabState::default();
+        s.slots.descriptors = Some(&C_X_S20_SIMULATION);
+        enumerate(&mut s, &[CustomSetting::C1, CustomSetting::C2]);
+        s.handle_slot_fetched(CustomSetting::C1, &named_sim("velvia"))
+            .unwrap();
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        let visible: Vec<_> = s.slot_entries().map(|(slot, _)| slot).collect();
+        assert_eq!(visible, vec![CustomSetting::C1]);
+    }
+
+    #[test]
+    fn library_entries_filter_by_name_substring() {
+        let mut s = SimulationTabState::default();
+        let velvia_warm = Slug::try_from("velvia-warm").unwrap();
+        let provia = Slug::try_from("provia").unwrap();
+        let velvia_cool = Slug::try_from("velvia-cool").unwrap();
+        s.sync_library(&snapshot_with(vec![
+            (
+                velvia_warm.clone(),
+                sample_entry("Velvia Warm", SimulationBase::default()),
+            ),
+            (provia, sample_entry("Provia", SimulationBase::default())),
+            (
+                velvia_cool.clone(),
+                sample_entry("Velvia Cool", SimulationBase::default()),
+            ),
+        ]));
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        let visible: Vec<_> = s.library_entries().map(|(slug, _)| slug.clone()).collect();
+        assert_eq!(visible, vec![velvia_cool, velvia_warm]);
+    }
+
+    #[test]
+    fn filter_matching_is_case_insensitive() {
+        let mut s = multi_slot_setup(&[(CustomSetting::C1, Some("VELVIA WARM"))]);
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        let visible: Vec<_> = s.slot_entries().map(|(slot, _)| slot).collect();
+        assert_eq!(visible, vec![CustomSetting::C1]);
+    }
+
+    #[test]
+    fn cursor_rehomes_when_filter_narrows_past_focused_slot() {
+        let mut s = multi_slot_setup(&[
+            (CustomSetting::C1, Some("velvia")),
+            (CustomSetting::C2, Some("provia")),
+        ]);
+        step(&mut s, CursorMove::Down);
+        assert_eq!(
+            s.cursor.simulation,
+            SimulationCursor::Slot(CustomSetting::C2)
+        );
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        assert_eq!(
+            s.cursor.simulation,
+            SimulationCursor::Slot(CustomSetting::C1)
+        );
+    }
+
+    #[test]
+    fn cursor_stays_when_focused_entry_still_matches() {
+        let mut s = multi_slot_setup(&[
+            (CustomSetting::C1, Some("velvia warm")),
+            (CustomSetting::C2, Some("velvia cool")),
+            (CustomSetting::C3, Some("provia")),
+        ]);
+        step(&mut s, CursorMove::Down);
+        assert_eq!(
+            s.cursor.simulation,
+            SimulationCursor::Slot(CustomSetting::C2)
+        );
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        assert_eq!(
+            s.cursor.simulation,
+            SimulationCursor::Slot(CustomSetting::C2)
+        );
+    }
+
+    #[test]
+    fn library_sync_under_filter_preserves_state() {
+        let mut s = SimulationTabState::default();
+        let velvia_warm = Slug::try_from("velvia-warm").unwrap();
+        let velvia_cool = Slug::try_from("velvia-cool").unwrap();
+        s.sync_library(&snapshot_with(vec![
+            (
+                velvia_warm.clone(),
+                sample_entry("Velvia Warm", SimulationBase::default()),
+            ),
+            (
+                velvia_cool.clone(),
+                sample_entry("Velvia Cool", SimulationBase::default()),
+            ),
+        ]));
+        step(&mut s, CursorMove::Down);
+        assert_eq!(
+            s.cursor.simulation,
+            SimulationCursor::Library(velvia_cool.clone())
+        );
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+
+        let astia = Slug::try_from("astia").unwrap();
+        s.sync_library(&snapshot_with(vec![
+            (astia, sample_entry("Astia", SimulationBase::default())),
+            (
+                velvia_warm.clone(),
+                sample_entry("Velvia Warm", SimulationBase::default()),
+            ),
+            (
+                velvia_cool.clone(),
+                sample_entry("Velvia Cool", SimulationBase::default()),
+            ),
+        ]));
+
+        assert!(s.filtering());
+        assert_eq!(s.filter().buffer, "vel");
+        assert_eq!(
+            s.cursor.simulation,
+            SimulationCursor::Library(velvia_cool.clone())
+        );
+        let visible: Vec<_> = s.library_entries().map(|(slug, _)| slug.clone()).collect();
+        assert_eq!(visible, vec![velvia_cool, velvia_warm]);
+    }
+
+    #[test]
+    fn library_sync_rehomes_cursor_when_focused_entry_removed_under_filter() {
+        let mut s = SimulationTabState::default();
+        let velvia_warm = Slug::try_from("velvia-warm").unwrap();
+        let velvia_cool = Slug::try_from("velvia-cool").unwrap();
+        s.sync_library(&snapshot_with(vec![
+            (
+                velvia_warm.clone(),
+                sample_entry("Velvia Warm", SimulationBase::default()),
+            ),
+            (
+                velvia_cool.clone(),
+                sample_entry("Velvia Cool", SimulationBase::default()),
+            ),
+        ]));
+        step(&mut s, CursorMove::Down);
+        assert_eq!(
+            s.cursor.simulation,
+            SimulationCursor::Library(velvia_cool.clone())
+        );
+
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        assert_eq!(s.cursor.simulation, SimulationCursor::Library(velvia_cool));
+
+        s.sync_library(&snapshot_with(vec![(
+            velvia_warm.clone(),
+            sample_entry("Velvia Warm", SimulationBase::default()),
+        )]));
+
+        assert_eq!(s.cursor.simulation, SimulationCursor::Library(velvia_warm));
+    }
+
+    #[test]
+    fn library_sync_adds_entry_matching_active_filter() {
+        let mut s = SimulationTabState::default();
+        let velvia = Slug::try_from("velvia-warm").unwrap();
+        s.sync_library(&snapshot_with(vec![(
+            velvia.clone(),
+            sample_entry("Velvia Warm", SimulationBase::default()),
+        )]));
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+
+        let velvia2 = Slug::try_from("velvia-cool").unwrap();
+        s.sync_library(&snapshot_with(vec![
+            (
+                velvia.clone(),
+                sample_entry("Velvia Warm", SimulationBase::default()),
+            ),
+            (
+                velvia2.clone(),
+                sample_entry("Velvia Cool", SimulationBase::default()),
+            ),
+        ]));
+
+        let visible: Vec<_> = s.library_entries().map(|(slug, _)| slug.clone()).collect();
+        assert!(visible.contains(&velvia));
+        assert!(visible.contains(&velvia2));
+    }
+
+    #[test]
+    fn slot_rename_can_hide_slot_from_active_filter() {
+        let mut s = multi_slot_setup(&[
+            (CustomSetting::C1, Some("velvia warm")),
+            (CustomSetting::C2, Some("provia")),
+        ]);
+        s.handle_key(slash());
+        type_into_filter(&mut s, "vel");
+        let visible: Vec<_> = s.slot_entries().map(|(slot, _)| slot).collect();
+        assert_eq!(visible, vec![CustomSetting::C1]);
+
+        if let Some(SlotEntry::Loaded(buf)) = s.slots.get_mut(CustomSetting::C1) {
+            buf.working.canonical.custom_setting_name = Some("astia".parse().unwrap());
+        }
+
+        assert!(s.slot_entries().next().is_none());
+    }
+
+    #[test]
+    fn slot_entry_name_returns_some_when_loaded_with_name() {
+        let s = loaded_slot(&named_sim("Velvia Warm"));
+        let entry = s.slots.get(CustomSetting::C1).unwrap();
+        assert_eq!(
+            entry.name().map(ToString::to_string),
+            Some("Velvia Warm".to_owned()),
+        );
+    }
+
+    #[test]
+    fn slot_entry_name_returns_none_when_loaded_without_name() {
+        let s = loaded_slot(&SimulationBase::default());
+        let entry = s.slots.get(CustomSetting::C1).unwrap();
+        assert!(entry.name().is_none());
+    }
+
+    #[test]
+    fn slot_entry_name_returns_none_when_loading() {
+        let entry = SlotEntry::Loading;
+        assert!(entry.name().is_none());
+    }
+
+    #[test]
+    fn slot_entry_name_returns_none_when_failed() {
+        let err = Arc::new(CoreError::NoImagingInterface);
+        let entry = SlotEntry::Failed(err);
+        assert!(entry.name().is_none());
     }
 }
