@@ -28,7 +28,7 @@ impl DevicePickerModal {
 }
 
 impl ModalHandler for DevicePickerModal {
-    fn handle_key(&mut self, key: KeyEvent) -> ModalOutcome {
+    fn on_key(&mut self, key: KeyEvent) -> ModalOutcome {
         if key.kind != KeyEventKind::Press {
             return ModalOutcome::Continue;
         }

@@ -105,7 +105,7 @@ pub trait TabBehavior {
 
     fn on_slot_push_failed(&mut self, ctx: &AppCtx, slot: CustomSetting, error: &Arc<CoreError>) {}
 
-    fn handle_key(&mut self, ctx: &AppCtx, key: KeyEvent) {}
+    fn on_key(&mut self, ctx: &AppCtx, key: KeyEvent) {}
 }
 
 #[derive(Debug)]
@@ -134,7 +134,7 @@ impl Tabs {
         }
     }
 
-    pub fn on_activate(&mut self, ctx: &AppCtx, active: Tab) {
+    pub fn handle_activate(&mut self, ctx: &AppCtx, active: Tab) {
         match active {
             Tab::Simulation => self.simulation.on_activate(ctx),
             Tab::Render => self.rendering.on_activate(ctx),
@@ -144,9 +144,9 @@ impl Tabs {
 
     pub fn handle_key(&mut self, ctx: &AppCtx, active: Tab, key: KeyEvent) {
         match active {
-            Tab::Simulation => self.simulation.handle_key(ctx, key),
-            Tab::Render => self.rendering.handle_key(ctx, key),
-            Tab::Backup => self.backup.handle_key(ctx, key),
+            Tab::Simulation => self.simulation.on_key(ctx, key),
+            Tab::Render => self.rendering.on_key(ctx, key),
+            Tab::Backup => self.backup.on_key(ctx, key),
         }
     }
 
@@ -159,37 +159,42 @@ impl Tabs {
         }
     }
 
-    pub fn on_device_connected(&mut self, ctx: &AppCtx) {
+    pub fn handle_device_connected(&mut self, ctx: &AppCtx) {
         self.simulation.on_device_connected(ctx);
         self.rendering.on_device_connected(ctx);
         self.backup.on_device_connected(ctx);
     }
 
-    pub fn on_device_disconnected(&mut self, ctx: &AppCtx) {
+    pub fn handle_device_disconnected(&mut self, ctx: &AppCtx) {
         self.simulation.on_device_disconnected(ctx);
         self.rendering.on_device_disconnected(ctx);
         self.backup.on_device_disconnected(ctx);
     }
 
-    pub fn on_library_changed(&mut self, ctx: &AppCtx) {
+    pub fn handle_library_changed(&mut self, ctx: &AppCtx) {
         self.simulation.on_library_changed(ctx);
         self.rendering.on_library_changed(ctx);
         self.backup.on_library_changed(ctx);
     }
 
-    pub fn on_slots_enumerated(&mut self, ctx: &AppCtx, req: ReqId, slots: &[CustomSetting]) {
+    pub fn handle_slots_enumerated(&mut self, ctx: &AppCtx, req: ReqId, slots: &[CustomSetting]) {
         self.simulation.on_slots_enumerated(ctx, req, slots);
         self.rendering.on_slots_enumerated(ctx, req, slots);
         self.backup.on_slots_enumerated(ctx, req, slots);
     }
 
-    pub fn on_slot_fetched(&mut self, ctx: &AppCtx, slot: CustomSetting, base: &SimulationBase) {
+    pub fn handle_slot_fetched(
+        &mut self,
+        ctx: &AppCtx,
+        slot: CustomSetting,
+        base: &SimulationBase,
+    ) {
         self.simulation.on_slot_fetched(ctx, slot, base);
         self.rendering.on_slot_fetched(ctx, slot, base);
         self.backup.on_slot_fetched(ctx, slot, base);
     }
 
-    pub fn on_slot_fetch_failed(
+    pub fn handle_slot_fetch_failed(
         &mut self,
         ctx: &AppCtx,
         slot: CustomSetting,
@@ -200,13 +205,13 @@ impl Tabs {
         self.backup.on_slot_fetch_failed(ctx, slot, error);
     }
 
-    pub fn on_slot_changed(&mut self, ctx: &AppCtx, slot: CustomSetting) {
+    pub fn handle_slot_changed(&mut self, ctx: &AppCtx, slot: CustomSetting) {
         self.simulation.on_slot_changed(ctx, slot);
         self.rendering.on_slot_changed(ctx, slot);
         self.backup.on_slot_changed(ctx, slot);
     }
 
-    pub fn on_slot_push_failed(
+    pub fn handle_slot_push_failed(
         &mut self,
         ctx: &AppCtx,
         slot: CustomSetting,

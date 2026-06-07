@@ -38,7 +38,7 @@ impl SimulationTabState {
 
         match self.focused() {
             None => {
-                centered_message(frame, area, block, "(no entry selected)", Color::DarkGray);
+                render_centered_message(frame, area, block, "(no entry selected)", Color::DarkGray);
             }
             Some(Focused::Slot {
                 slot,
@@ -87,7 +87,7 @@ fn render_slot(
 ) {
     match entry {
         SlotEntry::Loading => {
-            centered_message(
+            render_centered_message(
                 frame,
                 area,
                 block.title(border_title!(1, "{title}")),
@@ -96,7 +96,7 @@ fn render_slot(
             );
         }
         SlotEntry::Failed(err) => {
-            centered_message(
+            render_centered_message(
                 frame,
                 area,
                 block.title(border_title!(1, "{title}")),
@@ -143,7 +143,7 @@ fn render_library(
         Line::from(Span::raw(border_title!(1, "{title}")))
     };
     let inner_width = area.width.saturating_sub(2);
-    let items = build_field_items(
+    let items = field_items(
         descriptors,
         &state.canonical,
         fetched,
@@ -155,7 +155,7 @@ fn render_library(
     frame.render_widget(list, area);
 }
 
-fn build_field_items(
+fn field_items(
     descriptors: &SimulationDescriptors,
     canonical: &SimulationBase,
     fetched: &SimulationBase,
@@ -372,7 +372,13 @@ fn buffer_with_cursor(buffer: &str, cursor_col: usize, status: InlineStatus) -> 
     ]
 }
 
-fn centered_message(frame: &mut Frame, area: Rect, block: Block<'_>, text: &str, color: Color) {
+fn render_centered_message(
+    frame: &mut Frame,
+    area: Rect,
+    block: Block<'_>,
+    text: &str,
+    color: Color,
+) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let [centered] = Layout::vertical([Constraint::Length(1)])
