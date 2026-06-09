@@ -476,6 +476,7 @@ mod tests {
                 usb_id: usb,
                 bus_address: "0:0".to_owned(),
                 battery: 100,
+                capabilities: &[],
             }),
             simulation_library_snapshot: SimulationLibrarySnapshot::empty(),
             backup_library_snapshot: snapshot_with(entries),

@@ -2,13 +2,17 @@ pub mod usb;
 
 use std::{
     ops::ControlFlow,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use fujicore::{
-    Camera, CoreError, UsbId,
+    Camera, Capability, CoreError, UsbId,
     generated::{options::CustomSetting, simulations::SimulationBase},
 };
 use log::{debug, error, info};
@@ -50,6 +54,7 @@ pub struct DeviceSnapshot {
     pub usb_id: UsbId,
     pub bus_address: String,
     pub battery: u32,
+    pub capabilities: &'static [Capability],
 }
 
 #[derive(Debug)]
@@ -104,18 +109,22 @@ pub enum DeviceEvent {
 
 pub struct DeviceHandle {
     command_tx: Option<Sender<DeviceCommand>>,
+    inflight: Arc<AtomicUsize>,
     join: Option<JoinHandle<()>>,
 }
 
 impl DeviceHandle {
     pub fn spawn(device: Device<GlobalContext>, event_tx: Sender<DeviceEvent>) -> Self {
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
+        let inflight = Arc::new(AtomicUsize::new(0));
+        let worker_inflight = Arc::clone(&inflight);
         let join = thread::Builder::new()
             .name("fujitui-device".to_owned())
-            .spawn(move || DeviceWorker::run(&device, &command_rx, &event_tx))
+            .spawn(move || DeviceWorker::run(&device, &command_rx, &event_tx, &worker_inflight))
             .expect("spawning device worker");
         Self {
             command_tx: Some(command_tx),
+            inflight,
             join: Some(join),
         }
     }
@@ -123,8 +132,15 @@ impl DeviceHandle {
     #[allow(dead_code)]
     pub fn send(&self, cmd: DeviceCommand) {
         if let Some(tx) = self.command_tx.as_ref() {
-            let _ = tx.send(cmd);
+            self.inflight.fetch_add(1, Ordering::Relaxed);
+            if tx.send(cmd).is_err() {
+                self.inflight.fetch_sub(1, Ordering::Relaxed);
+            }
         }
+    }
+
+    pub fn is_busy(&self) -> bool {
+        self.inflight.load(Ordering::Relaxed) > 0
     }
 }
 
@@ -146,6 +162,7 @@ impl DeviceWorker {
         device: &Device<GlobalContext>,
         command_rx: &Receiver<DeviceCommand>,
         event_tx: &Sender<DeviceEvent>,
+        inflight: &AtomicUsize,
     ) {
         let camera = match Camera::open(device) {
             Ok(c) => c,
@@ -173,10 +190,15 @@ impl DeviceWorker {
             return;
         }
 
-        worker.event_loop(command_rx, event_tx);
+        worker.event_loop(command_rx, event_tx, inflight);
     }
 
-    fn event_loop(&mut self, command_rx: &Receiver<DeviceCommand>, event_tx: &Sender<DeviceEvent>) {
+    fn event_loop(
+        &mut self,
+        command_rx: &Receiver<DeviceCommand>,
+        event_tx: &Sender<DeviceEvent>,
+        inflight: &AtomicUsize,
+    ) {
         let mut last_refresh = Instant::now();
         loop {
             match command_rx.recv_timeout(TICK) {
@@ -194,6 +216,7 @@ impl DeviceWorker {
                             self.import_backup(req, &blob, event_tx)
                         }
                     };
+                    inflight.fetch_sub(1, Ordering::Relaxed);
                     if outcome.is_break() {
                         return;
                     }
@@ -240,6 +263,7 @@ impl DeviceWorker {
             usb_id: self.camera.usb_id(),
             bus_address: self.camera.bus_address(),
             battery: info.battery(),
+            capabilities: self.camera.capabilities(),
         })
     }
 

@@ -170,6 +170,10 @@ impl Camera {
         format!("{}.{}", self.ptp.bus, self.ptp.address)
     }
 
+    pub fn capabilities(&self) -> &'static [Capability] {
+        self.r#impl.capabilities()
+    }
+
     pub fn get_info(&mut self) -> CoreResult<Box<dyn CameraInfo>> {
         self.r#impl.get_info(&mut self.ptp)
     }

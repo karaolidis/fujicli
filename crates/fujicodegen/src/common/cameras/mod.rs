@@ -102,6 +102,7 @@ fn generate_base_impl(
     let struct_name = &names.r#struct;
     let const_name = &names.r#const;
     let chunk_size = Literal::usize_suffixed(camera.spec.usb.chunk_size.try_into()?);
+    let capabilities = generate_capabilities(features);
     let (backup_override, simulation_override, render_override) =
         generate_feature_overrides(features);
 
@@ -116,9 +117,33 @@ fn generate_base_impl(
             fn chunk_size(&self) -> usize {
                 #chunk_size
             }
+
+            #capabilities
             #backup_override
             #simulation_override
             #render_override
+        }
+    })
+}
+
+fn generate_capabilities(features: &Features) -> Option<TokenStream> {
+    let mut entries: Vec<TokenStream> = Vec::new();
+    if features.has_backup {
+        entries.push(quote! { crate::error::Capability::BackupManagement });
+    }
+    if features.has_simulation {
+        entries.push(quote! { crate::error::Capability::SimulationParsing });
+        entries.push(quote! { crate::error::Capability::SimulationManagement });
+    }
+    if features.has_render {
+        entries.push(quote! { crate::error::Capability::RenderManagement });
+    }
+    if entries.is_empty() {
+        return None;
+    }
+    Some(quote! {
+        fn capabilities(&self) -> &'static [crate::error::Capability] {
+            &[ #( #entries, )* ]
         }
     })
 }

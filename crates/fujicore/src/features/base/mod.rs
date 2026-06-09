@@ -5,7 +5,7 @@ use log::debug;
 
 use crate::{
     SupportedCamera,
-    error::{CoreError, CoreResult},
+    error::{Capability, CoreError, CoreResult},
     features::{
         backup::CameraBackupManager,
         render::CameraRenderManager,
@@ -23,6 +23,10 @@ pub trait CameraBase {
     fn chunk_size(&self) -> usize {
         // Default conservative estimate.
         1024 * 1024
+    }
+
+    fn capabilities(&self) -> &'static [Capability] {
+        &[]
     }
 
     fn as_backup_manager(&self) -> Option<&dyn CameraBackupManager<Context = Self::Context>> {
