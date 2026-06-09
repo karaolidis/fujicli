@@ -8,7 +8,10 @@ use log::warn;
 use ratatui::{Frame, layout::Rect};
 
 use crate::{
-    ui::tabs::{AppCtx, TabBehavior},
+    ui::{
+        Keybind,
+        tabs::{AppCtx, TabBehavior},
+    },
     workers::{ReqId, fs::slug::Slug},
 };
 
@@ -21,6 +24,10 @@ impl TabBehavior for BackupTabState {
 
     fn is_capturing_input(&self) -> bool {
         self.capturing_input()
+    }
+
+    fn keybinds(&self) -> &'static [Keybind] {
+        self.keybinds()
     }
 
     fn on_device_connected(&mut self, ctx: &AppCtx) {

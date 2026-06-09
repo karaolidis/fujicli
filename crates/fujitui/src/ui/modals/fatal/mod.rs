@@ -35,7 +35,7 @@ impl ModalHandler for FatalModal {
         ModalOutcome::Effect(ModalEffect::Quit)
     }
 
-    fn render(&self, frame: &mut Frame, area: Rect) {
+    fn render(&mut self, frame: &mut Frame, area: Rect) {
         let popup = centered(60, 20, area);
         frame.render_widget(Clear, popup);
         let block = Block::default().borders(Borders::ALL).title(self.title);

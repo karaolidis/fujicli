@@ -13,6 +13,7 @@ use ratatui::{
 
 use crate::{
     ui::{
+        Keybind,
         tabs::{AppCtx, Shadowed},
         widgets::TextInputState,
     },
@@ -36,6 +37,44 @@ use slots::{FetchSkipError, SlotEntry, SlotError, Slots};
 
 const INDENT: &str = "  ";
 const DIRTY_MARKER: &str = "*";
+
+const LIST_KEYBINDS: &[Keybind] = &[
+    Keybind {
+        keys: "↑ ↓ / j k",
+        action: "Move selection",
+    },
+    Keybind {
+        keys: "Enter",
+        action: "Edit",
+    },
+    Keybind {
+        keys: "/",
+        action: "Filter",
+    },
+];
+
+const EDITOR_KEYBINDS: &[Keybind] = &[
+    Keybind {
+        keys: "↑ ↓ / j k",
+        action: "Move field",
+    },
+    Keybind {
+        keys: "(⇧)← →",
+        action: "Adjust / jump value",
+    },
+    Keybind {
+        keys: "Home / End",
+        action: "Min / max",
+    },
+    Keybind {
+        keys: "Enter",
+        action: "Edit value",
+    },
+    Keybind {
+        keys: "Esc",
+        action: "Back to list",
+    },
+];
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum CursorMove {
@@ -173,6 +212,13 @@ impl SimulationTabState {
         self.editors
             .get(self.list.selection())
             .is_some_and(EditorState::is_editing)
+    }
+
+    pub(super) const fn keybinds(&self) -> &'static [Keybind] {
+        match self.focus {
+            Pane::List => LIST_KEYBINDS,
+            Pane::Editor => EDITOR_KEYBINDS,
+        }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
