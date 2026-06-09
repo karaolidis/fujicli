@@ -10,12 +10,10 @@ use crate::{
     ui::{Tab, widgets::SEPARATOR},
 };
 
-#[derive(Debug, Default)]
 pub struct Header;
 
 impl Header {
-    #[allow(clippy::unused_self)]
-    pub fn draw(&self, app: &App, frame: &mut Frame, area: Rect) {
+    pub fn draw(app: &App, frame: &mut Frame, area: Rect) {
         let titles: Vec<&'static str> = Tab::ALL.iter().map(|t| t.label()).collect();
         let tabs = Tabs::new(titles)
             .select(app.active_tab.index())

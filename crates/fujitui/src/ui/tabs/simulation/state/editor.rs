@@ -18,13 +18,12 @@ use ratatui::{
 
 use crate::{
     border_title,
-    ui::{border_style, tabs::Buffer},
+    ui::{border_style, tabs::Buffer, widgets::Scrollbar},
 };
 
-use super::{
-    CursorMove, DIRTY_MARKER, EditorTarget, FILTER_PROMPT, INDENT, SimulationState, TextInputState,
-    draw_scrollbar, make_buffer_with_cursor,
-};
+use super::{CursorMove, DIRTY_MARKER, EditorTarget, INDENT, SimulationState, TextInputState};
+
+const FILTER_PROMPT: &str = "> ";
 
 pub(super) enum EditorOutcome {
     Continue,
@@ -53,7 +52,7 @@ pub(super) enum InlineKind {
 
 #[derive(Debug)]
 pub(super) struct PickerState {
-    pub filter: String,
+    pub filter: TextInputState,
     pub cursor_row: usize,
     pub rows: Vec<PickerRow>,
     pub scroll: usize,
@@ -150,11 +149,7 @@ impl PickerState {
             FILTER_PROMPT,
             Style::default().fg(Color::DarkGray),
         )];
-        filter_spans.extend(make_buffer_with_cursor(
-            &self.filter,
-            self.filter.chars().count(),
-            Style::default(),
-        ));
+        filter_spans.extend(self.filter.cursor_spans(Style::default()));
         frame.render_widget(Paragraph::new(Line::from(filter_spans)), filter_area);
 
         if visible.is_empty() {
@@ -178,7 +173,7 @@ impl PickerState {
             List::new(items).highlight_style(Style::default().add_modifier(Modifier::REVERSED));
         frame.render_stateful_widget(list, values_area, &mut state);
         let new_offset = state.offset();
-        draw_scrollbar(
+        Scrollbar::draw(
             frame,
             Rect {
                 x: popup.x,
@@ -216,10 +211,10 @@ impl PickerState {
     }
 
     fn visible_rows(&self) -> Vec<&PickerRow> {
-        if self.filter.is_empty() {
+        if self.filter.buffer.is_empty() {
             return self.rows.iter().collect();
         }
-        let needle = self.filter.to_lowercase();
+        let needle = self.filter.buffer.to_lowercase();
         self.rows
             .iter()
             .filter(|r| r.label_lower.contains(&needle))
@@ -230,56 +225,50 @@ impl PickerState {
 impl InlineEdit {
     fn handle_key(&mut self, key: KeyEvent) -> EditModeOutcome {
         let Self {
-            descriptor,
+            descriptor: _,
             status,
             kind,
         } = self;
         match kind {
-            InlineKind::TextInput(text) => {
-                let max_len = match &descriptor.ops {
-                    OptionOps::String(ops) => ops.max_len.unwrap_or(usize::MAX),
-                    _ => unreachable!("TextInput; descriptor.ops is OptionOps::String"),
-                };
-                match key.code {
-                    KeyCode::Esc => EditModeOutcome::Cancel,
-                    KeyCode::Enter => EditModeOutcome::CommitText(text.buffer.clone()),
-                    KeyCode::Left => {
-                        text.move_left();
-                        EditModeOutcome::Continue
-                    }
-                    KeyCode::Right => {
-                        text.move_right();
-                        EditModeOutcome::Continue
-                    }
-                    KeyCode::Home => {
-                        text.move_home();
-                        EditModeOutcome::Continue
-                    }
-                    KeyCode::End => {
-                        text.move_end();
-                        EditModeOutcome::Continue
-                    }
-                    KeyCode::Backspace => {
-                        if text.delete_before() {
-                            *status = InlineStatus::Idle;
-                        }
-                        EditModeOutcome::Continue
-                    }
-                    KeyCode::Delete => {
-                        if text.delete_after() {
-                            *status = InlineStatus::Idle;
-                        }
-                        EditModeOutcome::Continue
-                    }
-                    KeyCode::Char(c) if !c.is_control() => {
-                        if text.insert(c, max_len) {
-                            *status = InlineStatus::Idle;
-                        }
-                        EditModeOutcome::Continue
-                    }
-                    _ => EditModeOutcome::Continue,
+            InlineKind::TextInput(text) => match key.code {
+                KeyCode::Esc => EditModeOutcome::Cancel,
+                KeyCode::Enter => EditModeOutcome::CommitText(text.buffer.clone()),
+                KeyCode::Left => {
+                    text.move_left();
+                    EditModeOutcome::Continue
                 }
-            }
+                KeyCode::Right => {
+                    text.move_right();
+                    EditModeOutcome::Continue
+                }
+                KeyCode::Home => {
+                    text.move_home();
+                    EditModeOutcome::Continue
+                }
+                KeyCode::End => {
+                    text.move_end();
+                    EditModeOutcome::Continue
+                }
+                KeyCode::Backspace => {
+                    if text.delete_before() {
+                        *status = InlineStatus::Idle;
+                    }
+                    EditModeOutcome::Continue
+                }
+                KeyCode::Delete => {
+                    if text.delete_after() {
+                        *status = InlineStatus::Idle;
+                    }
+                    EditModeOutcome::Continue
+                }
+                KeyCode::Char(c) if !c.is_control() => {
+                    if text.insert(c) {
+                        *status = InlineStatus::Idle;
+                    }
+                    EditModeOutcome::Continue
+                }
+                _ => EditModeOutcome::Continue,
+            },
             InlineKind::Picker(picker) => match key.code {
                 KeyCode::Esc => EditModeOutcome::Cancel,
                 KeyCode::Enter => picker
@@ -300,7 +289,7 @@ impl InlineEdit {
                     EditModeOutcome::Continue
                 }
                 KeyCode::Backspace => {
-                    if picker.filter.pop().is_some() {
+                    if picker.filter.delete_before() {
                         let len = picker.visible_rows().len();
                         picker.cursor_row = picker.cursor_row.min(len.saturating_sub(1));
                         *status = InlineStatus::Idle;
@@ -308,7 +297,7 @@ impl InlineEdit {
                     EditModeOutcome::Continue
                 }
                 KeyCode::Char(c) if !c.is_control() => {
-                    picker.filter.push(c);
+                    picker.filter.insert(c);
                     let len = picker.visible_rows().len();
                     picker.cursor_row = picker.cursor_row.min(len.saturating_sub(1));
                     *status = InlineStatus::Idle;
@@ -474,10 +463,12 @@ impl EditorState {
             return;
         };
         let kind = match &desc.ops {
-            OptionOps::String(_) => {
+            OptionOps::String(ops) => {
+                let max_len = ops.max_len.unwrap_or(usize::MAX);
                 let buffer = (desc.display)(canonical).unwrap_or_default();
-                let cursor_col = buffer.chars().count();
-                Some(InlineKind::TextInput(TextInputState { buffer, cursor_col }))
+                Some(InlineKind::TextInput(TextInputState::new_with_max_len(
+                    buffer, max_len,
+                )))
             }
             OptionOps::Enum(ops) => {
                 let rows = PickerState::compute_rows(ops, canonical, descriptors);
@@ -486,7 +477,7 @@ impl EditorState {
                     .and_then(|cur| rows.iter().position(|r| r.label == cur))
                     .unwrap_or(0);
                 Some(InlineKind::Picker(PickerState {
-                    filter: String::new(),
+                    filter: TextInputState::default(),
                     cursor_row,
                     rows,
                     scroll: 0,
@@ -667,7 +658,7 @@ impl EditorState {
         list_state.select(scroll_target);
         frame.render_stateful_widget(list, area, &mut list_state);
         self.scroll = list_state.offset();
-        draw_scrollbar(
+        Scrollbar::draw(
             frame,
             Rect {
                 x: area.x,
@@ -892,7 +883,7 @@ impl EditorState {
             InlineStatus::Idle => Style::default(),
             InlineStatus::Rejected => Style::default().fg(Color::Red),
         };
-        spans.extend(make_buffer_with_cursor(&text.buffer, text.cursor_col, base));
+        spans.extend(text.cursor_spans(base));
         ListItem::new(Line::from(spans))
     }
 
@@ -1141,7 +1132,7 @@ mod tests {
             },
         ];
         let with_filter = |filter: &str| PickerState {
-            filter: filter.to_owned(),
+            filter: TextInputState::new(filter.to_owned()),
             cursor_row: 0,
             rows: rows.clone(),
             scroll: 0,
@@ -1249,7 +1240,7 @@ mod tests {
             editor.handle_key(key(KeyCode::Char(c)), &mut buf, DESC);
         }
         let picker = picker(&editor);
-        assert_eq!(picker.filter, "Velv");
+        assert_eq!(picker.filter.buffer, "Velv");
         assert_eq!(picker.cursor_row, 0);
     }
 

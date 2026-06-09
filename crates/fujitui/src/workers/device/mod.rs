@@ -20,8 +20,8 @@ const TICK: Duration = Duration::from_millis(100);
 const REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub enum DeviceCommand {
+    #[allow(dead_code)]
     FetchSlot {
         req: ReqId,
         slot: CustomSetting,
@@ -29,10 +29,18 @@ pub enum DeviceCommand {
     FetchAllSlots {
         req: ReqId,
     },
+    #[allow(dead_code)]
     PushSlot {
         req: ReqId,
         slot: CustomSetting,
         base: SimulationBase,
+    },
+    ExportBackup {
+        req: ReqId,
+    },
+    ImportBackup {
+        req: ReqId,
+        blob: Vec<u8>,
     },
 }
 
@@ -75,6 +83,21 @@ pub enum DeviceEvent {
     SlotPushFailed {
         req: ReqId,
         slot: CustomSetting,
+        error: Box<CoreError>,
+    },
+    BackupExported {
+        req: ReqId,
+        blob: Vec<u8>,
+    },
+    BackupExportFailed {
+        req: ReqId,
+        error: Box<CoreError>,
+    },
+    BackupImported {
+        req: ReqId,
+    },
+    BackupImportFailed {
+        req: ReqId,
         error: Box<CoreError>,
     },
 }
@@ -165,6 +188,10 @@ impl DeviceWorker {
                         DeviceCommand::FetchAllSlots { req } => self.fetch_all_slots(req, event_tx),
                         DeviceCommand::PushSlot { req, slot, base } => {
                             self.push_slot(req, slot, base, event_tx)
+                        }
+                        DeviceCommand::ExportBackup { req } => self.export_backup(req, event_tx),
+                        DeviceCommand::ImportBackup { req, blob } => {
+                            self.import_backup(req, &blob, event_tx)
                         }
                     };
                     if outcome.is_break() {
@@ -297,6 +324,57 @@ impl DeviceWorker {
                 let _ = event_tx.send(DeviceEvent::SlotPushFailed {
                     req,
                     slot,
+                    error: Box::new(e),
+                });
+                ControlFlow::Continue(())
+            }
+        }
+    }
+
+    fn export_backup(&mut self, req: ReqId, event_tx: &Sender<DeviceEvent>) -> ControlFlow<()> {
+        match self.camera.export_backup() {
+            Ok(blob) => {
+                info!("{req}: exported backup ({} bytes)", blob.len());
+                let _ = event_tx.send(DeviceEvent::BackupExported { req, blob });
+                ControlFlow::Continue(())
+            }
+            Err(e) if e.is_disconnect() => {
+                error!("{req}: camera disconnected during backup export: {e}");
+                let _ = event_tx.send(DeviceEvent::Disconnected);
+                ControlFlow::Break(())
+            }
+            Err(e) => {
+                error!("{req}: backup export failed: {e}");
+                let _ = event_tx.send(DeviceEvent::BackupExportFailed {
+                    req,
+                    error: Box::new(e),
+                });
+                ControlFlow::Continue(())
+            }
+        }
+    }
+
+    fn import_backup(
+        &mut self,
+        req: ReqId,
+        blob: &[u8],
+        event_tx: &Sender<DeviceEvent>,
+    ) -> ControlFlow<()> {
+        match self.camera.import_backup(blob) {
+            Ok(()) => {
+                info!("{req}: imported backup ({} bytes)", blob.len());
+                let _ = event_tx.send(DeviceEvent::BackupImported { req });
+                ControlFlow::Continue(())
+            }
+            Err(e) if e.is_disconnect() => {
+                error!("{req}: camera disconnected during backup import: {e}");
+                let _ = event_tx.send(DeviceEvent::Disconnected);
+                ControlFlow::Break(())
+            }
+            Err(e) => {
+                error!("{req}: backup import failed: {e}");
+                let _ = event_tx.send(DeviceEvent::BackupImportFailed {
+                    req,
                     error: Box::new(e),
                 });
                 ControlFlow::Continue(())
