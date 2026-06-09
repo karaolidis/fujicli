@@ -15,7 +15,10 @@ use fujicore::{
 use ratatui::{Frame, layout::Rect};
 
 use crate::{
-    ui::tabs::{backup::BackupTabState, render::RenderTabState, simulation::SimulationTabState},
+    ui::{
+        Keybind,
+        tabs::{backup::BackupTabState, render::RenderTabState, simulation::SimulationTabState},
+    },
     workers::{
         ReqId, ReqIdGen,
         device::{DeviceHandle, DeviceSnapshot},
@@ -79,6 +82,10 @@ pub trait TabBehavior {
 
     fn is_capturing_input(&self) -> bool {
         false
+    }
+
+    fn keybinds(&self) -> &'static [Keybind] {
+        &[]
     }
 
     fn on_activate(&mut self, ctx: &AppCtx) {}
@@ -168,6 +175,15 @@ impl Tabs {
             Tab::Simulation => self.simulation.is_capturing_input(),
             Tab::Render => self.rendering.is_capturing_input(),
             Tab::Backup => self.backup.is_capturing_input(),
+        }
+    }
+
+    #[must_use]
+    pub fn keybinds(&self, active: Tab) -> &'static [Keybind] {
+        match active {
+            Tab::Simulation => self.simulation.keybinds(),
+            Tab::Render => self.rendering.keybinds(),
+            Tab::Backup => self.backup.keybinds(),
         }
     }
 

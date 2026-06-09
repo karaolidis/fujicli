@@ -51,7 +51,7 @@ impl ModalHandler for DevicePickerModal {
         }
     }
 
-    fn render(&self, frame: &mut Frame, area: Rect) {
+    fn render(&mut self, frame: &mut Frame, area: Rect) {
         let popup = centered(60, 40, area);
         frame.render_widget(Clear, popup);
 

@@ -5,6 +5,7 @@ use thiserror::Error;
 
 use crate::{
     ui::{
+        Keybind,
         tabs::AppCtx,
         widgets::{ConfirmOutcome, ConfirmState, TextInputState},
     },
@@ -22,6 +23,33 @@ use list::ListPane;
 const INDENT: &str = "  ";
 const COL_SEPARATOR: &str = " ";
 const BACKUP_NAME_MAX_LEN: usize = 128;
+
+const LIST_KEYBINDS: &[Keybind] = &[
+    Keybind {
+        keys: "↑ ↓ / j k",
+        action: "Move selection",
+    },
+    Keybind {
+        keys: "e",
+        action: "Export from camera",
+    },
+    Keybind {
+        keys: "i",
+        action: "Import to camera",
+    },
+    Keybind {
+        keys: "r",
+        action: "Rename",
+    },
+    Keybind {
+        keys: "D / Del",
+        action: "Delete",
+    },
+    Keybind {
+        keys: "/",
+        action: "Filter",
+    },
+];
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum CursorMove {
@@ -101,6 +129,11 @@ impl BackupTabState {
 
     pub(super) const fn capturing_input(&self) -> bool {
         self.list.filtering() || self.rename.is_some() || self.confirm.is_some()
+    }
+
+    #[allow(clippy::unused_self)]
+    pub(super) const fn keybinds(&self) -> &'static [Keybind] {
+        LIST_KEYBINDS
     }
 
     pub fn handle_key(&mut self, ctx: &AppCtx, key: KeyEvent) {

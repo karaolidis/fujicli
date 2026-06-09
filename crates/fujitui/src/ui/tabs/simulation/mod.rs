@@ -11,7 +11,10 @@ use log::{debug, warn};
 use ratatui::{Frame, layout::Rect};
 
 use crate::{
-    ui::tabs::{AppCtx, TabBehavior},
+    ui::{
+        Keybind,
+        tabs::{AppCtx, TabBehavior},
+    },
     workers::ReqId,
 };
 
@@ -24,6 +27,10 @@ impl TabBehavior for SimulationTabState {
 
     fn is_capturing_input(&self) -> bool {
         self.capturing_input()
+    }
+
+    fn keybinds(&self) -> &'static [Keybind] {
+        self.keybinds()
     }
 
     fn on_activate(&mut self, ctx: &AppCtx) {

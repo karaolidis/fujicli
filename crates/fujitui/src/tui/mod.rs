@@ -19,6 +19,7 @@ use crate::{
         Action, Tab, actions,
         modals::{
             ModalEffect, ModalHandler, ModalOutcome, device::DevicePickerModal, fatal::FatalModal,
+            help::HelpModal,
         },
         tabs::{AppCtx, Tabs},
         widgets::{Header, Loading, Status, StatusQueue},
@@ -180,6 +181,7 @@ impl App {
         if let Some(modal) = self.modal.as_mut() {
             match modal.on_key(key) {
                 ModalOutcome::Continue => {}
+                ModalOutcome::Dismiss => self.modal = None,
                 ModalOutcome::Effect(effect) => {
                     self.modal = None;
                     self.apply_effect(effect);
@@ -205,6 +207,12 @@ impl App {
                     if let Some(&target) = self.available_tabs().get(index) {
                         self.set_tab(target);
                     }
+                }
+                Action::Help => {
+                    self.modal = Some(Box::new(HelpModal::new(
+                        self.active_tab.label(),
+                        self.tabs.keybinds(self.active_tab),
+                    )));
                 }
             }
             return;
@@ -636,7 +644,7 @@ impl App {
         }
         Status::draw(self, frame, status_area);
 
-        if let Some(modal) = &self.modal {
+        if let Some(modal) = self.modal.as_mut() {
             modal.render(frame, frame.area());
         }
     }

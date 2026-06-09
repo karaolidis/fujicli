@@ -1,5 +1,6 @@
 pub mod device;
 pub mod fatal;
+pub mod help;
 
 use crossterm::event::KeyEvent;
 use ratatui::{
@@ -21,11 +22,12 @@ pub fn centered(pct_x: u16, pct_y: u16, area: Rect) -> Rect {
 
 pub trait ModalHandler {
     fn on_key(&mut self, key: KeyEvent) -> ModalOutcome;
-    fn render(&self, frame: &mut Frame, area: Rect);
+    fn render(&mut self, frame: &mut Frame, area: Rect);
 }
 
 pub enum ModalOutcome {
     Continue,
+    Dismiss,
     Effect(ModalEffect),
 }
 
