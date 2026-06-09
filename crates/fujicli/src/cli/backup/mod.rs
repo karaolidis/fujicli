@@ -29,8 +29,8 @@ fn handle_export(options: GlobalOptions, output: Output) -> anyhow::Result<()> {
 
     let mut camera = usb::get_camera(device, emulate)?;
 
-    let mut writer = output.get_writer()?;
     let backup = camera.export_backup().context("exporting camera backup")?;
+    let mut writer = output.get_writer()?;
     writer
         .write_all(&backup)
         .context("writing backup to output")?;

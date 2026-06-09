@@ -9,7 +9,11 @@ pub use error::PtpError;
 pub use props::*;
 pub use structs::*;
 
-use std::{cmp::min, io::Cursor, time::Duration};
+use std::{
+    cmp::min,
+    io::{self, Cursor},
+    time::Duration,
+};
 
 use log::{debug, error, trace, warn};
 use ptp_cursor::{PtpDeserialize, PtpSerialize};
@@ -85,10 +89,16 @@ impl Ptp {
                         }
 
                         match container.code {
-                            ContainerCode::Command(_)
-                            | ContainerCode::Response(ResponseCode::Ok) => {}
+                            ContainerCode::Response(ResponseCode::Ok) => {}
                             ContainerCode::Response(resp) => {
                                 response = Err(PtpError::Response(resp).into());
+                            }
+                            ContainerCode::Command(cmd) => {
+                                response = Err(PtpError::Io(io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    format!("PTP response container carried command code {cmd:?}"),
+                                ))
+                                .into());
                             }
                         }
 
@@ -153,6 +163,18 @@ impl Ptp {
 
         let mut cur = Cursor::new(buf);
         let container_info = ContainerInfo::try_read_ptp(&mut cur).map_err(PtpError::Io)?;
+
+        if (container_info.total_len as usize) < ContainerInfo::SIZE {
+            return Err(PtpError::Io(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "PTP container total length {} is below the {}-byte header",
+                    container_info.total_len,
+                    ContainerInfo::SIZE
+                ),
+            ))
+            .into());
+        }
 
         let payload_len = container_info.payload_len();
         if payload_len == 0 {

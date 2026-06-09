@@ -81,7 +81,7 @@ impl Tab {
 
 #[allow(unused_variables)]
 pub trait TabBehavior {
-    fn render(&self, ctx: &AppCtx, frame: &mut Frame, area: Rect);
+    fn render(&mut self, ctx: &AppCtx, frame: &mut Frame, area: Rect);
 
     fn is_capturing_input(&self) -> bool {
         false
@@ -96,6 +96,8 @@ pub trait TabBehavior {
     fn on_library_changed(&mut self, ctx: &AppCtx) {}
 
     fn on_slots_enumerated(&mut self, ctx: &AppCtx, req: ReqId, slots: &[CustomSetting]) {}
+
+    fn on_slots_enumeration_failed(&mut self, ctx: &AppCtx, req: ReqId) {}
 
     fn on_slot_fetched(&mut self, ctx: &AppCtx, slot: CustomSetting, base: &SimulationBase) {}
 
@@ -126,7 +128,7 @@ impl Default for Tabs {
 }
 
 impl Tabs {
-    pub fn render(&self, ctx: &AppCtx, active: Tab, frame: &mut Frame, area: Rect) {
+    pub fn draw(&mut self, ctx: &AppCtx, active: Tab, frame: &mut Frame, area: Rect) {
         match active {
             Tab::Simulation => self.simulation.render(ctx, frame, area),
             Tab::Render => self.rendering.render(ctx, frame, area),
@@ -181,6 +183,12 @@ impl Tabs {
         self.simulation.on_slots_enumerated(ctx, req, slots);
         self.rendering.on_slots_enumerated(ctx, req, slots);
         self.backup.on_slots_enumerated(ctx, req, slots);
+    }
+
+    pub fn handle_slots_enumeration_failed(&mut self, ctx: &AppCtx, req: ReqId) {
+        self.simulation.on_slots_enumeration_failed(ctx, req);
+        self.rendering.on_slots_enumeration_failed(ctx, req);
+        self.backup.on_slots_enumeration_failed(ctx, req);
     }
 
     pub fn handle_slot_fetched(

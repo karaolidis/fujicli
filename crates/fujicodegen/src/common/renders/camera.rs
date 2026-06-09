@@ -117,6 +117,7 @@ fn generate_one(
         &effective_rules,
         &mod_ident,
         &draft_ident,
+        &optional_field_ids,
     )?;
     let complete_struct = generate_complete_struct(
         &settings,
@@ -229,6 +230,7 @@ fn generate_rule_module(
     effective_rules: &[NormalizedRule],
     mod_ident: &Ident,
     draft_ident: &Ident,
+    optional: &BTreeSet<String>,
 ) -> anyhow::Result<TokenStream> {
     let buf_ty = quote! { super::#draft_ident };
     let buf_acc = quote! { buf };
@@ -238,7 +240,7 @@ fn generate_rule_module(
         generate_apply_transformations(settings, &render.transformations, &buf_acc, &buf_ty)?;
     let emit_warnings_and_infos =
         generate_emit_warnings_and_infos(settings, effective_rules, scopes, &buf_ty)?;
-    let solve = generate_solve(settings, effective_rules, scopes, &buf_ty)?;
+    let solve = generate_solve(settings, effective_rules, scopes, &buf_ty, optional)?;
     let try_update_from = generate_try_update_from(&render.fields, settings, &buf_ty);
 
     Ok(quote! {

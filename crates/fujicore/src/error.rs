@@ -68,4 +68,14 @@ pub enum CoreError {
     Io(#[from] std::io::Error),
 }
 
+impl CoreError {
+    #[must_use]
+    pub const fn is_disconnect(&self) -> bool {
+        matches!(
+            self,
+            Self::Usb(_) | Self::NoImagingInterface | Self::Ptp(PtpError::Transport(_))
+        )
+    }
+}
+
 pub type CoreResult<T> = Result<T, CoreError>;

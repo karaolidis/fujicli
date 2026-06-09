@@ -52,6 +52,16 @@ pub enum LibraryError {
         source: serde_json::Error,
     },
 
+    #[error("failed to serialize library entry for {path}: {source}")]
+    Serialize {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+
+    #[error("library file {path} has a non-UTF-8 or missing filename")]
+    NonUtf8Filename { path: PathBuf },
+
     #[error(
         "library file {path}: name {name:?} slugifies to {actual:?} but file expects {expected:?}"
     )]
@@ -87,6 +97,7 @@ pub struct SkippedEntry {
 pub struct SimLibrary {
     dir: PathBuf,
     entries: BTreeMap<Slug, LibraryEntry>,
+    skipped: usize,
 }
 
 #[derive(Debug, Default)]
@@ -113,12 +124,21 @@ impl SimLibrary {
             report.loaded,
             report.skipped.len(),
         );
-        Ok((Self { dir, entries }, report))
+        let skipped = report.skipped.len();
+        Ok((
+            Self {
+                dir,
+                entries,
+                skipped,
+            },
+            report,
+        ))
     }
 
     pub fn reload(&mut self) -> Result<LoadReport, LibraryError> {
         let (entries, report) = scan(&self.dir)?;
         self.entries = entries;
+        self.skipped = report.skipped.len();
         info!(
             "reloaded simulation library ({} loaded, {} skipped)",
             report.loaded,
@@ -141,6 +161,10 @@ impl SimLibrary {
 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    pub const fn skipped(&self) -> usize {
+        self.skipped
     }
 
     pub fn snapshot(&self) -> Arc<LibrarySnapshot> {
@@ -205,11 +229,12 @@ impl SimLibrary {
             info!("updated library entry {slug}");
         } else {
             let old_path = file_path(&self.dir, slug);
-            if let Err(e) = fs::remove_file(&old_path) {
-                warn!(
-                    "rename: failed to delete old file {}: {e}",
-                    old_path.display()
-                );
+            if let Err(source) = fs::remove_file(&old_path) {
+                let _ = fs::remove_file(file_path(&self.dir, &new_slug));
+                return Err(LibraryError::Io {
+                    path: old_path,
+                    source,
+                });
             }
             self.entries.remove(slug);
             info!("renamed library entry {slug} -> {new_slug}");
@@ -220,12 +245,15 @@ impl SimLibrary {
     }
 
     pub fn remove(&mut self, slug: &Slug) -> Result<LibraryEntry, LibraryError> {
+        if !self.entries.contains_key(slug) {
+            return Err(LibraryError::NotFound { slug: slug.clone() });
+        }
+        let path = file_path(&self.dir, slug);
+        fs::remove_file(&path).map_err(|source| LibraryError::Io { path, source })?;
         let entry = self
             .entries
             .remove(slug)
-            .ok_or_else(|| LibraryError::NotFound { slug: slug.clone() })?;
-        let path = file_path(&self.dir, slug);
-        fs::remove_file(&path).map_err(|source| LibraryError::Io { path, source })?;
+            .expect("entry presence checked above");
         info!("removed library entry {slug}");
         Ok(entry)
     }
@@ -241,14 +269,26 @@ fn write_atomic(dir: &Path, slug: &Slug, entry: &LibraryEntry) -> Result<(), Lib
         path: dir.to_path_buf(),
         source,
     })?;
-    serde_json::to_writer_pretty(&mut tmp, entry).map_err(|source| LibraryError::Parse {
+    serde_json::to_writer_pretty(&mut tmp, entry).map_err(|source| LibraryError::Serialize {
         path: target.clone(),
         source,
     })?;
+    tmp.as_file()
+        .sync_all()
+        .map_err(|source| LibraryError::Io {
+            path: target.clone(),
+            source,
+        })?;
     tmp.persist(&target).map_err(|e| LibraryError::Io {
         path: target,
         source: e.error,
     })?;
+    File::open(dir)
+        .and_then(|d| d.sync_all())
+        .map_err(|source| LibraryError::Io {
+            path: dir.to_path_buf(),
+            source,
+        })?;
     Ok(())
 }
 
@@ -309,17 +349,18 @@ fn load_one(path: &Path) -> Result<(Slug, LibraryEntry), LibraryError> {
         })?;
 
     let name_slug = Slug::try_from(entry.name.as_str())?;
-    let file_stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or_default()
-        .to_owned();
+    let file_stem =
+        path.file_stem()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| LibraryError::NonUtf8Filename {
+                path: path.to_path_buf(),
+            })?;
     if name_slug.as_str() != file_stem {
         return Err(LibraryError::SlugMismatch {
             path: path.to_path_buf(),
             name: entry.name,
             actual: name_slug,
-            expected: file_stem,
+            expected: file_stem.to_owned(),
         });
     }
     Ok((name_slug, entry))

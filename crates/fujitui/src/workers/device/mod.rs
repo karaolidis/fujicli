@@ -54,6 +54,10 @@ pub enum DeviceEvent {
         req: ReqId,
         slots: Vec<CustomSetting>,
     },
+    SlotsEnumerationFailed {
+        req: ReqId,
+        error: Box<CoreError>,
+    },
     SlotFetched {
         req: ReqId,
         slot: CustomSetting,
@@ -85,7 +89,7 @@ impl DeviceHandle {
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
         let join = thread::Builder::new()
             .name("fujitui-device".to_owned())
-            .spawn(move || run(&device, &command_rx, &event_tx))
+            .spawn(move || DeviceWorker::run(&device, &command_rx, &event_tx))
             .expect("spawning device worker");
         Self {
             command_tx: Some(command_tx),
@@ -110,189 +114,193 @@ impl Drop for DeviceHandle {
     }
 }
 
-fn run(
-    device: &Device<GlobalContext>,
-    command_rx: &Receiver<DeviceCommand>,
-    event_tx: &Sender<DeviceEvent>,
-) {
-    let mut camera = match Camera::open(device) {
-        Ok(c) => c,
-        Err(e) => {
-            error!("failed to open camera: {e}");
-            let _ = event_tx.send(DeviceEvent::Disconnected);
+struct DeviceWorker {
+    camera: Camera,
+}
+
+impl DeviceWorker {
+    fn run(
+        device: &Device<GlobalContext>,
+        command_rx: &Receiver<DeviceCommand>,
+        event_tx: &Sender<DeviceEvent>,
+    ) {
+        let camera = match Camera::open(device) {
+            Ok(c) => c,
+            Err(e) => {
+                error!("failed to open camera: {e}");
+                let _ = event_tx.send(DeviceEvent::Disconnected);
+                return;
+            }
+        };
+
+        info!("opened camera: {}", camera.name());
+
+        let mut worker = Self { camera };
+
+        let initial = match worker.snapshot() {
+            Ok(snap) => snap,
+            Err(e) => {
+                error!("initial info fetch failed: {e}");
+                let _ = event_tx.send(DeviceEvent::Disconnected);
+                return;
+            }
+        };
+
+        if event_tx.send(DeviceEvent::Connected(initial)).is_err() {
             return;
         }
-    };
 
-    info!("opened camera: {}", camera.name());
-
-    let initial = match snapshot(&mut camera) {
-        Ok(snap) => snap,
-        Err(e) => {
-            error!("initial info fetch failed: {e}");
-            let _ = event_tx.send(DeviceEvent::Disconnected);
-            return;
-        }
-    };
-
-    if event_tx.send(DeviceEvent::Connected(initial)).is_err() {
-        return;
+        worker.event_loop(command_rx, event_tx);
     }
 
-    let mut last_refresh = Instant::now();
-
-    loop {
-        match command_rx.recv_timeout(TICK) {
-            Ok(cmd) => {
-                let outcome = match cmd {
-                    DeviceCommand::FetchSlot { req, slot } => {
-                        fetch_slot(&mut camera, req, slot, event_tx)
-                    }
-                    DeviceCommand::FetchAllSlots { req } => {
-                        fetch_all_slots(&mut camera, req, event_tx)
-                    }
-                    DeviceCommand::PushSlot { req, slot, base } => {
-                        push_slot(&mut camera, req, slot, base, event_tx)
-                    }
-                };
-                if outcome.is_break() {
-                    return;
-                }
-            }
-            Err(RecvTimeoutError::Timeout) => {
-                if last_refresh.elapsed() >= REFRESH_INTERVAL {
-                    if refresh(&mut camera, event_tx).is_break() {
+    fn event_loop(&mut self, command_rx: &Receiver<DeviceCommand>, event_tx: &Sender<DeviceEvent>) {
+        let mut last_refresh = Instant::now();
+        loop {
+            match command_rx.recv_timeout(TICK) {
+                Ok(cmd) => {
+                    let outcome = match cmd {
+                        DeviceCommand::FetchSlot { req, slot } => {
+                            self.fetch_slot(req, slot, event_tx)
+                        }
+                        DeviceCommand::FetchAllSlots { req } => self.fetch_all_slots(req, event_tx),
+                        DeviceCommand::PushSlot { req, slot, base } => {
+                            self.push_slot(req, slot, base, event_tx)
+                        }
+                    };
+                    if outcome.is_break() {
                         return;
                     }
-                    last_refresh = Instant::now();
+                }
+                Err(RecvTimeoutError::Timeout) => {
+                    if last_refresh.elapsed() >= REFRESH_INTERVAL {
+                        if self.refresh(event_tx).is_break() {
+                            return;
+                        }
+                        last_refresh = Instant::now();
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    debug!("device worker command channel closed");
+                    break;
                 }
             }
-            Err(RecvTimeoutError::Disconnected) => {
-                debug!("device worker command channel closed");
-                break;
+        }
+    }
+
+    fn refresh(&mut self, event_tx: &Sender<DeviceEvent>) -> ControlFlow<()> {
+        match self.snapshot() {
+            Ok(snap) => {
+                let _ = event_tx.send(DeviceEvent::InfoUpdated(snap));
+                ControlFlow::Continue(())
+            }
+            Err(e) if e.is_disconnect() => {
+                error!("camera appears disconnected: {e}");
+                let _ = event_tx.send(DeviceEvent::Disconnected);
+                ControlFlow::Break(())
+            }
+            Err(e) => {
+                error!("info refresh failed: {e}");
+                let _ = event_tx.send(DeviceEvent::Error(Box::new(e)));
+                ControlFlow::Continue(())
             }
         }
     }
-}
 
-fn refresh(camera: &mut Camera, event_tx: &Sender<DeviceEvent>) -> ControlFlow<()> {
-    match snapshot(camera) {
-        Ok(snap) => {
-            let _ = event_tx.send(DeviceEvent::InfoUpdated(snap));
-            ControlFlow::Continue(())
-        }
-        Err(e) if is_disconnect(&e) => {
-            error!("camera appears disconnected: {e}");
-            let _ = event_tx.send(DeviceEvent::Disconnected);
-            ControlFlow::Break(())
-        }
-        Err(e) => {
-            error!("info refresh failed: {e}");
-            let _ = event_tx.send(DeviceEvent::Error(Box::new(e)));
-            ControlFlow::Continue(())
+    fn snapshot(&mut self) -> Result<DeviceSnapshot, CoreError> {
+        let info = self.camera.get_info()?;
+        Ok(DeviceSnapshot {
+            name: self.camera.name(),
+            usb_id: self.camera.usb_id(),
+            bus_address: self.camera.bus_address(),
+            battery: info.battery(),
+        })
+    }
+
+    fn fetch_slot(
+        &mut self,
+        req: ReqId,
+        slot: CustomSetting,
+        event_tx: &Sender<DeviceEvent>,
+    ) -> ControlFlow<()> {
+        match self.camera.get_simulation(slot) {
+            Ok(sim) => {
+                let _ = event_tx.send(DeviceEvent::SlotFetched {
+                    req,
+                    slot,
+                    base: sim.to_base(),
+                });
+                ControlFlow::Continue(())
+            }
+            Err(e) if e.is_disconnect() => {
+                error!("{req}: camera disconnected during fetch of slot {slot}: {e}");
+                let _ = event_tx.send(DeviceEvent::Disconnected);
+                ControlFlow::Break(())
+            }
+            Err(e) => {
+                error!("{req}: fetch slot {slot} failed: {e}");
+                let _ = event_tx.send(DeviceEvent::SlotFetchFailed {
+                    req,
+                    slot,
+                    error: Box::new(e),
+                });
+                ControlFlow::Continue(())
+            }
         }
     }
-}
 
-fn snapshot(camera: &mut Camera) -> Result<DeviceSnapshot, CoreError> {
-    let info = camera.get_info()?;
-    Ok(DeviceSnapshot {
-        name: camera.name(),
-        usb_id: camera.usb_id(),
-        bus_address: camera.bus_address(),
-        battery: info.battery(),
-    })
-}
+    fn fetch_all_slots(&mut self, req: ReqId, event_tx: &Sender<DeviceEvent>) -> ControlFlow<()> {
+        let slots = match self.camera.custom_settings_slots() {
+            Ok(s) => s,
+            Err(e) if e.is_disconnect() => {
+                error!("{req}: camera disconnected enumerating slots: {e}");
+                let _ = event_tx.send(DeviceEvent::Disconnected);
+                return ControlFlow::Break(());
+            }
+            Err(e) => {
+                error!("{req}: enumerating slots failed: {e}");
+                let _ = event_tx.send(DeviceEvent::SlotsEnumerationFailed {
+                    req,
+                    error: Box::new(e),
+                });
+                return ControlFlow::Continue(());
+            }
+        };
+        let _ = event_tx.send(DeviceEvent::SlotsEnumerated {
+            req,
+            slots: slots.clone(),
+        });
+        for slot in slots {
+            self.fetch_slot(req, slot, event_tx)?;
+        }
+        ControlFlow::Continue(())
+    }
 
-fn fetch_slot(
-    camera: &mut Camera,
-    req: ReqId,
-    slot: CustomSetting,
-    event_tx: &Sender<DeviceEvent>,
-) -> ControlFlow<()> {
-    match camera.get_simulation(slot) {
-        Ok(sim) => {
-            let _ = event_tx.send(DeviceEvent::SlotFetched {
-                req,
-                slot,
-                base: sim.to_base(),
-            });
-            ControlFlow::Continue(())
-        }
-        Err(e) if is_disconnect(&e) => {
-            error!("{req}: camera disconnected during fetch of slot {slot}: {e}");
-            let _ = event_tx.send(DeviceEvent::Disconnected);
-            ControlFlow::Break(())
-        }
-        Err(e) => {
-            error!("{req}: fetch slot {slot} failed: {e}");
-            let _ = event_tx.send(DeviceEvent::SlotFetchFailed {
-                req,
-                slot,
-                error: Box::new(e),
-            });
-            ControlFlow::Continue(())
+    fn push_slot(
+        &mut self,
+        req: ReqId,
+        slot: CustomSetting,
+        base: SimulationBase,
+        event_tx: &Sender<DeviceEvent>,
+    ) -> ControlFlow<()> {
+        match self.camera.update_simulation(slot, base) {
+            Ok(()) => {
+                let _ = event_tx.send(DeviceEvent::SlotChanged { req, slot });
+                ControlFlow::Continue(())
+            }
+            Err(e) if e.is_disconnect() => {
+                error!("{req}: camera disconnected during push to slot {slot}: {e}");
+                let _ = event_tx.send(DeviceEvent::Disconnected);
+                ControlFlow::Break(())
+            }
+            Err(e) => {
+                error!("{req}: push slot {slot} failed: {e}");
+                let _ = event_tx.send(DeviceEvent::SlotPushFailed {
+                    req,
+                    slot,
+                    error: Box::new(e),
+                });
+                ControlFlow::Continue(())
+            }
         }
     }
-}
-
-fn fetch_all_slots(
-    camera: &mut Camera,
-    req: ReqId,
-    event_tx: &Sender<DeviceEvent>,
-) -> ControlFlow<()> {
-    let slots = match camera.custom_settings_slots() {
-        Ok(s) => s,
-        Err(e) if is_disconnect(&e) => {
-            error!("{req}: camera disconnected enumerating slots: {e}");
-            let _ = event_tx.send(DeviceEvent::Disconnected);
-            return ControlFlow::Break(());
-        }
-        Err(e) => {
-            error!("{req}: enumerating slots failed: {e}");
-            let _ = event_tx.send(DeviceEvent::Error(Box::new(e)));
-            return ControlFlow::Continue(());
-        }
-    };
-    let _ = event_tx.send(DeviceEvent::SlotsEnumerated {
-        req,
-        slots: slots.clone(),
-    });
-    for slot in slots {
-        fetch_slot(camera, req, slot, event_tx)?;
-    }
-    ControlFlow::Continue(())
-}
-
-fn push_slot(
-    camera: &mut Camera,
-    req: ReqId,
-    slot: CustomSetting,
-    base: SimulationBase,
-    event_tx: &Sender<DeviceEvent>,
-) -> ControlFlow<()> {
-    match camera.update_simulation(slot, base) {
-        Ok(()) => {
-            let _ = event_tx.send(DeviceEvent::SlotChanged { req, slot });
-            ControlFlow::Continue(())
-        }
-        Err(e) if is_disconnect(&e) => {
-            error!("{req}: camera disconnected during push to slot {slot}: {e}");
-            let _ = event_tx.send(DeviceEvent::Disconnected);
-            ControlFlow::Break(())
-        }
-        Err(e) => {
-            error!("{req}: push slot {slot} failed: {e}");
-            let _ = event_tx.send(DeviceEvent::SlotPushFailed {
-                req,
-                slot,
-                error: Box::new(e),
-            });
-            ControlFlow::Continue(())
-        }
-    }
-}
-
-const fn is_disconnect(e: &CoreError) -> bool {
-    matches!(e, CoreError::Usb(_) | CoreError::NoImagingInterface)
 }

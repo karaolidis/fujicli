@@ -12,7 +12,7 @@ pub struct Status;
 
 impl Status {
     #[allow(clippy::unused_self)]
-    pub fn render(&self, app: &App, frame: &mut Frame, area: Rect) {
+    pub fn draw(&self, app: &App, frame: &mut Frame, area: Rect) {
         let mut spans: Vec<Span> = app.ctx.device_snapshot.as_ref().map_or_else(
             || vec![Span::raw("connecting...")],
             |snap| {

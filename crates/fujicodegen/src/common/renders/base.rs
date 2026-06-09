@@ -108,10 +108,15 @@ fn generate_merge_impl(union: &[UnionEntry]) -> TokenStream {
             }
         }
     });
+    let r#const = if union.iter().all(|entry| entry.is_copy) {
+        quote! { const }
+    } else {
+        quote! {}
+    };
 
     quote! {
         impl RenderBase {
-            pub const fn merge(&mut self, overlay: &Self) {
+            pub #r#const fn merge(&mut self, overlay: &Self) {
                 #( #assigns )*
             }
         }
@@ -123,27 +128,33 @@ fn generate_apply_simulation_impl(
     simulation_field_ids: &BTreeSet<String>,
 ) -> TokenStream {
     let simulations_path = simulations::path();
-    let assigns = union
+    let entries: Vec<&UnionEntry> = union
         .iter()
         .filter(|entry| simulation_field_ids.contains(&entry.id))
-        .map(|entry| {
-            let ident = snake_case_ident!("{}", entry.id);
-            let access = if entry.is_copy {
-                quote! { simulation.#ident }
-            } else {
-                quote! { simulation.#ident.clone() }
-            };
+        .collect();
+    let assigns = entries.iter().map(|entry| {
+        let ident = snake_case_ident!("{}", entry.id);
+        let access = if entry.is_copy {
+            quote! { simulation.#ident }
+        } else {
+            quote! { simulation.#ident.clone() }
+        };
 
-            quote! {
-                if let Some(value) = #access {
-                    self.#ident = Some(value);
-                }
+        quote! {
+            if let Some(value) = #access {
+                self.#ident = Some(value);
             }
-        });
+        }
+    });
+    let r#const = if entries.iter().all(|entry| entry.is_copy) {
+        quote! { const }
+    } else {
+        quote! {}
+    };
 
     quote! {
         impl RenderBase {
-            pub const fn try_update_from(
+            pub #r#const fn try_update_from(
                 &mut self,
                 simulation: &#simulations_path::SimulationBase,
             ) {

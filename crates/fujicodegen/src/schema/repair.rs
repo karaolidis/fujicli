@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use proc_macro2::{Literal, Span, TokenStream};
 use quote::{format_ident, quote};
@@ -17,6 +17,7 @@ pub fn generate_solve(
     rules: &[NormalizedRule],
     scopes: Scopes<'_>,
     buf_ty: &TokenStream,
+    optional: &BTreeSet<String>,
 ) -> anyhow::Result<TokenStream> {
     let accessor = scopes.current;
     let original_param = match scopes.original {
@@ -93,7 +94,7 @@ pub fn generate_solve(
             let fn_name = format_ident!("try_repair_rule_{}", i);
             let i_lit = Literal::usize_suffixed(i);
             let mut counter = 0usize;
-            let walk = generate_dnf_walk(settings, &r.when, scopes, &mut counter)?;
+            let walk = generate_dnf_walk(settings, &r.when, scopes, &mut counter, optional)?;
             Ok(quote! {
                 #[allow(
                     unused_variables,
@@ -167,6 +168,7 @@ fn generate_dnf_walk(
     dnf: &Dnf,
     scopes: Scopes<'_>,
     counter: &mut usize,
+    optional: &BTreeSet<String>,
 ) -> anyhow::Result<TokenStream> {
     if dnf.is_contradiction() {
         return Ok(quote! { true });
@@ -187,7 +189,7 @@ fn generate_dnf_walk(
         .0
         .iter()
         .map(|conj| {
-            let sub = generate_conjunction_walk(settings, conj, scopes, counter)?;
+            let sub = generate_conjunction_walk(settings, conj, scopes, counter, optional)?;
             Ok(quote! {
                 {
                     let succ: bool = #sub;
@@ -216,6 +218,7 @@ fn generate_conjunction_walk(
     conj: &Conjunction,
     scopes: Scopes<'_>,
     counter: &mut usize,
+    optional: &BTreeSet<String>,
 ) -> anyhow::Result<TokenStream> {
     if conj.is_empty() {
         return Ok(quote! { false });
@@ -229,7 +232,7 @@ fn generate_conjunction_walk(
 
     let attempts = conj
         .iter()
-        .map(|leaf| generate_leaf_attempt(settings, leaf, scopes, &label))
+        .map(|leaf| generate_leaf_attempt(settings, leaf, scopes, &label, optional))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     Ok(quote! {
@@ -246,6 +249,7 @@ fn generate_leaf_attempt(
     leaf: &Leaf,
     scopes: Scopes<'_>,
     parent: &Lifetime,
+    optional: &BTreeSet<String>,
 ) -> anyhow::Result<TokenStream> {
     if leaf.scope() == Scope::Original {
         return Ok(quote! {});
@@ -257,7 +261,7 @@ fn generate_leaf_attempt(
         None => quote! {},
     };
 
-    let Some((info, mutation)) = leaf_flip(settings, leaf, accessor)? else {
+    let Some((info, mutation)) = leaf_flip(settings, leaf, accessor, optional)? else {
         return Ok(quote! {});
     };
     let field_ident = info.field_ident();
@@ -279,6 +283,7 @@ fn leaf_flip<'a>(
     settings: &'a BTreeMap<&str, SettingInfo<'a>>,
     leaf: &Leaf,
     accessor: &TokenStream,
+    optional: &BTreeSet<String>,
 ) -> anyhow::Result<Option<(&'a SettingInfo<'a>, TokenStream)>> {
     let r#ref = leaf.r#ref();
     let info = &settings[r#ref];
@@ -291,8 +296,20 @@ fn leaf_flip<'a>(
         | Leaf::LessThan(_)
         | Leaf::LessThanOrEqual(_)
         | Leaf::GreaterThan(_)
-        | Leaf::GreaterThanOrEqual(_) => quote! { #accessor.#ident = None; },
-        Leaf::Present(p) if p.present => quote! { #accessor.#ident = None; },
+        | Leaf::GreaterThanOrEqual(_) => {
+            if optional.contains(r#ref) {
+                quote! { #accessor.#ident = None; }
+            } else {
+                return Ok(None);
+            }
+        }
+        Leaf::Present(p) if p.present => {
+            if optional.contains(r#ref) {
+                quote! { #accessor.#ident = None; }
+            } else {
+                return Ok(None);
+            }
+        }
         Leaf::NotEquals(l) => {
             let value = generate_value_expr(info, &l.equals)?;
             quote! { #accessor.#ident = Some(#value); }
@@ -328,12 +345,16 @@ fn inner_label(depth: usize) -> Lifetime {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use serde_json::json;
 
     use super::*;
     use crate::ast::{LeafEquals, LeafPresent, Predicate, Scope};
+
+    fn opt(ids: &[&str]) -> BTreeSet<String> {
+        ids.iter().map(|s| (*s).to_string()).collect()
+    }
 
     fn integer_info(id: &'static str) -> SettingInfo<'static> {
         SettingInfo {
@@ -368,6 +389,7 @@ mod tests {
             &[],
             Scopes::new(&quote! { buf }),
             &quote! { Buf },
+            &opt(&["a", "b"]),
         )
         .unwrap()
         .to_string();
@@ -392,6 +414,7 @@ mod tests {
             &rules,
             Scopes::new(&quote! { buf }),
             &quote! { Buf },
+            &opt(&["a", "b"]),
         )
         .unwrap()
         .to_string();
@@ -433,6 +456,7 @@ mod tests {
             &rules,
             Scopes::new(&quote! { buf }),
             &quote! { Buf },
+            &opt(&["a", "b"]),
         )
         .unwrap()
         .to_string();
@@ -468,6 +492,7 @@ mod tests {
             &rules,
             Scopes::new(&quote! { buf }),
             &quote! { Buf },
+            &opt(&["a", "b"]),
         )
         .unwrap()
         .to_string();
@@ -498,6 +523,7 @@ mod tests {
             &rules,
             Scopes::new(&quote! { buf }),
             &quote! { Buf },
+            &opt(&["a", "b"]),
         )
         .unwrap()
         .to_string();
@@ -537,6 +563,7 @@ mod tests {
             &rules,
             Scopes::with_original(&quote! { buf }, &original),
             &quote! { Buf },
+            &opt(&["a", "b"]),
         )
         .unwrap()
         .to_string();
@@ -563,6 +590,7 @@ mod tests {
             &rules,
             Scopes::new(&quote! { buf }),
             &quote! { Buf },
+            &opt(&["a", "b"]),
         )
         .unwrap()
         .to_string();
@@ -598,10 +626,36 @@ mod tests {
             &rules,
             Scopes::new(&quote! { buf }),
             &quote! { Buf },
+            &opt(&["a", "b"]),
         )
         .unwrap()
         .to_string();
         assert!(out.contains("current != 0usize"));
         assert!(out.contains("current != 1usize"));
+    }
+
+    #[test]
+    fn required_field_is_not_cleared_by_repair() {
+        let mut settings = BTreeMap::new();
+        settings.insert("a", integer_info("a"));
+        let rules = vec![nrule(
+            LeafEquals {
+                r#ref: "a".into(),
+                scope: Scope::Current,
+                equals: json!(1),
+            }
+            .into(),
+        )];
+        let out = generate_solve(
+            &settings,
+            &rules,
+            Scopes::new(&quote! { buf }),
+            &quote! { Buf },
+            &opt(&[]),
+        )
+        .unwrap()
+        .to_string();
+        assert!(!out.contains("buf . a = None"));
+        assert!(!out.contains("partial . a . is_none ()"));
     }
 }

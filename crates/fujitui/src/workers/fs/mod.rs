@@ -99,7 +99,7 @@ impl FsHandle {
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
         let join = thread::Builder::new()
             .name("fujitui-fs".to_owned())
-            .spawn(move || run(library_dir, &command_rx, &event_tx))
+            .spawn(move || FsWorker::run(library_dir, &command_rx, &event_tx))
             .expect("spawning fs worker");
         Self {
             command_tx: Some(command_tx),
@@ -124,156 +124,166 @@ impl Drop for FsHandle {
     }
 }
 
-fn run(library_dir: PathBuf, command_rx: &Receiver<FsCommand>, event_tx: &Sender<FsEvent>) {
-    let mut library = match SimLibrary::open(library_dir) {
-        Ok((lib, report)) => {
-            for skipped in &report.skipped {
-                warn!(
-                    "skipped library file {}: {}",
-                    skipped.path.display(),
-                    skipped.reason
+struct FsWorker {
+    library: SimLibrary,
+}
+
+impl FsWorker {
+    fn run(library_dir: PathBuf, command_rx: &Receiver<FsCommand>, event_tx: &Sender<FsEvent>) {
+        let library = match SimLibrary::open(library_dir) {
+            Ok((lib, report)) => {
+                for skipped in &report.skipped {
+                    warn!(
+                        "skipped library file {}: {}",
+                        skipped.path.display(),
+                        skipped.reason
+                    );
+                }
+                info!(
+                    "library opened ({} entries, {} skipped)",
+                    lib.len(),
+                    report.skipped.len()
                 );
+                lib
             }
-            info!(
-                "library opened ({} entries, {} skipped)",
-                lib.len(),
-                report.skipped.len()
-            );
-            lib
-        }
-        Err(e) => {
-            error!("failed to open library: {e}");
-            let _ = event_tx.send(FsEvent::Error(Box::new(FsError::from(e))));
-            return;
-        }
-    };
+            Err(e) => {
+                error!("failed to open library: {e}");
+                let _ = event_tx.send(FsEvent::Error(Box::new(FsError::from(e))));
+                return;
+            }
+        };
+        let mut worker = Self { library };
+        worker.event_loop(command_rx, event_tx);
+    }
 
-    loop {
-        match command_rx.recv_timeout(TICK) {
-            Ok(cmd) => handle(&mut library, cmd, event_tx),
-            Err(RecvTimeoutError::Timeout) => {}
-            Err(RecvTimeoutError::Disconnected) => {
-                debug!("fs worker command channel closed");
-                break;
+    fn event_loop(&mut self, command_rx: &Receiver<FsCommand>, event_tx: &Sender<FsEvent>) {
+        loop {
+            match command_rx.recv_timeout(TICK) {
+                Ok(cmd) => self.handle(cmd, event_tx),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    debug!("fs worker command channel closed");
+                    break;
+                }
             }
         }
     }
-}
 
-fn handle(library: &mut SimLibrary, cmd: FsCommand, event_tx: &Sender<FsEvent>) {
-    match cmd {
-        FsCommand::LoadLibrary { req } => handle_load(library, req, event_tx),
-        FsCommand::ReloadLibrary { req } => handle_reload(library, req, event_tx),
-        FsCommand::AddSim {
+    fn handle(&mut self, cmd: FsCommand, event_tx: &Sender<FsEvent>) {
+        match cmd {
+            FsCommand::LoadLibrary { req } => self.handle_load(req, event_tx),
+            FsCommand::ReloadLibrary { req } => self.handle_reload(req, event_tx),
+            FsCommand::AddSim {
+                req,
+                init,
+                source_camera,
+            } => self.handle_add(req, init, source_camera, event_tx),
+            FsCommand::UpdateSim { req, slug, edit } => {
+                self.handle_update(req, slug, edit, event_tx);
+            }
+            FsCommand::RemoveSim { req, slug } => self.handle_remove(req, slug, event_tx),
+        }
+    }
+
+    fn handle_load(&self, req: ReqId, event_tx: &Sender<FsEvent>) {
+        let _ = event_tx.send(FsEvent::LibraryLoaded {
             req,
-            init,
-            source_camera,
-        } => handle_add(library, req, init, source_camera, event_tx),
-        FsCommand::UpdateSim { req, slug, edit } => {
-            handle_update(library, req, slug, edit, event_tx);
-        }
-        FsCommand::RemoveSim { req, slug } => handle_remove(library, req, slug, event_tx),
+            snapshot: self.library.snapshot(),
+            skipped: self.library.skipped(),
+        });
     }
-}
 
-fn handle_load(library: &SimLibrary, req: ReqId, event_tx: &Sender<FsEvent>) {
-    let _ = event_tx.send(FsEvent::LibraryLoaded {
-        req,
-        snapshot: library.snapshot(),
-        skipped: 0,
-    });
-}
-
-fn handle_reload(library: &mut SimLibrary, req: ReqId, event_tx: &Sender<FsEvent>) {
-    match library.reload() {
-        Ok(report) => {
-            let _ = event_tx.send(FsEvent::LibraryReloaded {
-                req,
-                snapshot: library.snapshot(),
-                skipped: report.skipped.len(),
-            });
-        }
-        Err(e) => {
-            error!("{req}: reload library failed: {e}");
-            let _ = event_tx.send(FsEvent::LibraryOpFailed {
-                req,
-                error: Box::new(e),
-            });
+    fn handle_reload(&mut self, req: ReqId, event_tx: &Sender<FsEvent>) {
+        match self.library.reload() {
+            Ok(report) => {
+                let _ = event_tx.send(FsEvent::LibraryReloaded {
+                    req,
+                    snapshot: self.library.snapshot(),
+                    skipped: report.skipped.len(),
+                });
+            }
+            Err(e) => {
+                error!("{req}: reload library failed: {e}");
+                let _ = event_tx.send(FsEvent::LibraryOpFailed {
+                    req,
+                    error: Box::new(e),
+                });
+            }
         }
     }
-}
 
-fn handle_add(
-    library: &mut SimLibrary,
-    req: ReqId,
-    init: EntryEdit,
-    source_camera: UsbId,
-    event_tx: &Sender<FsEvent>,
-) {
-    match library.add(init, source_camera) {
-        Ok(slug) => {
-            let entry = library.get(&slug).expect("just added").clone();
-            let _ = event_tx.send(FsEvent::LibraryEntryAdded {
-                req,
-                slug,
-                entry,
-                snapshot: library.snapshot(),
-            });
-        }
-        Err(e) => {
-            error!("{req}: add sim failed: {e}");
-            let _ = event_tx.send(FsEvent::LibraryOpFailed {
-                req,
-                error: Box::new(e),
-            });
+    fn handle_add(
+        &mut self,
+        req: ReqId,
+        init: EntryEdit,
+        source_camera: UsbId,
+        event_tx: &Sender<FsEvent>,
+    ) {
+        match self.library.add(init, source_camera) {
+            Ok(slug) => {
+                let entry = self.library.get(&slug).expect("just added").clone();
+                let _ = event_tx.send(FsEvent::LibraryEntryAdded {
+                    req,
+                    slug,
+                    entry,
+                    snapshot: self.library.snapshot(),
+                });
+            }
+            Err(e) => {
+                error!("{req}: add sim failed: {e}");
+                let _ = event_tx.send(FsEvent::LibraryOpFailed {
+                    req,
+                    error: Box::new(e),
+                });
+            }
         }
     }
-}
 
-fn handle_update(
-    library: &mut SimLibrary,
-    req: ReqId,
-    slug: Slug,
-    edit: EntryEdit,
-    event_tx: &Sender<FsEvent>,
-) {
-    match library.update(&slug, edit) {
-        Ok(new_slug) => {
-            let entry = library.get(&new_slug).expect("just updated").clone();
-            let _ = event_tx.send(FsEvent::LibraryEntryUpdated {
-                req,
-                old_slug: slug,
-                new_slug,
-                entry,
-                snapshot: library.snapshot(),
-            });
-        }
-        Err(e) => {
-            error!("{req}: update sim {slug} failed: {e}");
-            let _ = event_tx.send(FsEvent::LibraryOpFailed {
-                req,
-                error: Box::new(e),
-            });
+    fn handle_update(
+        &mut self,
+        req: ReqId,
+        slug: Slug,
+        edit: EntryEdit,
+        event_tx: &Sender<FsEvent>,
+    ) {
+        match self.library.update(&slug, edit) {
+            Ok(new_slug) => {
+                let entry = self.library.get(&new_slug).expect("just updated").clone();
+                let _ = event_tx.send(FsEvent::LibraryEntryUpdated {
+                    req,
+                    old_slug: slug,
+                    new_slug,
+                    entry,
+                    snapshot: self.library.snapshot(),
+                });
+            }
+            Err(e) => {
+                error!("{req}: update sim {slug} failed: {e}");
+                let _ = event_tx.send(FsEvent::LibraryOpFailed {
+                    req,
+                    error: Box::new(e),
+                });
+            }
         }
     }
-}
 
-fn handle_remove(library: &mut SimLibrary, req: ReqId, slug: Slug, event_tx: &Sender<FsEvent>) {
-    match library.remove(&slug) {
-        Ok(entry) => {
-            let _ = event_tx.send(FsEvent::LibraryEntryRemoved {
-                req,
-                slug,
-                entry,
-                snapshot: library.snapshot(),
-            });
-        }
-        Err(e) => {
-            error!("{req}: remove sim {slug} failed: {e}");
-            let _ = event_tx.send(FsEvent::LibraryOpFailed {
-                req,
-                error: Box::new(e),
-            });
+    fn handle_remove(&mut self, req: ReqId, slug: Slug, event_tx: &Sender<FsEvent>) {
+        match self.library.remove(&slug) {
+            Ok(entry) => {
+                let _ = event_tx.send(FsEvent::LibraryEntryRemoved {
+                    req,
+                    slug,
+                    entry,
+                    snapshot: self.library.snapshot(),
+                });
+            }
+            Err(e) => {
+                error!("{req}: remove sim {slug} failed: {e}");
+                let _ = event_tx.send(FsEvent::LibraryOpFailed {
+                    req,
+                    error: Box::new(e),
+                });
+            }
         }
     }
 }

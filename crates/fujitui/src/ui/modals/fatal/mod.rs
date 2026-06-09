@@ -1,4 +1,4 @@
-use crossterm::event::{KeyEvent, KeyEventKind};
+use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
     layout::{Alignment, Rect},
@@ -31,10 +31,7 @@ impl FatalModal {
 }
 
 impl ModalHandler for FatalModal {
-    fn on_key(&mut self, key: KeyEvent) -> ModalOutcome {
-        if key.kind != KeyEventKind::Press {
-            return ModalOutcome::Continue;
-        }
+    fn on_key(&mut self, _key: KeyEvent) -> ModalOutcome {
         ModalOutcome::Effect(ModalEffect::Quit)
     }
 
