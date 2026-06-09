@@ -9,18 +9,18 @@ use std::{
 use fujicore::{UsbId, generated::simulations::SimulationBase};
 use log::{debug, info, warn};
 use serde::{Deserialize, Serialize};
-use tempfile::NamedTempFile;
 use thiserror::Error;
 use time::OffsetDateTime;
 
-use super::slug::Slug;
+use crate::workers::fs::{
+    atomic::{self, AtomicError},
+    slug::{Slug, SlugError},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub struct LibraryEntry {
+pub struct SimulationLibraryEntry {
     pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
     pub source_camera: UsbId,
     #[serde(with = "time::serde::rfc3339")]
     pub created: OffsetDateTime,
@@ -30,14 +30,13 @@ pub struct LibraryEntry {
 }
 
 #[derive(Debug, Clone)]
-pub struct EntryEdit {
+pub struct SimulationLibraryEdit {
     pub name: String,
-    pub description: Option<String>,
     pub simulation: SimulationBase,
 }
 
 #[derive(Debug, Error)]
-pub enum LibraryError {
+pub enum SimulationLibraryError {
     #[error("i/o error at {path}: {source}")]
     Io {
         path: PathBuf,
@@ -45,25 +44,21 @@ pub enum LibraryError {
         source: io::Error,
     },
 
-    #[error("invalid library file {path}: {source}")]
+    #[error("invalid simulation library file {path}: {source}")]
     Parse {
         path: PathBuf,
         #[source]
         source: serde_json::Error,
     },
 
-    #[error("failed to serialize library entry for {path}: {source}")]
-    Serialize {
-        path: PathBuf,
-        #[source]
-        source: serde_json::Error,
-    },
+    #[error(transparent)]
+    Atomic(#[from] AtomicError),
 
-    #[error("library file {path} has a non-UTF-8 or missing filename")]
+    #[error("simulation library file {path} has a non-UTF-8 or missing filename")]
     NonUtf8Filename { path: PathBuf },
 
     #[error(
-        "library file {path}: name {name:?} slugifies to {actual:?} but file expects {expected:?}"
+        "simulation library file {path}: name {name:?} slugifies to {actual:?} but file expects {expected:?}"
     )]
     SlugMismatch {
         path: PathBuf,
@@ -75,49 +70,51 @@ pub enum LibraryError {
     #[error("slug {slug} already exists ({existing_name:?})")]
     SlugConflict { slug: Slug, existing_name: String },
 
-    #[error("no library entry with slug {slug}")]
+    #[error("no simulation library entry with slug {slug}")]
     NotFound { slug: Slug },
 
-    #[error("name cannot be slugified (empty or non-slug-compatible characters only)")]
-    InvalidName,
+    #[error(transparent)]
+    InvalidName(#[from] SlugError),
 }
 
 #[derive(Debug)]
-pub struct LoadReport {
+pub struct SimulationLibraryLoadReport {
     pub loaded: usize,
-    pub skipped: Vec<SkippedEntry>,
+    pub skipped: Vec<SimulationLibrarySkippedEntry>,
 }
 
 #[derive(Debug)]
-pub struct SkippedEntry {
+pub struct SimulationLibrarySkippedEntry {
     pub path: PathBuf,
-    pub reason: LibraryError,
+    pub reason: SimulationLibraryError,
 }
 
-pub struct SimLibrary {
+pub struct SimulationLibrary {
     dir: PathBuf,
-    entries: BTreeMap<Slug, LibraryEntry>,
+    entries: BTreeMap<Slug, SimulationLibraryEntry>,
     skipped: usize,
 }
 
 #[derive(Debug, Default)]
-pub struct LibrarySnapshot {
-    pub entries: BTreeMap<Slug, LibraryEntry>,
+pub struct SimulationLibrarySnapshot {
+    pub entries: BTreeMap<Slug, SimulationLibraryEntry>,
 }
 
-impl LibrarySnapshot {
+impl SimulationLibrarySnapshot {
     pub fn empty() -> Arc<Self> {
         Arc::new(Self::default())
     }
 }
 
-impl SimLibrary {
-    pub fn open(dir: PathBuf) -> Result<(Self, LoadReport), LibraryError> {
-        fs::create_dir_all(&dir).map_err(|source| LibraryError::Io {
+impl SimulationLibrary {
+    pub fn open(
+        dir: PathBuf,
+    ) -> Result<(Self, SimulationLibraryLoadReport), SimulationLibraryError> {
+        fs::create_dir_all(&dir).map_err(|source| SimulationLibraryError::Io {
             path: dir.clone(),
             source,
         })?;
-        let (entries, report) = scan(&dir)?;
+        let (entries, report) = Self::scan(&dir)?;
         info!(
             "opened simulation library at {} ({} loaded, {} skipped)",
             dir.display(),
@@ -135,8 +132,8 @@ impl SimLibrary {
         ))
     }
 
-    pub fn reload(&mut self) -> Result<LoadReport, LibraryError> {
-        let (entries, report) = scan(&self.dir)?;
+    pub fn reload(&mut self) -> Result<SimulationLibraryLoadReport, SimulationLibraryError> {
+        let (entries, report) = Self::scan(&self.dir)?;
         self.entries = entries;
         self.skipped = report.skipped.len();
         info!(
@@ -147,11 +144,12 @@ impl SimLibrary {
         Ok(report)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&Slug, &LibraryEntry)> {
+    #[allow(dead_code)]
+    pub fn iter(&self) -> impl Iterator<Item = (&Slug, &SimulationLibraryEntry)> {
         self.entries.iter()
     }
 
-    pub fn get(&self, slug: &Slug) -> Option<&LibraryEntry> {
+    pub fn get(&self, slug: &Slug) -> Option<&SimulationLibraryEntry> {
         self.entries.get(slug)
     }
 
@@ -159,6 +157,7 @@ impl SimLibrary {
         self.entries.len()
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -167,203 +166,195 @@ impl SimLibrary {
         self.skipped
     }
 
-    pub fn snapshot(&self) -> Arc<LibrarySnapshot> {
-        Arc::new(LibrarySnapshot {
+    pub fn snapshot(&self) -> Arc<SimulationLibrarySnapshot> {
+        Arc::new(SimulationLibrarySnapshot {
             entries: self.entries.clone(),
         })
     }
 
-    pub fn add(&mut self, init: EntryEdit, source_camera: UsbId) -> Result<Slug, LibraryError> {
+    pub fn add(
+        &mut self,
+        init: SimulationLibraryEdit,
+        source_camera: UsbId,
+    ) -> Result<Slug, SimulationLibraryError> {
         let slug = Slug::try_from(init.name.as_str())?;
         if let Some(existing) = self.entries.get(&slug) {
-            return Err(LibraryError::SlugConflict {
+            return Err(SimulationLibraryError::SlugConflict {
                 slug,
                 existing_name: existing.name.clone(),
             });
         }
 
         let now = OffsetDateTime::now_utc();
-        let entry = LibraryEntry {
+        let entry = SimulationLibraryEntry {
             name: init.name,
-            description: init.description,
             source_camera,
             created: now,
             modified: now,
             simulation: init.simulation,
         };
 
-        write_atomic(&self.dir, &slug, &entry)?;
-        info!("added library entry {slug}");
+        atomic::write_json_atomic(&Self::file_path(&self.dir, &slug), &entry)?;
+        info!("added simulation library entry {slug}");
         self.entries.insert(slug.clone(), entry);
         Ok(slug)
     }
 
-    pub fn update(&mut self, slug: &Slug, edit: EntryEdit) -> Result<Slug, LibraryError> {
+    pub fn update(
+        &mut self,
+        slug: &Slug,
+        edit: SimulationLibraryEdit,
+    ) -> Result<Slug, SimulationLibraryError> {
         let existing = self
             .entries
             .get(slug)
-            .ok_or_else(|| LibraryError::NotFound { slug: slug.clone() })?;
+            .ok_or_else(|| SimulationLibraryError::NotFound { slug: slug.clone() })?;
 
         let new_slug = Slug::try_from(edit.name.as_str())?;
         if new_slug != *slug
             && let Some(other) = self.entries.get(&new_slug)
         {
-            return Err(LibraryError::SlugConflict {
+            return Err(SimulationLibraryError::SlugConflict {
                 slug: new_slug,
                 existing_name: other.name.clone(),
             });
         }
 
-        let entry = LibraryEntry {
+        let entry = SimulationLibraryEntry {
             name: edit.name,
-            description: edit.description,
             source_camera: existing.source_camera,
             created: existing.created,
             modified: OffsetDateTime::now_utc(),
             simulation: edit.simulation,
         };
 
-        write_atomic(&self.dir, &new_slug, &entry)?;
+        atomic::write_json_atomic(&Self::file_path(&self.dir, &new_slug), &entry)?;
 
         if new_slug == *slug {
-            info!("updated library entry {slug}");
+            info!("updated simulation library entry {slug}");
         } else {
-            let old_path = file_path(&self.dir, slug);
+            let old_path = Self::file_path(&self.dir, slug);
             if let Err(source) = fs::remove_file(&old_path) {
-                let _ = fs::remove_file(file_path(&self.dir, &new_slug));
-                return Err(LibraryError::Io {
+                let _ = fs::remove_file(Self::file_path(&self.dir, &new_slug));
+                return Err(SimulationLibraryError::Io {
                     path: old_path,
                     source,
                 });
             }
             self.entries.remove(slug);
-            info!("renamed library entry {slug} -> {new_slug}");
+            info!("renamed simulation library entry {slug} -> {new_slug}");
         }
 
         self.entries.insert(new_slug.clone(), entry);
         Ok(new_slug)
     }
 
-    pub fn remove(&mut self, slug: &Slug) -> Result<LibraryEntry, LibraryError> {
+    pub fn remove(
+        &mut self,
+        slug: &Slug,
+    ) -> Result<SimulationLibraryEntry, SimulationLibraryError> {
         if !self.entries.contains_key(slug) {
-            return Err(LibraryError::NotFound { slug: slug.clone() });
+            return Err(SimulationLibraryError::NotFound { slug: slug.clone() });
         }
-        let path = file_path(&self.dir, slug);
-        fs::remove_file(&path).map_err(|source| LibraryError::Io { path, source })?;
+        let path = Self::file_path(&self.dir, slug);
+        fs::remove_file(&path).map_err(|source| SimulationLibraryError::Io { path, source })?;
         let entry = self
             .entries
             .remove(slug)
             .expect("entry presence checked above");
-        info!("removed library entry {slug}");
+        info!("removed simulation library entry {slug}");
         Ok(entry)
     }
 }
 
-fn file_path(dir: &Path, slug: &Slug) -> PathBuf {
-    dir.join(format!("{}.json", slug.as_str()))
-}
+impl SimulationLibrary {
+    fn file_path(dir: &Path, slug: &Slug) -> PathBuf {
+        dir.join(format!("{}.json", slug.as_str()))
+    }
 
-fn write_atomic(dir: &Path, slug: &Slug, entry: &LibraryEntry) -> Result<(), LibraryError> {
-    let target = file_path(dir, slug);
-    let mut tmp = NamedTempFile::new_in(dir).map_err(|source| LibraryError::Io {
-        path: dir.to_path_buf(),
-        source,
-    })?;
-    serde_json::to_writer_pretty(&mut tmp, entry).map_err(|source| LibraryError::Serialize {
-        path: target.clone(),
-        source,
-    })?;
-    tmp.as_file()
-        .sync_all()
-        .map_err(|source| LibraryError::Io {
-            path: target.clone(),
-            source,
-        })?;
-    tmp.persist(&target).map_err(|e| LibraryError::Io {
-        path: target,
-        source: e.error,
-    })?;
-    File::open(dir)
-        .and_then(|d| d.sync_all())
-        .map_err(|source| LibraryError::Io {
+    fn scan(
+        dir: &Path,
+    ) -> Result<
+        (
+            BTreeMap<Slug, SimulationLibraryEntry>,
+            SimulationLibraryLoadReport,
+        ),
+        SimulationLibraryError,
+    > {
+        let read = fs::read_dir(dir).map_err(|source| SimulationLibraryError::Io {
             path: dir.to_path_buf(),
             source,
         })?;
-    Ok(())
-}
 
-fn scan(dir: &Path) -> Result<(BTreeMap<Slug, LibraryEntry>, LoadReport), LibraryError> {
-    let read = fs::read_dir(dir).map_err(|source| LibraryError::Io {
-        path: dir.to_path_buf(),
-        source,
-    })?;
+        let mut entries = BTreeMap::new();
+        let mut skipped = Vec::new();
 
-    let mut entries = BTreeMap::new();
-    let mut skipped = Vec::new();
-
-    for dirent in read {
-        let dirent = match dirent {
-            Ok(d) => d,
-            Err(source) => {
-                skipped.push(SkippedEntry {
-                    path: dir.to_path_buf(),
-                    reason: LibraryError::Io {
+        for dirent in read {
+            let dirent = match dirent {
+                Ok(d) => d,
+                Err(source) => {
+                    skipped.push(SimulationLibrarySkippedEntry {
                         path: dir.to_path_buf(),
-                        source,
-                    },
-                });
-                continue;
-            }
-        };
+                        reason: SimulationLibraryError::Io {
+                            path: dir.to_path_buf(),
+                            source,
+                        },
+                    });
+                    continue;
+                }
+            };
 
-        let path = dirent.path();
-        match load_one(&path) {
-            Ok((slug, entry)) => {
-                entries.insert(slug, entry);
-            }
-            Err(reason) => {
-                warn!("skipping library file {}: {reason}", path.display());
-                skipped.push(SkippedEntry { path, reason });
+            let path = dirent.path();
+            match Self::load_one(&path) {
+                Ok((slug, entry)) => {
+                    entries.insert(slug, entry);
+                }
+                Err(reason) => {
+                    warn!(
+                        "skipping simulation library file {}: {reason}",
+                        path.display()
+                    );
+                    skipped.push(SimulationLibrarySkippedEntry { path, reason });
+                }
             }
         }
+
+        debug!(
+            "scan of {} yielded {} entries",
+            dir.display(),
+            entries.len()
+        );
+        let loaded = entries.len();
+        Ok((entries, SimulationLibraryLoadReport { loaded, skipped }))
     }
 
-    debug!(
-        "scan of {} yielded {} entries",
-        dir.display(),
-        entries.len()
-    );
-    let loaded = entries.len();
-    Ok((entries, LoadReport { loaded, skipped }))
-}
-
-fn load_one(path: &Path) -> Result<(Slug, LibraryEntry), LibraryError> {
-    let file = File::open(path).map_err(|source| LibraryError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    let entry: LibraryEntry =
-        serde_json::from_reader(file).map_err(|source| LibraryError::Parse {
+    fn load_one(path: &Path) -> Result<(Slug, SimulationLibraryEntry), SimulationLibraryError> {
+        let file = File::open(path).map_err(|source| SimulationLibraryError::Io {
             path: path.to_path_buf(),
             source,
         })?;
-
-    let name_slug = Slug::try_from(entry.name.as_str())?;
-    let file_stem =
-        path.file_stem()
-            .and_then(|s| s.to_str())
-            .ok_or_else(|| LibraryError::NonUtf8Filename {
+        let entry: SimulationLibraryEntry =
+            serde_json::from_reader(file).map_err(|source| SimulationLibraryError::Parse {
                 path: path.to_path_buf(),
+                source,
             })?;
-    if name_slug.as_str() != file_stem {
-        return Err(LibraryError::SlugMismatch {
-            path: path.to_path_buf(),
-            name: entry.name,
-            actual: name_slug,
-            expected: file_stem.to_owned(),
-        });
+
+        let name_slug = Slug::try_from(entry.name.as_str())?;
+        let file_stem = path.file_stem().and_then(|s| s.to_str()).ok_or_else(|| {
+            SimulationLibraryError::NonUtf8Filename {
+                path: path.to_path_buf(),
+            }
+        })?;
+        if name_slug.as_str() != file_stem {
+            return Err(SimulationLibraryError::SlugMismatch {
+                path: path.to_path_buf(),
+                name: entry.name,
+                actual: name_slug,
+                expected: file_stem.to_owned(),
+            });
+        }
+        Ok((name_slug, entry))
     }
-    Ok((name_slug, entry))
 }
 
 #[cfg(test)]
@@ -406,9 +397,9 @@ mod tests {
     #[test]
     fn open_creates_missing_directory() {
         let tmp = TempDir::new().unwrap();
-        let nested = tmp.path().join("library");
+        let nested = tmp.path().join("simulation");
         assert!(!nested.exists());
-        let (lib, report) = SimLibrary::open(nested.clone()).unwrap();
+        let (lib, report) = SimulationLibrary::open(nested.clone()).unwrap();
         assert!(nested.is_dir());
         assert_eq!(lib.len(), 0);
         assert_eq!(report.loaded, 0);
@@ -418,12 +409,11 @@ mod tests {
     #[test]
     fn add_writes_file_and_roundtrips() {
         let (_tmp, path) = dir();
-        let (mut lib, _) = SimLibrary::open(path.clone()).unwrap();
+        let (mut lib, _) = SimulationLibrary::open(path.clone()).unwrap();
         let slug = lib
             .add(
-                EntryEdit {
+                SimulationLibraryEdit {
                     name: "Velvia Warm".to_owned(),
-                    description: Some("warm push".to_owned()),
                     simulation: sim_velvia(),
                 },
                 cam(),
@@ -432,10 +422,9 @@ mod tests {
         assert_eq!(slug.as_str(), "velvia-warm");
         assert!(path.join("velvia-warm.json").exists());
 
-        let (lib2, _) = SimLibrary::open(path).unwrap();
+        let (lib2, _) = SimulationLibrary::open(path).unwrap();
         let entry = lib2.get(&slug).unwrap();
         assert_eq!(entry.name, "Velvia Warm");
-        assert_eq!(entry.description.as_deref(), Some("warm push"));
         assert_eq!(entry.source_camera, cam());
         assert_eq!(
             entry.simulation.film_simulation,
@@ -446,11 +435,10 @@ mod tests {
     #[test]
     fn add_conflict_fails() {
         let (_tmp, path) = dir();
-        let (mut lib, _) = SimLibrary::open(path).unwrap();
+        let (mut lib, _) = SimulationLibrary::open(path).unwrap();
         lib.add(
-            EntryEdit {
+            SimulationLibraryEdit {
                 name: "Velvia".to_owned(),
-                description: None,
                 simulation: sim_velvia(),
             },
             cam(),
@@ -458,26 +446,24 @@ mod tests {
         .unwrap();
         let err = lib
             .add(
-                EntryEdit {
+                SimulationLibraryEdit {
                     name: "VELVIA".to_owned(),
-                    description: None,
                     simulation: sim_acros(),
                 },
                 cam(),
             )
             .unwrap_err();
-        assert!(matches!(err, LibraryError::SlugConflict { .. }));
+        assert!(matches!(err, SimulationLibraryError::SlugConflict { .. }));
     }
 
     #[test]
     fn update_same_name_bumps_modified_preserves_created() {
         let (_tmp, path) = dir();
-        let (mut lib, _) = SimLibrary::open(path).unwrap();
+        let (mut lib, _) = SimulationLibrary::open(path).unwrap();
         let slug = lib
             .add(
-                EntryEdit {
+                SimulationLibraryEdit {
                     name: "Velvia".to_owned(),
-                    description: None,
                     simulation: sim_velvia(),
                 },
                 cam(),
@@ -489,9 +475,8 @@ mod tests {
         let new_slug = lib
             .update(
                 &slug,
-                EntryEdit {
+                SimulationLibraryEdit {
                     name: "Velvia".to_owned(),
-                    description: Some("edited".to_owned()),
                     simulation: sim_acros(),
                 },
             )
@@ -509,12 +494,11 @@ mod tests {
     #[test]
     fn update_rename_moves_file_and_returns_new_slug() {
         let (_tmp, path) = dir();
-        let (mut lib, _) = SimLibrary::open(path.clone()).unwrap();
+        let (mut lib, _) = SimulationLibrary::open(path.clone()).unwrap();
         let slug = lib
             .add(
-                EntryEdit {
+                SimulationLibraryEdit {
                     name: "Velvia".to_owned(),
-                    description: None,
                     simulation: sim_velvia(),
                 },
                 cam(),
@@ -523,9 +507,8 @@ mod tests {
         let new_slug = lib
             .update(
                 &slug,
-                EntryEdit {
+                SimulationLibraryEdit {
                     name: "Velvia Warm".to_owned(),
-                    description: None,
                     simulation: sim_velvia(),
                 },
             )
@@ -540,21 +523,19 @@ mod tests {
     #[test]
     fn update_rename_conflict_fails() {
         let (_tmp, path) = dir();
-        let (mut lib, _) = SimLibrary::open(path).unwrap();
+        let (mut lib, _) = SimulationLibrary::open(path).unwrap();
         let velvia = lib
             .add(
-                EntryEdit {
+                SimulationLibraryEdit {
                     name: "Velvia".to_owned(),
-                    description: None,
                     simulation: sim_velvia(),
                 },
                 cam(),
             )
             .unwrap();
         lib.add(
-            EntryEdit {
+            SimulationLibraryEdit {
                 name: "Acros".to_owned(),
-                description: None,
                 simulation: sim_acros(),
             },
             cam(),
@@ -563,44 +544,41 @@ mod tests {
         let err = lib
             .update(
                 &velvia,
-                EntryEdit {
+                SimulationLibraryEdit {
                     name: "ACROS".to_owned(),
-                    description: None,
                     simulation: sim_velvia(),
                 },
             )
             .unwrap_err();
-        assert!(matches!(err, LibraryError::SlugConflict { .. }));
+        assert!(matches!(err, SimulationLibraryError::SlugConflict { .. }));
         assert_eq!(lib.get(&velvia).unwrap().name, "Velvia");
     }
 
     #[test]
     fn update_missing_fails() {
         let (_tmp, path) = dir();
-        let (mut lib, _) = SimLibrary::open(path).unwrap();
+        let (mut lib, _) = SimulationLibrary::open(path).unwrap();
         let phantom = Slug::try_from("not-there").unwrap();
         let err = lib
             .update(
                 &phantom,
-                EntryEdit {
+                SimulationLibraryEdit {
                     name: "X".to_owned(),
-                    description: None,
                     simulation: sim_velvia(),
                 },
             )
             .unwrap_err();
-        assert!(matches!(err, LibraryError::NotFound { .. }));
+        assert!(matches!(err, SimulationLibraryError::NotFound { .. }));
     }
 
     #[test]
     fn remove_deletes_file_and_returns_entry() {
         let (_tmp, path) = dir();
-        let (mut lib, _) = SimLibrary::open(path.clone()).unwrap();
+        let (mut lib, _) = SimulationLibrary::open(path.clone()).unwrap();
         let slug = lib
             .add(
-                EntryEdit {
+                SimulationLibraryEdit {
                     name: "Velvia".to_owned(),
-                    description: None,
                     simulation: sim_velvia(),
                 },
                 cam(),
@@ -615,12 +593,11 @@ mod tests {
     #[test]
     fn iter_is_sorted_by_slug() {
         let (_tmp, path) = dir();
-        let (mut lib, _) = SimLibrary::open(path).unwrap();
+        let (mut lib, _) = SimulationLibrary::open(path).unwrap();
         for name in ["Velvia", "Acros", "Provia"] {
             lib.add(
-                EntryEdit {
+                SimulationLibraryEdit {
                     name: name.to_owned(),
-                    description: None,
                     simulation: sim_velvia(),
                 },
                 cam(),
@@ -634,28 +611,27 @@ mod tests {
     #[test]
     fn reload_picks_up_files_added_out_of_band() {
         let (_tmp, path) = dir();
-        let (mut lib, _) = SimLibrary::open(path.clone()).unwrap();
+        let (mut lib, _) = SimulationLibrary::open(path.clone()).unwrap();
         let slug = lib
             .add(
-                EntryEdit {
+                SimulationLibraryEdit {
                     name: "Velvia".to_owned(),
-                    description: None,
                     simulation: sim_velvia(),
                 },
                 cam(),
             )
             .unwrap();
 
-        let entry = LibraryEntry {
+        let entry = SimulationLibraryEntry {
             name: "Acros".to_owned(),
-            description: None,
             source_camera: cam(),
             created: OffsetDateTime::now_utc(),
             modified: OffsetDateTime::now_utc(),
             simulation: sim_acros(),
         };
         let acros_slug = Slug::try_from("Acros").unwrap();
-        write_atomic(&path, &acros_slug, &entry).unwrap();
+        atomic::write_json_atomic(&SimulationLibrary::file_path(&path, &acros_slug), &entry)
+            .unwrap();
 
         assert_eq!(lib.len(), 1);
         let report = lib.reload().unwrap();
@@ -668,21 +644,20 @@ mod tests {
     fn corrupt_file_is_reported_and_skipped() {
         let (_tmp, path) = dir();
         std::fs::write(path.join("garbage.json"), "{ not json").unwrap();
-        let (lib, report) = SimLibrary::open(path).unwrap();
+        let (lib, report) = SimulationLibrary::open(path).unwrap();
         assert_eq!(lib.len(), 0);
         assert_eq!(report.skipped.len(), 1);
         assert!(matches!(
             report.skipped[0].reason,
-            LibraryError::Parse { .. }
+            SimulationLibraryError::Parse { .. }
         ));
     }
 
     #[test]
     fn slug_mismatch_is_reported_and_skipped() {
         let (_tmp, path) = dir();
-        let entry = LibraryEntry {
+        let entry = SimulationLibraryEntry {
             name: "Acros".to_owned(),
-            description: None,
             source_camera: cam(),
             created: OffsetDateTime::now_utc(),
             modified: OffsetDateTime::now_utc(),
@@ -691,12 +666,12 @@ mod tests {
         let json = serde_json::to_string(&entry).unwrap();
         std::fs::write(path.join("velvia.json"), json).unwrap();
 
-        let (lib, report) = SimLibrary::open(path).unwrap();
+        let (lib, report) = SimulationLibrary::open(path).unwrap();
         assert_eq!(lib.len(), 0);
         assert_eq!(report.skipped.len(), 1);
         assert!(matches!(
             report.skipped[0].reason,
-            LibraryError::SlugMismatch { .. }
+            SimulationLibraryError::SlugMismatch { .. }
         ));
     }
 }

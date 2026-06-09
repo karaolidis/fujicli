@@ -2,24 +2,23 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fujicore::{
-    CoreError, SupportedCamera,
+    CoreError,
     features::simulation::SimulationDescriptors,
     generated::{options::CustomSetting, simulations::SimulationBase},
 };
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Modifier, Style},
-    text::Span,
-    widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 
 use crate::{
-    ui::tabs::Shadowed,
+    ui::{
+        tabs::{AppCtx, Shadowed},
+        widgets::TextInputState,
+    },
     workers::{
-        ReqId, ReqIdGen,
-        device::DeviceHandle,
-        fs::library::{LibrarySnapshot, Slug},
+        ReqId,
+        fs::{simulation::SimulationLibrarySnapshot, slug::Slug},
     },
 };
 
@@ -31,118 +30,17 @@ mod list;
 mod slots;
 
 use editor::{EditorOutcome, EditorState};
-use library::{Library, LibrarySyncReport};
+use library::{SimulationLibrarySyncReport, SimulationLibraryView};
 use list::ListPane;
 use slots::{FetchSkipError, SlotEntry, SlotError, Slots};
 
 const INDENT: &str = "  ";
 const DIRTY_MARKER: &str = "*";
-const FILTER_PROMPT: &str = "> ";
-const SCROLLBAR_TRACK_SYMBOL: &str = "│";
-
-fn draw_scrollbar(frame: &mut Frame, track: Rect, content_len: usize, offset: usize) {
-    let viewport = track.height as usize;
-    if content_len <= viewport {
-        return;
-    }
-    let mut state = ScrollbarState::new(content_len - viewport).position(offset);
-    frame.render_stateful_widget(
-        Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(None)
-            .end_symbol(None)
-            .track_symbol(Some(SCROLLBAR_TRACK_SYMBOL)),
-        track,
-        &mut state,
-    );
-}
-
-fn make_buffer_with_cursor(buffer: &str, cursor_col: usize, base: Style) -> Vec<Span<'static>> {
-    let chars: Vec<char> = buffer.chars().collect();
-    let before: String = chars.iter().take(cursor_col).collect();
-    let at: String = chars
-        .get(cursor_col)
-        .map_or_else(|| " ".to_owned(), ToString::to_string);
-    let after: String = chars.iter().skip(cursor_col + 1).collect();
-    let cursor_style = base.add_modifier(Modifier::REVERSED);
-    vec![
-        Span::styled(before, base),
-        Span::styled(at, cursor_style),
-        Span::styled(after, base),
-    ]
-}
 
 #[derive(Debug, Clone, Copy)]
 pub(super) enum CursorMove {
     Up,
     Down,
-}
-
-#[derive(Debug, Default)]
-pub(super) struct TextInputState {
-    pub buffer: String,
-    pub cursor_col: usize,
-}
-
-impl TextInputState {
-    fn char_count(&self) -> usize {
-        self.buffer.chars().count()
-    }
-
-    fn byte_at(&self, char_idx: usize) -> usize {
-        self.buffer
-            .char_indices()
-            .nth(char_idx)
-            .map_or(self.buffer.len(), |(i, _)| i)
-    }
-
-    const fn move_left(&mut self) {
-        self.cursor_col = self.cursor_col.saturating_sub(1);
-    }
-
-    fn move_right(&mut self) {
-        if self.cursor_col < self.char_count() {
-            self.cursor_col += 1;
-        }
-    }
-
-    const fn move_home(&mut self) {
-        self.cursor_col = 0;
-    }
-
-    fn move_end(&mut self) {
-        self.cursor_col = self.char_count();
-    }
-
-    fn insert(&mut self, c: char, max_len: usize) -> bool {
-        if self.char_count() >= max_len {
-            return false;
-        }
-        let pos = self.byte_at(self.cursor_col);
-        self.buffer.insert(pos, c);
-        self.cursor_col += 1;
-        true
-    }
-
-    fn delete_before(&mut self) -> bool {
-        if self.cursor_col == 0 {
-            return false;
-        }
-        let start = self.byte_at(self.cursor_col - 1);
-        let end = self.byte_at(self.cursor_col);
-        self.buffer.drain(start..end);
-        self.cursor_col -= 1;
-        true
-    }
-
-    fn delete_after(&mut self) -> bool {
-        if self.cursor_col >= self.char_count() {
-            return false;
-        }
-        let start = self.byte_at(self.cursor_col);
-        let end = self.byte_at(self.cursor_col + 1);
-        self.buffer.drain(start..end);
-        true
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
@@ -180,7 +78,11 @@ pub(super) enum EditorTarget<'a> {
 }
 
 impl<'a> EditorTarget<'a> {
-    fn resolve(selection: &SimulationCursor, slots: &'a Slots, library: &'a Library) -> Self {
+    fn resolve(
+        selection: &SimulationCursor,
+        slots: &'a Slots,
+        library: &'a SimulationLibraryView,
+    ) -> Self {
         match selection {
             SimulationCursor::None => EditorTarget::None,
             SimulationCursor::Slot(slot) => {
@@ -234,7 +136,7 @@ impl<'a> EditorTarget<'a> {
 #[derive(Debug, Default)]
 pub struct SimulationTabState {
     slots: Slots,
-    library: Library,
+    library: SimulationLibraryView,
     list: ListPane,
     editors: BTreeMap<SimulationCursor, EditorState>,
     focus: Pane,
@@ -267,6 +169,12 @@ impl SimulationTabState {
         self.list.filtering() || self.is_editing()
     }
 
+    fn is_editing(&self) -> bool {
+        self.editors
+            .get(self.list.selection())
+            .is_some_and(EditorState::is_editing)
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) {
         if self.is_editing() {
             self.handle_editor_key(key);
@@ -274,8 +182,7 @@ impl SimulationTabState {
         }
         if self.list.filtering() {
             if self.list.handle_filter_key(key) {
-                let order = self.cursor_order();
-                self.list.ensure_valid(&order);
+                self.settle();
             }
             return;
         }
@@ -283,12 +190,6 @@ impl SimulationTabState {
             Pane::List => self.handle_list_key(key),
             Pane::Editor => self.handle_editor_key(key),
         }
-    }
-
-    fn is_editing(&self) -> bool {
-        self.editors
-            .get(self.list.selection())
-            .is_some_and(EditorState::is_editing)
     }
 
     fn handle_list_key(&mut self, key: KeyEvent) {
@@ -359,13 +260,13 @@ impl SimulationTabState {
         }
     }
 
-    pub(super) fn request_fetch(
-        &mut self,
-        device: Option<&DeviceHandle>,
-        camera: Option<&'static SupportedCamera>,
-        req_gen: &ReqIdGen,
-    ) -> Result<ReqId, FetchSkipError> {
-        self.slots.request_fetch(device, camera, req_gen)
+    pub(super) fn request_fetch(&mut self, ctx: &AppCtx) -> Result<ReqId, FetchSkipError> {
+        let camera = ctx
+            .device_snapshot
+            .as_ref()
+            .and_then(|s| s.usb_id.supported_camera());
+        self.slots
+            .request_fetch(ctx.device.as_ref(), camera, &ctx.req)
     }
 
     pub(super) const fn mark_stale(&mut self) {
@@ -380,7 +281,7 @@ impl SimulationTabState {
         self.slots.handle_enumerated(req, slots)?;
         let order = self.cursor_order();
         self.list.settle_selection(&order);
-        self.prune(&order);
+        self.prune_editors(&order);
         Ok(())
     }
 
@@ -404,19 +305,27 @@ impl SimulationTabState {
         self.slots.handle_fetch_failed(slot, error)
     }
 
-    pub(super) fn sync_library(&mut self, snapshot: &LibrarySnapshot) -> LibrarySyncReport {
+    pub(super) fn sync_library(
+        &mut self,
+        snapshot: &SimulationLibrarySnapshot,
+    ) -> SimulationLibrarySyncReport {
         let report = self.library.sync(snapshot);
+        let order = self.settle();
+        self.prune_editors(&order);
+        report
+    }
+
+    fn settle(&mut self) -> Vec<SimulationCursor> {
         let order = self.cursor_order();
         self.list.ensure_valid(&order);
-        self.prune(&order);
-        report
+        order
     }
 
     fn cursor_order(&self) -> Vec<SimulationCursor> {
         self.list.order(&self.slots, &self.library)
     }
 
-    fn prune(&mut self, order: &[SimulationCursor]) {
+    fn prune_editors(&mut self, order: &[SimulationCursor]) {
         self.editors
             .retain(|selection, _| order.contains(selection));
     }
@@ -432,7 +341,10 @@ mod tests {
     use time::OffsetDateTime;
 
     use super::{slots::SlotsState, *};
-    use crate::{ui::tabs::TabBehavior, workers::fs::library::LibraryEntry};
+    use crate::{
+        ui::tabs::TabBehavior,
+        workers::{ReqIdGen, fs::simulation::SimulationLibraryEntry},
+    };
 
     fn key_press(code: KeyCode) -> KeyEvent {
         KeyEvent {
@@ -487,19 +399,18 @@ mod tests {
             .collect()
     }
 
-    fn snapshot_with(entries: Vec<(Slug, LibraryEntry)>) -> LibrarySnapshot {
-        let mut s = LibrarySnapshot::default();
+    fn snapshot_with(entries: Vec<(Slug, SimulationLibraryEntry)>) -> SimulationLibrarySnapshot {
+        let mut s = SimulationLibrarySnapshot::default();
         for (k, v) in entries {
             s.entries.insert(k, v);
         }
         s
     }
 
-    fn sample_entry(name: &str, sim: SimulationBase) -> LibraryEntry {
+    fn sample_entry(name: &str, sim: SimulationBase) -> SimulationLibraryEntry {
         let now = OffsetDateTime::now_utc();
-        LibraryEntry {
+        SimulationLibraryEntry {
             name: name.to_owned(),
-            description: None,
             source_camera: UsbId {
                 vendor: 0x04CB,
                 product: 0x02FC,
@@ -620,7 +531,7 @@ mod tests {
         )]));
         step(&mut s, CursorMove::Down);
         assert_eq!(s.list.selection(), &SimulationCursor::Library(slug));
-        let report = s.sync_library(&LibrarySnapshot::default());
+        let report = s.sync_library(&SimulationLibrarySnapshot::default());
         assert_eq!(report.removed.len(), 1);
         assert_eq!(s.list.selection(), &SimulationCursor::None);
     }

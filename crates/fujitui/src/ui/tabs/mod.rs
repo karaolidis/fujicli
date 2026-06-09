@@ -19,7 +19,7 @@ use crate::{
     workers::{
         ReqId, ReqIdGen,
         device::{DeviceHandle, DeviceSnapshot},
-        fs::{FsHandle, library::LibrarySnapshot},
+        fs::{FsHandle, backup::BackupLibrarySnapshot, simulation::SimulationLibrarySnapshot, slug::Slug},
     },
 };
 
@@ -29,7 +29,8 @@ pub struct AppCtx {
     pub fs: FsHandle,
     pub req: ReqIdGen,
     pub device_snapshot: Option<DeviceSnapshot>,
-    pub library_snapshot: Arc<LibrarySnapshot>,
+    pub simulation_library_snapshot: Arc<SimulationLibrarySnapshot>,
+    pub backup_library_snapshot: Arc<BackupLibrarySnapshot>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,7 +94,9 @@ pub trait TabBehavior {
 
     fn on_device_disconnected(&mut self, ctx: &AppCtx) {}
 
-    fn on_library_changed(&mut self, ctx: &AppCtx) {}
+    fn on_simulation_library_changed(&mut self, ctx: &AppCtx) {}
+
+    fn on_backup_library_changed(&mut self, ctx: &AppCtx) {}
 
     fn on_slots_enumerated(&mut self, ctx: &AppCtx, req: ReqId, slots: &[CustomSetting]) {}
 
@@ -106,6 +109,20 @@ pub trait TabBehavior {
     fn on_slot_changed(&mut self, ctx: &AppCtx, slot: CustomSetting) {}
 
     fn on_slot_push_failed(&mut self, ctx: &AppCtx, slot: CustomSetting, error: &Arc<CoreError>) {}
+
+    fn on_backup_exported(&mut self, ctx: &AppCtx, req: ReqId, blob: &[u8]) {}
+
+    fn on_backup_export_failed(&mut self, ctx: &AppCtx, req: ReqId, error: &Arc<CoreError>) {}
+
+    fn on_backup_imported(&mut self, ctx: &AppCtx, req: ReqId) {}
+
+    fn on_backup_import_failed(&mut self, ctx: &AppCtx, req: ReqId, error: &Arc<CoreError>) {}
+
+    fn on_backup_entry_added(&mut self, ctx: &AppCtx, slug: &Slug) {}
+
+    fn on_backup_entry_updated(&mut self, ctx: &AppCtx, slug: &Slug) {}
+
+    fn on_backup_library_op_failed(&mut self, ctx: &AppCtx, req: ReqId) {}
 
     fn on_key(&mut self, ctx: &AppCtx, key: KeyEvent) {}
 }
@@ -122,7 +139,7 @@ impl Default for Tabs {
         Self {
             simulation: SimulationTabState::default(),
             rendering: RenderTabState,
-            backup: BackupTabState,
+            backup: BackupTabState::default(),
         }
     }
 }
@@ -173,10 +190,16 @@ impl Tabs {
         self.backup.on_device_disconnected(ctx);
     }
 
-    pub fn handle_library_changed(&mut self, ctx: &AppCtx) {
-        self.simulation.on_library_changed(ctx);
-        self.rendering.on_library_changed(ctx);
-        self.backup.on_library_changed(ctx);
+    pub fn handle_simulation_library_changed(&mut self, ctx: &AppCtx) {
+        self.simulation.on_simulation_library_changed(ctx);
+        self.rendering.on_simulation_library_changed(ctx);
+        self.backup.on_simulation_library_changed(ctx);
+    }
+
+    pub fn handle_backup_library_changed(&mut self, ctx: &AppCtx) {
+        self.simulation.on_backup_library_changed(ctx);
+        self.rendering.on_backup_library_changed(ctx);
+        self.backup.on_backup_library_changed(ctx);
     }
 
     pub fn handle_slots_enumerated(&mut self, ctx: &AppCtx, req: ReqId, slots: &[CustomSetting]) {
@@ -228,5 +251,57 @@ impl Tabs {
         self.simulation.on_slot_push_failed(ctx, slot, error);
         self.rendering.on_slot_push_failed(ctx, slot, error);
         self.backup.on_slot_push_failed(ctx, slot, error);
+    }
+
+    pub fn handle_backup_exported(&mut self, ctx: &AppCtx, req: ReqId, blob: &[u8]) {
+        self.simulation.on_backup_exported(ctx, req, blob);
+        self.rendering.on_backup_exported(ctx, req, blob);
+        self.backup.on_backup_exported(ctx, req, blob);
+    }
+
+    pub fn handle_backup_export_failed(
+        &mut self,
+        ctx: &AppCtx,
+        req: ReqId,
+        error: &Arc<CoreError>,
+    ) {
+        self.simulation.on_backup_export_failed(ctx, req, error);
+        self.rendering.on_backup_export_failed(ctx, req, error);
+        self.backup.on_backup_export_failed(ctx, req, error);
+    }
+
+    pub fn handle_backup_imported(&mut self, ctx: &AppCtx, req: ReqId) {
+        self.simulation.on_backup_imported(ctx, req);
+        self.rendering.on_backup_imported(ctx, req);
+        self.backup.on_backup_imported(ctx, req);
+    }
+
+    pub fn handle_backup_import_failed(
+        &mut self,
+        ctx: &AppCtx,
+        req: ReqId,
+        error: &Arc<CoreError>,
+    ) {
+        self.simulation.on_backup_import_failed(ctx, req, error);
+        self.rendering.on_backup_import_failed(ctx, req, error);
+        self.backup.on_backup_import_failed(ctx, req, error);
+    }
+
+    pub fn handle_backup_library_op_failed(&mut self, ctx: &AppCtx, req: ReqId) {
+        self.simulation.on_backup_library_op_failed(ctx, req);
+        self.rendering.on_backup_library_op_failed(ctx, req);
+        self.backup.on_backup_library_op_failed(ctx, req);
+    }
+
+    pub fn handle_backup_entry_added(&mut self, ctx: &AppCtx, slug: &Slug) {
+        self.simulation.on_backup_entry_added(ctx, slug);
+        self.rendering.on_backup_entry_added(ctx, slug);
+        self.backup.on_backup_entry_added(ctx, slug);
+    }
+
+    pub fn handle_backup_entry_updated(&mut self, ctx: &AppCtx, slug: &Slug) {
+        self.simulation.on_backup_entry_updated(ctx, slug);
+        self.rendering.on_backup_entry_updated(ctx, slug);
+        self.backup.on_backup_entry_updated(ctx, slug);
     }
 }

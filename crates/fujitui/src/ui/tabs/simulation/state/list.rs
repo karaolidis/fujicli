@@ -1,20 +1,27 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::KeyEvent;
 use fujicore::generated::options::CustomSetting;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, List, ListItem, ListState},
 };
 
-use crate::{border_title, ui::border_style, workers::fs::library::Slug};
+#[cfg(test)]
+use crate::ui::widgets::TextInputState;
+use crate::{
+    border_title,
+    ui::{
+        border_style,
+        widgets::{FilterOutcome, FilterState, Scrollbar},
+    },
+    workers::fs::slug::Slug,
+};
 
 use super::{
-    CursorMove, DIRTY_MARKER, FILTER_PROMPT, INDENT, SimulationCursor, TextInputState,
-    draw_scrollbar,
-    library::{Library, LibraryBuffer},
-    make_buffer_with_cursor,
+    CursorMove, DIRTY_MARKER, INDENT, SimulationCursor,
+    library::{SimulationLibraryBuffer, SimulationLibraryView},
     slots::{SlotEntry, Slots},
 };
 
@@ -23,8 +30,7 @@ const COL_SEPARATOR: &str = " ";
 #[derive(Debug, Default)]
 pub struct ListPane {
     selection: SimulationCursor,
-    filter: TextInputState,
-    filtering: bool,
+    filter: FilterState,
     scroll: usize,
 }
 
@@ -34,19 +40,19 @@ impl ListPane {
     }
 
     pub(super) const fn filtering(&self) -> bool {
-        self.filtering
+        self.filter.active()
     }
 
     #[cfg(test)]
     pub(super) const fn filter(&self) -> &TextInputState {
-        &self.filter
+        self.filter.text()
     }
 
     pub(super) fn slot_entries<'a>(
         &'a self,
         slots: &'a Slots,
     ) -> impl Iterator<Item = (CustomSetting, &'a SlotEntry)> + 'a {
-        let needle = self.filter.buffer.to_lowercase();
+        let needle = self.filter.needle_lower();
         slots.into_iter().filter(move |(_, entry)| {
             needle.is_empty()
                 || entry
@@ -57,15 +63,19 @@ impl ListPane {
 
     pub(super) fn library_entries<'a>(
         &'a self,
-        library: &'a Library,
-    ) -> impl Iterator<Item = (&'a Slug, &'a LibraryBuffer)> + 'a {
-        let needle = self.filter.buffer.to_lowercase();
+        library: &'a SimulationLibraryView,
+    ) -> impl Iterator<Item = (&'a Slug, &'a SimulationLibraryBuffer)> + 'a {
+        let needle = self.filter.needle_lower();
         library.into_iter().filter(move |(_, lib)| {
             needle.is_empty() || lib.entry.name.to_lowercase().contains(&needle)
         })
     }
 
-    pub(super) fn order(&self, slots: &Slots, library: &Library) -> Vec<SimulationCursor> {
+    pub(super) fn order(
+        &self,
+        slots: &Slots,
+        library: &SimulationLibraryView,
+    ) -> Vec<SimulationCursor> {
         self.slot_entries(slots)
             .map(|(slot, _)| SimulationCursor::Slot(slot))
             .chain(
@@ -128,47 +138,14 @@ impl ListPane {
     }
 
     pub(super) fn start_filter(&mut self) {
-        self.filtering = true;
-        self.filter.cursor_col = self.filter.buffer.chars().count();
+        self.filter.start();
     }
 
     pub(super) fn handle_filter_key(&mut self, key: KeyEvent) -> bool {
-        let filter = &mut self.filter;
-        let mut order_dirty = false;
-        let mut close = false;
-        let mut clear = false;
-        match key.code {
-            KeyCode::Esc => {
-                close = true;
-                clear = !filter.buffer.is_empty();
-            }
-            KeyCode::Enter => close = true,
-            KeyCode::Backspace => {
-                if filter.buffer.is_empty() {
-                    close = true;
-                } else {
-                    order_dirty = filter.delete_before();
-                }
-            }
-            KeyCode::Delete => order_dirty = filter.delete_after(),
-            KeyCode::Left => filter.move_left(),
-            KeyCode::Right => filter.move_right(),
-            KeyCode::Home => filter.move_home(),
-            KeyCode::End => filter.move_end(),
-            KeyCode::Char(c) if !c.is_control() => {
-                order_dirty = filter.insert(c, usize::MAX);
-            }
-            _ => {}
-        }
-        if clear {
-            self.filter.buffer.clear();
-            self.filter.cursor_col = 0;
-            order_dirty = true;
-        }
-        if close {
-            self.filtering = false;
-        }
-        order_dirty
+        matches!(
+            self.filter.handle_key(key),
+            FilterOutcome::ContentChanged | FilterOutcome::Closed,
+        )
     }
 
     pub(super) fn draw(
@@ -177,7 +154,7 @@ impl ListPane {
         area: Rect,
         active: bool,
         slots: &Slots,
-        library: &Library,
+        library: &SimulationLibraryView,
     ) {
         let block = Block::default()
             .borders(Borders::ALL)
@@ -186,11 +163,10 @@ impl ListPane {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let show_chip = self.filtering || !self.filter.buffer.is_empty();
-        let list_area = if show_chip {
+        let list_area = if self.filter.show_chip() {
             let [chip_area, list_area] =
                 Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
-            self.draw_filter(frame, chip_area);
+            self.filter.draw(frame, chip_area);
             list_area
         } else {
             inner
@@ -202,7 +178,7 @@ impl ListPane {
         list_state.select(selected);
         frame.render_stateful_widget(List::new(items), list_area, &mut list_state);
         self.scroll = list_state.offset();
-        draw_scrollbar(
+        Scrollbar::draw(
             frame,
             Rect {
                 x: area.x,
@@ -215,34 +191,12 @@ impl ListPane {
         );
     }
 
-    fn draw_filter(&self, frame: &mut Frame, area: Rect) {
-        let prompt = Span::styled(FILTER_PROMPT, Style::default().fg(Color::DarkGray));
-        let line = if self.filtering {
-            let mut spans = vec![prompt];
-            spans.extend(make_buffer_with_cursor(
-                &self.filter.buffer,
-                self.filter.cursor_col,
-                Style::default(),
-            ));
-            Line::from(spans)
-        } else {
-            Line::from(vec![
-                prompt,
-                Span::styled(
-                    self.filter.buffer.clone(),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ])
-        };
-        frame.render_widget(Paragraph::new(line), area);
-    }
-
     fn make_list_items(
         &self,
         slots: &Slots,
-        library: &Library,
+        library: &SimulationLibraryView,
     ) -> (Vec<ListItem<'static>>, Option<usize>) {
-        let filtering = !self.filter.buffer.is_empty();
+        let filtering = !self.filter.buffer().is_empty();
         let cursor = &self.selection;
         let mut out = Vec::new();
         let mut selected = None;
@@ -347,7 +301,7 @@ impl ListPane {
 
     fn make_library_item(
         slug: &Slug,
-        lib: &LibraryBuffer,
+        lib: &SimulationLibraryBuffer,
         cursor: &SimulationCursor,
     ) -> ListItem<'static> {
         let selected = matches!(cursor, SimulationCursor::Library(s) if s == slug);

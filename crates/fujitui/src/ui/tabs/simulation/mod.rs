@@ -27,22 +27,14 @@ impl TabBehavior for SimulationTabState {
     }
 
     fn on_activate(&mut self, ctx: &AppCtx) {
-        let camera = ctx
-            .device_snapshot
-            .as_ref()
-            .and_then(|s| s.usb_id.supported_camera());
-        match self.request_fetch(ctx.device.as_ref(), camera, &ctx.req) {
+        match self.request_fetch(ctx) {
             Ok(req) => debug!("{req}: slot fetch requested"),
             Err(reason) => debug!("slot fetch skipped: {reason}"),
         }
     }
 
     fn on_device_connected(&mut self, ctx: &AppCtx) {
-        let camera = ctx
-            .device_snapshot
-            .as_ref()
-            .and_then(|s| s.usb_id.supported_camera());
-        match self.request_fetch(ctx.device.as_ref(), camera, &ctx.req) {
+        match self.request_fetch(ctx) {
             Ok(req) => debug!("{req}: slot fetch requested"),
             Err(reason) => debug!("slot fetch skipped: {reason}"),
         }
@@ -52,11 +44,11 @@ impl TabBehavior for SimulationTabState {
         self.mark_stale();
     }
 
-    fn on_library_changed(&mut self, ctx: &AppCtx) {
-        let report = self.sync_library(&ctx.library_snapshot);
+    fn on_simulation_library_changed(&mut self, ctx: &AppCtx) {
+        let report = self.sync_library(&ctx.simulation_library_snapshot);
         if !report.updated_with_conflict.is_empty() {
             warn!(
-                "library: external changed for entries with unsaved edits: {:?}",
+                "simulation library: external changed for entries with unsaved edits: {:?}",
                 report.updated_with_conflict
             );
         }
@@ -83,6 +75,15 @@ impl TabBehavior for SimulationTabState {
     fn on_slot_fetch_failed(&mut self, _ctx: &AppCtx, slot: CustomSetting, error: &Arc<CoreError>) {
         if let Err(anomaly) = self.handle_slot_fetch_failed(slot, Arc::clone(error)) {
             warn!("slot fetch-failed anomaly ({slot}): {anomaly}");
+        }
+    }
+
+    fn on_backup_imported(&mut self, ctx: &AppCtx, req: ReqId) {
+        debug!("{req}: backup imported; refetching simulation slots");
+        self.mark_stale();
+        match self.request_fetch(ctx) {
+            Ok(req) => debug!("{req}: slot refetch requested"),
+            Err(reason) => debug!("slot refetch skipped: {reason}"),
         }
     }
 

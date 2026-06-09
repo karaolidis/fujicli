@@ -18,17 +18,21 @@ use crate::{
             ModalEffect, ModalHandler, ModalOutcome, device::DevicePickerModal, fatal::FatalModal,
         },
         tabs::{AppCtx, Tabs},
-        widgets::{Header, Status},
+        widgets::{Header, Status, StatusQueue},
     },
     workers::{
         ReqId, ReqIdGen,
         device::{
-            DeviceEvent, DeviceHandle,
+            DeviceCommand, DeviceEvent, DeviceHandle,
             usb::{self, DeviceCandidate},
         },
         fs::{
             FsCommand, FsError, FsEvent, FsHandle,
-            library::{LibraryEntry, LibraryError, LibrarySnapshot, Slug},
+            backup::{BackupLibraryEntry, BackupLibraryError, BackupLibrarySnapshot},
+            simulation::{
+                SimulationLibraryEntry, SimulationLibraryError, SimulationLibrarySnapshot,
+            },
+            slug::Slug,
         },
         input,
     },
@@ -48,12 +52,10 @@ pub struct Cli {
 pub struct App {
     pub ctx: AppCtx,
 
-    pub header: Header,
     pub tabs: Tabs,
     pub active_tab: Tab,
-    pub status: Status,
     pub modal: Option<Box<dyn ModalHandler>>,
-    pub status_message: Option<String>,
+    pub status: StatusQueue,
 
     quitting: bool,
 
@@ -72,10 +74,12 @@ pub fn run(dirs: &ProjectDirs) -> anyhow::Result<()> {
     let (input_tx, input_rx) = crossbeam_channel::bounded(INPUT_CHANNEL_BOUND);
     input::spawn(input_tx);
 
-    let library = dirs.data_dir().join("library");
-    info!("library directory: {}", library.display());
+    let simulation_dir = dirs.data_dir().join("simulations");
+    let backup_dir = dirs.data_dir().join("backups");
+    info!("simulation library directory: {}", simulation_dir.display());
+    info!("backup library directory: {}", backup_dir.display());
 
-    let mut app = App::new(candidates, input_rx, library);
+    let mut app = App::new(candidates, input_rx, simulation_dir, backup_dir);
     ratatui::run(|terminal| app.run(terminal))
 }
 
@@ -83,7 +87,8 @@ impl App {
     fn new(
         candidates: Vec<DeviceCandidate>,
         input_rx: Receiver<KeyEvent>,
-        library_dir: std::path::PathBuf,
+        simulation_dir: std::path::PathBuf,
+        backup_dir: std::path::PathBuf,
     ) -> Self {
         let (device_tx, device_rx) = crossbeam_channel::unbounded();
         let (fs_tx, fs_rx) = crossbeam_channel::unbounded();
@@ -108,12 +113,18 @@ impl App {
             }
         };
 
-        let fs = FsHandle::spawn(library_dir, fs_tx.clone());
+        let fs = FsHandle::spawn(simulation_dir, backup_dir, fs_tx.clone());
         let req = ReqIdGen::new();
 
-        let load_req = req.next();
-        debug!("{load_req}: loading library");
-        fs.send(FsCommand::LoadLibrary { req: load_req });
+        let sim_load_req = req.next();
+        debug!("{sim_load_req}: loading simulation library");
+        fs.send(FsCommand::LoadSimulationLibrary { req: sim_load_req });
+
+        let backup_load_req = req.next();
+        debug!("{backup_load_req}: loading backup library");
+        fs.send(FsCommand::LoadBackupLibrary {
+            req: backup_load_req,
+        });
 
         Self {
             ctx: AppCtx {
@@ -121,14 +132,13 @@ impl App {
                 fs,
                 req,
                 device_snapshot: None,
-                library_snapshot: LibrarySnapshot::empty(),
+                simulation_library_snapshot: SimulationLibrarySnapshot::empty(),
+                backup_library_snapshot: BackupLibrarySnapshot::empty(),
             },
-            header: Header,
             tabs: Tabs::default(),
             active_tab: Tab::Simulation,
-            status: Status,
             modal,
-            status_message: None,
+            status: StatusQueue::default(),
             quitting: false,
             input_rx,
             device_rx,
@@ -220,171 +230,327 @@ impl App {
                 self.tabs.handle_device_disconnected(&self.ctx);
             }
             DeviceEvent::Error(error) => {
-                let msg = error.to_string();
-                warn!("device error: {msg}");
-                self.status_message = Some(msg);
+                warn!("device error: {error}");
+                self.status.push_error(error.to_string());
             }
             DeviceEvent::SlotsEnumerated { req, slots } => {
                 debug!("{req}: slots enumerated ({} slots)", slots.len());
                 self.tabs.handle_slots_enumerated(&self.ctx, req, &slots);
             }
             DeviceEvent::SlotsEnumerationFailed { req, error } => {
-                let msg = format!("{req}: slot enumeration failed: {error}");
-                warn!("{msg}");
+                warn!("{req}: slot enumeration failed: {error}");
                 self.tabs.handle_slots_enumeration_failed(&self.ctx, req);
-                self.status_message = Some(msg);
+                self.status
+                    .push_error(format!("Slot enumeration failed: {error}"));
             }
             DeviceEvent::SlotFetched { req, slot, base } => {
                 debug!("{req}: slot {slot} fetched");
                 self.tabs.handle_slot_fetched(&self.ctx, slot, &base);
             }
             DeviceEvent::SlotFetchFailed { req, slot, error } => {
-                let msg = format!("{req}: fetch of {slot} failed: {error}");
-                warn!("{msg}");
+                warn!("{req}: fetch of {slot} failed: {error}");
                 let error: Arc<CoreError> = error.into();
                 self.tabs.handle_slot_fetch_failed(&self.ctx, slot, &error);
-                self.status_message = Some(msg);
+                self.status
+                    .push_error(format!("Fetch of {slot} failed: {error}"));
             }
             DeviceEvent::SlotChanged { req, slot } => {
                 info!("{req}: slot {slot} pushed");
                 self.tabs.handle_slot_changed(&self.ctx, slot);
             }
             DeviceEvent::SlotPushFailed { req, slot, error } => {
-                let msg = format!("{req}: push to {slot} failed: {error}");
-                warn!("{msg}");
+                warn!("{req}: push to {slot} failed: {error}");
                 let error: Arc<CoreError> = error.into();
                 self.tabs.handle_slot_push_failed(&self.ctx, slot, &error);
-                self.status_message = Some(msg);
+                self.status
+                    .push_error(format!("Push to {slot} failed: {error}"));
+            }
+            DeviceEvent::BackupExported { req, blob } => {
+                info!("{req}: backup exported ({} bytes)", blob.len());
+                self.tabs.handle_backup_exported(&self.ctx, req, &blob);
+            }
+            DeviceEvent::BackupExportFailed { req, error } => {
+                warn!("{req}: backup export failed: {error}");
+                let error: Arc<CoreError> = error.into();
+                self.tabs
+                    .handle_backup_export_failed(&self.ctx, req, &error);
+                self.status
+                    .push_error(format!("Backup export failed: {error}"));
+            }
+            DeviceEvent::BackupImported { req } => {
+                info!("{req}: backup imported");
+                self.tabs.handle_backup_imported(&self.ctx, req);
+                self.status.push_info("Backup imported");
+            }
+            DeviceEvent::BackupImportFailed { req, error } => {
+                warn!("{req}: backup import failed: {error}");
+                let error: Arc<CoreError> = error.into();
+                self.tabs
+                    .handle_backup_import_failed(&self.ctx, req, &error);
+                self.status
+                    .push_error(format!("Backup import failed: {error}"));
             }
         }
     }
 
     fn handle_fs_event(&mut self, event: FsEvent) {
         match event {
-            FsEvent::LibraryLoaded {
+            FsEvent::SimulationLibraryLoaded {
                 req,
                 snapshot,
                 skipped,
-            } => {
-                self.handle_library_loaded(req, snapshot, skipped);
-            }
-            FsEvent::LibraryReloaded {
+            } => self.handle_simulation_library_loaded(req, snapshot, skipped),
+            FsEvent::SimulationLibraryReloaded {
                 req,
                 snapshot,
                 skipped,
-            } => {
-                self.handle_library_reloaded(req, snapshot, skipped);
-            }
-            FsEvent::LibraryEntryAdded {
+            } => self.handle_simulation_library_reloaded(req, snapshot, skipped),
+            FsEvent::SimulationEntryAdded {
                 req,
                 slug,
                 entry,
                 snapshot,
-            } => self.handle_library_entry_added(req, slug, entry, snapshot),
-            FsEvent::LibraryEntryUpdated {
+            } => self.handle_simulation_entry_added(req, slug, entry, snapshot),
+            FsEvent::SimulationEntryUpdated {
                 req,
                 old_slug,
                 new_slug,
                 entry,
                 snapshot,
-            } => self.handle_library_entry_updated(req, old_slug, new_slug, entry, snapshot),
-            FsEvent::LibraryEntryRemoved {
+            } => self.handle_simulation_entry_updated(req, old_slug, new_slug, entry, snapshot),
+            FsEvent::SimulationEntryRemoved {
                 req,
                 slug,
                 entry,
                 snapshot,
-            } => self.handle_library_entry_removed(req, slug, entry, snapshot),
-            FsEvent::LibraryOpFailed { req, error } => {
-                self.handle_library_op_failed(req, error);
+            } => self.handle_simulation_entry_removed(req, slug, entry, snapshot),
+            FsEvent::SimulationLibraryOpFailed { req, error } => {
+                self.handle_simulation_library_op_failed(req, error);
+            }
+            FsEvent::BackupLibraryLoaded {
+                req,
+                snapshot,
+                skipped,
+            } => self.handle_backup_library_loaded(req, snapshot, skipped),
+            FsEvent::BackupLibraryReloaded {
+                req,
+                snapshot,
+                skipped,
+            } => self.handle_backup_library_reloaded(req, snapshot, skipped),
+            FsEvent::BackupEntryAdded {
+                req,
+                slug,
+                entry,
+                snapshot,
+            } => self.handle_backup_entry_added(req, slug, entry, snapshot),
+            FsEvent::BackupEntryUpdated {
+                req,
+                old_slug,
+                new_slug,
+                entry,
+                snapshot,
+            } => self.handle_backup_entry_updated(req, old_slug, new_slug, entry, snapshot),
+            FsEvent::BackupEntryRemoved {
+                req,
+                slug,
+                entry,
+                snapshot,
+            } => self.handle_backup_entry_removed(req, slug, entry, snapshot),
+            FsEvent::BackupBlobRead { req, slug, blob } => {
+                self.handle_backup_blob_read(req, slug, blob);
+            }
+            FsEvent::BackupLibraryOpFailed { req, error } => {
+                self.handle_backup_library_op_failed(req, error);
             }
             FsEvent::Error(error) => self.handle_fs_error(error),
         }
     }
 
-    fn handle_library_loaded(
+    fn handle_simulation_library_loaded(
         &mut self,
         req: ReqId,
-        snapshot: Arc<LibrarySnapshot>,
+        snapshot: Arc<SimulationLibrarySnapshot>,
         skipped: usize,
     ) {
         info!(
-            "{req}: library loaded ({} entries, {skipped} skipped)",
+            "{req}: simulation library loaded ({} entries, {skipped} skipped)",
             snapshot.entries.len()
         );
-        self.set_library(snapshot);
+        self.set_simulation_library(snapshot);
     }
 
-    fn handle_library_reloaded(
+    fn handle_simulation_library_reloaded(
         &mut self,
         req: ReqId,
-        snapshot: Arc<LibrarySnapshot>,
+        snapshot: Arc<SimulationLibrarySnapshot>,
         skipped: usize,
     ) {
         info!(
-            "{req}: library reloaded ({} entries, {skipped} skipped)",
+            "{req}: simulation library reloaded ({} entries, {skipped} skipped)",
             snapshot.entries.len()
         );
-        self.set_library(snapshot);
+        self.set_simulation_library(snapshot);
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn handle_library_entry_added(
+    fn handle_simulation_entry_added(
         &mut self,
         req: ReqId,
         slug: Slug,
-        _entry: LibraryEntry,
-        snapshot: Arc<LibrarySnapshot>,
+        _entry: SimulationLibraryEntry,
+        snapshot: Arc<SimulationLibrarySnapshot>,
     ) {
-        info!("{req}: library entry added: {slug}");
-        self.set_library(snapshot);
+        info!("{req}: simulation entry added: {slug}");
+        self.set_simulation_library(snapshot);
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn handle_library_entry_updated(
+    fn handle_simulation_entry_updated(
         &mut self,
         req: ReqId,
         old_slug: Slug,
         new_slug: Slug,
-        _entry: LibraryEntry,
-        snapshot: Arc<LibrarySnapshot>,
+        _entry: SimulationLibraryEntry,
+        snapshot: Arc<SimulationLibrarySnapshot>,
     ) {
         if old_slug == new_slug {
-            info!("{req}: library entry updated: {new_slug}");
+            info!("{req}: simulation entry updated: {new_slug}");
         } else {
-            info!("{req}: library entry renamed: {old_slug} -> {new_slug}");
+            info!("{req}: simulation entry renamed: {old_slug} -> {new_slug}");
         }
-        self.set_library(snapshot);
+        self.set_simulation_library(snapshot);
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn handle_library_entry_removed(
+    fn handle_simulation_entry_removed(
         &mut self,
         req: ReqId,
         slug: Slug,
-        _entry: LibraryEntry,
-        snapshot: Arc<LibrarySnapshot>,
+        _entry: SimulationLibraryEntry,
+        snapshot: Arc<SimulationLibrarySnapshot>,
     ) {
-        info!("{req}: library entry removed: {slug}");
-        self.set_library(snapshot);
+        info!("{req}: simulation entry removed: {slug}");
+        self.set_simulation_library(snapshot);
     }
 
-    fn set_library(&mut self, snapshot: Arc<LibrarySnapshot>) {
-        self.ctx.library_snapshot = snapshot;
-        self.tabs.handle_library_changed(&self.ctx);
+    fn set_simulation_library(&mut self, snapshot: Arc<SimulationLibrarySnapshot>) {
+        self.ctx.simulation_library_snapshot = snapshot;
+        self.tabs.handle_simulation_library_changed(&self.ctx);
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn handle_library_op_failed(&mut self, req: ReqId, error: Box<LibraryError>) {
-        let msg = format!("{req}: library op failed: {error}");
-        warn!("{msg}");
-        self.status_message = Some(msg);
+    fn handle_simulation_library_op_failed(
+        &mut self,
+        req: ReqId,
+        error: Box<SimulationLibraryError>,
+    ) {
+        warn!("{req}: simulation library operation failed: {error}");
+        self.status
+            .push_error(format!("Simulation library operation failed: {error}"));
+    }
+
+    fn handle_backup_library_loaded(
+        &mut self,
+        req: ReqId,
+        snapshot: Arc<BackupLibrarySnapshot>,
+        skipped: usize,
+    ) {
+        info!(
+            "{req}: backup library loaded ({} entries, {skipped} skipped)",
+            snapshot.entries.len()
+        );
+        self.set_backup_library(snapshot);
+    }
+
+    fn handle_backup_library_reloaded(
+        &mut self,
+        req: ReqId,
+        snapshot: Arc<BackupLibrarySnapshot>,
+        skipped: usize,
+    ) {
+        info!(
+            "{req}: backup library reloaded ({} entries, {skipped} skipped)",
+            snapshot.entries.len()
+        );
+        self.set_backup_library(snapshot);
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    fn handle_backup_entry_added(
+        &mut self,
+        req: ReqId,
+        slug: Slug,
+        _entry: BackupLibraryEntry,
+        snapshot: Arc<BackupLibrarySnapshot>,
+    ) {
+        info!("{req}: backup entry added: {slug}");
+        self.tabs.handle_backup_entry_added(&self.ctx, &slug);
+        self.set_backup_library(snapshot);
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    fn handle_backup_entry_updated(
+        &mut self,
+        req: ReqId,
+        old_slug: Slug,
+        new_slug: Slug,
+        _entry: BackupLibraryEntry,
+        snapshot: Arc<BackupLibrarySnapshot>,
+    ) {
+        if old_slug == new_slug {
+            info!("{req}: backup entry updated: {new_slug}");
+        } else {
+            info!("{req}: backup entry renamed: {old_slug} -> {new_slug}");
+        }
+        self.tabs.handle_backup_entry_updated(&self.ctx, &new_slug);
+        self.set_backup_library(snapshot);
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    fn handle_backup_entry_removed(
+        &mut self,
+        req: ReqId,
+        slug: Slug,
+        _entry: BackupLibraryEntry,
+        snapshot: Arc<BackupLibrarySnapshot>,
+    ) {
+        info!("{req}: backup entry removed: {slug}");
+        self.set_backup_library(snapshot);
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    fn handle_backup_blob_read(&mut self, req: ReqId, slug: Slug, blob: Vec<u8>) {
+        info!(
+            "{req}: backup blob read for {slug} ({} bytes); pushing to device",
+            blob.len()
+        );
+        if let Some(device) = self.ctx.device.as_ref() {
+            device.send(DeviceCommand::ImportBackup { req, blob });
+        } else {
+            warn!("{req}: backup blob read but no device connected");
+            self.tabs.handle_backup_library_op_failed(&self.ctx, req);
+            self.status
+                .push_error("No camera connected to import backup");
+        }
+    }
+
+    fn set_backup_library(&mut self, snapshot: Arc<BackupLibrarySnapshot>) {
+        self.ctx.backup_library_snapshot = snapshot;
+        self.tabs.handle_backup_library_changed(&self.ctx);
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    fn handle_backup_library_op_failed(&mut self, req: ReqId, error: Box<BackupLibraryError>) {
+        warn!("{req}: backup library operation failed: {error}");
+        self.tabs.handle_backup_library_op_failed(&self.ctx, req);
+        self.status
+            .push_error(format!("Backup library operation failed: {error}"));
     }
 
     #[allow(clippy::needless_pass_by_value)]
     fn handle_fs_error(&mut self, error: Box<FsError>) {
-        let msg = format!("fs error: {error}");
-        warn!("{msg}");
-        self.status_message = Some(msg);
+        warn!("fs error: {error}");
+        self.status.push_error(format!("Filesystem error: {error}"));
     }
 
     fn apply_effect(&mut self, effect: ModalEffect) {
@@ -416,9 +582,9 @@ impl App {
         ])
         .areas(frame.area());
 
-        self.header.draw(self, frame, header_area);
+        Header::draw(self, frame, header_area);
         self.tabs.draw(&self.ctx, self.active_tab, frame, body_area);
-        self.status.draw(self, frame, status_area);
+        Status::draw(self, frame, status_area);
 
         if let Some(modal) = &self.modal {
             modal.render(frame, frame.area());

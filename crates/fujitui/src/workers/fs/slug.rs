@@ -1,8 +1,13 @@
 use std::{borrow::Borrow, fmt};
 
 use slug::slugify;
+use thiserror::Error;
 
-use super::store::LibraryError;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum SlugError {
+    #[error("name cannot be slugified (empty or non-slug-compatible characters only)")]
+    Invalid,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Slug(String);
@@ -14,12 +19,12 @@ impl Slug {
 }
 
 impl TryFrom<&str> for Slug {
-    type Error = LibraryError;
+    type Error = SlugError;
 
     fn try_from(name: &str) -> Result<Self, Self::Error> {
         let s = slugify(name);
         if s.is_empty() {
-            return Err(LibraryError::InvalidName);
+            return Err(SlugError::Invalid);
         }
         Ok(Self(s))
     }
@@ -73,22 +78,19 @@ mod tests {
 
     #[test]
     fn empty_input_rejected() {
-        assert!(matches!(Slug::try_from(""), Err(LibraryError::InvalidName)));
+        assert!(matches!(Slug::try_from(""), Err(SlugError::Invalid)));
     }
 
     #[test]
     fn all_punctuation_rejected() {
-        assert!(matches!(
-            Slug::try_from("!@#$%"),
-            Err(LibraryError::InvalidName)
-        ));
+        assert!(matches!(Slug::try_from("!@#$%"), Err(SlugError::Invalid)));
     }
 
     #[test]
     fn unicode_only_rejected_when_unmappable() {
         assert!(matches!(
             Slug::try_from("漢字のみ"),
-            Ok(_) | Err(LibraryError::InvalidName)
+            Ok(_) | Err(SlugError::Invalid)
         ));
     }
 
