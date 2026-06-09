@@ -12,7 +12,7 @@ pub struct BackupTabState;
 
 impl TabBehavior for BackupTabState {
     #[allow(clippy::unused_self)]
-    fn render(&self, _ctx: &AppCtx, frame: &mut Frame, area: Rect) {
+    fn render(&mut self, _ctx: &AppCtx, frame: &mut Frame, area: Rect) {
         let [centered] = Layout::vertical([Constraint::Length(1)])
             .flex(Flex::Center)
             .areas(area);

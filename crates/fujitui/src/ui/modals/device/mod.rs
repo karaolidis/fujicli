@@ -1,4 +1,4 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -29,9 +29,6 @@ impl DevicePickerModal {
 
 impl ModalHandler for DevicePickerModal {
     fn on_key(&mut self, key: KeyEvent) -> ModalOutcome {
-        if key.kind != KeyEventKind::Press {
-            return ModalOutcome::Continue;
-        }
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
                 if self.cursor > 0 {

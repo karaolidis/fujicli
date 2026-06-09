@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use clap::{ArgAction, Parser};
 use crossbeam_channel::{Receiver, Sender, after, select};
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use directories::ProjectDirs;
 use fujicore::CoreError;
 use log::{debug, info, warn};
@@ -61,6 +61,8 @@ pub struct App {
     device_rx: Receiver<DeviceEvent>,
     device_tx: Sender<DeviceEvent>,
     fs_rx: Receiver<FsEvent>,
+    #[allow(dead_code)]
+    fs_tx: Sender<FsEvent>,
 }
 
 pub fn run(dirs: &ProjectDirs) -> anyhow::Result<()> {
@@ -73,7 +75,7 @@ pub fn run(dirs: &ProjectDirs) -> anyhow::Result<()> {
     let library = dirs.data_dir().join("library");
     info!("library directory: {}", library.display());
 
-    let app = App::new(candidates, input_rx, library);
+    let mut app = App::new(candidates, input_rx, library);
     ratatui::run(|terminal| app.run(terminal))
 }
 
@@ -106,7 +108,7 @@ impl App {
             }
         };
 
-        let fs = FsHandle::spawn(library_dir, fs_tx);
+        let fs = FsHandle::spawn(library_dir, fs_tx.clone());
         let req = ReqIdGen::new();
 
         let load_req = req.next();
@@ -132,10 +134,11 @@ impl App {
             device_rx,
             device_tx,
             fs_rx,
+            fs_tx,
         }
     }
 
-    fn run(mut self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
+    fn run(&mut self, terminal: &mut DefaultTerminal) -> anyhow::Result<()> {
         info!("entering event loop");
         while !self.quitting {
             terminal.draw(|frame| self.draw(frame))?;
@@ -166,10 +169,6 @@ impl App {
                     self.apply_effect(effect);
                 }
             }
-            return;
-        }
-
-        if key.kind != KeyEventKind::Press {
             return;
         }
 
@@ -228,6 +227,12 @@ impl App {
             DeviceEvent::SlotsEnumerated { req, slots } => {
                 debug!("{req}: slots enumerated ({} slots)", slots.len());
                 self.tabs.handle_slots_enumerated(&self.ctx, req, &slots);
+            }
+            DeviceEvent::SlotsEnumerationFailed { req, error } => {
+                let msg = format!("{req}: slot enumeration failed: {error}");
+                warn!("{msg}");
+                self.tabs.handle_slots_enumeration_failed(&self.ctx, req);
+                self.status_message = Some(msg);
             }
             DeviceEvent::SlotFetched { req, slot, base } => {
                 debug!("{req}: slot {slot} fetched");
@@ -403,7 +408,7 @@ impl App {
         self.ctx.device = Some(handle);
     }
 
-    fn draw(&self, frame: &mut Frame) {
+    fn draw(&mut self, frame: &mut Frame) {
         let [header_area, body_area, status_area] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Min(1),
@@ -411,10 +416,9 @@ impl App {
         ])
         .areas(frame.area());
 
-        self.header.render(self, frame, header_area);
-        self.tabs
-            .render(&self.ctx, self.active_tab, frame, body_area);
-        self.status.render(self, frame, status_area);
+        self.header.draw(self, frame, header_area);
+        self.tabs.draw(&self.ctx, self.active_tab, frame, body_area);
+        self.status.draw(self, frame, status_area);
 
         if let Some(modal) = &self.modal {
             modal.render(frame, frame.area());
