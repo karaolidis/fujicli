@@ -5,7 +5,10 @@ pub mod slug;
 
 use std::{
     path::PathBuf,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -172,18 +175,30 @@ pub enum FsEvent {
 
 pub struct FsHandle {
     command_tx: Option<Sender<FsCommand>>,
+    inflight: Arc<AtomicUsize>,
     join: Option<JoinHandle<()>>,
 }
 
 impl FsHandle {
     pub fn spawn(simulation_dir: PathBuf, backup_dir: PathBuf, event_tx: Sender<FsEvent>) -> Self {
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
+        let inflight = Arc::new(AtomicUsize::new(0));
+        let worker_inflight = Arc::clone(&inflight);
         let join = thread::Builder::new()
             .name("fujitui-fs".to_owned())
-            .spawn(move || FsWorker::run(simulation_dir, backup_dir, &command_rx, &event_tx))
+            .spawn(move || {
+                FsWorker::run(
+                    simulation_dir,
+                    backup_dir,
+                    &command_rx,
+                    &event_tx,
+                    &worker_inflight,
+                );
+            })
             .expect("spawning fs worker");
         Self {
             command_tx: Some(command_tx),
+            inflight,
             join: Some(join),
         }
     }
@@ -191,8 +206,15 @@ impl FsHandle {
     #[allow(dead_code)]
     pub fn send(&self, cmd: FsCommand) {
         if let Some(tx) = self.command_tx.as_ref() {
-            let _ = tx.send(cmd);
+            self.inflight.fetch_add(1, Ordering::Relaxed);
+            if tx.send(cmd).is_err() {
+                self.inflight.fetch_sub(1, Ordering::Relaxed);
+            }
         }
+    }
+
+    pub fn is_busy(&self) -> bool {
+        self.inflight.load(Ordering::Relaxed) > 0
     }
 }
 
@@ -216,6 +238,7 @@ impl FsWorker {
         backup_dir: PathBuf,
         command_rx: &Receiver<FsCommand>,
         event_tx: &Sender<FsEvent>,
+        inflight: &AtomicUsize,
     ) {
         let simulation = match SimulationLibrary::open(simulation_dir) {
             Ok((lib, report)) => {
@@ -262,13 +285,21 @@ impl FsWorker {
             }
         };
         let mut worker = Self { simulation, backup };
-        worker.event_loop(command_rx, event_tx);
+        worker.event_loop(command_rx, event_tx, inflight);
     }
 
-    fn event_loop(&mut self, command_rx: &Receiver<FsCommand>, event_tx: &Sender<FsEvent>) {
+    fn event_loop(
+        &mut self,
+        command_rx: &Receiver<FsCommand>,
+        event_tx: &Sender<FsEvent>,
+        inflight: &AtomicUsize,
+    ) {
         loop {
             match command_rx.recv_timeout(TICK) {
-                Ok(cmd) => self.handle(cmd, event_tx),
+                Ok(cmd) => {
+                    self.handle(cmd, event_tx);
+                    inflight.fetch_sub(1, Ordering::Relaxed);
+                }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
                     debug!("fs worker command channel closed");

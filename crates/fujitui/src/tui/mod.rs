@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use clap::{ArgAction, Parser};
 use crossbeam_channel::{Receiver, Sender, after, select};
@@ -18,7 +21,7 @@ use crate::{
             ModalEffect, ModalHandler, ModalOutcome, device::DevicePickerModal, fatal::FatalModal,
         },
         tabs::{AppCtx, Tabs},
-        widgets::{Header, Status, StatusQueue},
+        widgets::{Header, Loading, Status, StatusQueue},
     },
     workers::{
         ReqId, ReqIdGen,
@@ -56,6 +59,8 @@ pub struct App {
     pub active_tab: Tab,
     pub modal: Option<Box<dyn ModalHandler>>,
     pub status: StatusQueue,
+
+    pub started: Instant,
 
     quitting: bool,
 
@@ -139,6 +144,7 @@ impl App {
             active_tab: Tab::Simulation,
             modal,
             status: StatusQueue::default(),
+            started: Instant::now(),
             quitting: false,
             input_rx,
             device_rx,
@@ -193,9 +199,13 @@ impl App {
                     info!("quit requested");
                     self.quitting = true;
                 }
-                Action::NextTab => self.set_tab(self.active_tab.next()),
-                Action::PrevTab => self.set_tab(self.active_tab.prev()),
-                Action::GotoTab(t) => self.set_tab(t),
+                Action::NextTab => self.cycle_tab(true),
+                Action::PrevTab => self.cycle_tab(false),
+                Action::GotoTab(index) => {
+                    if let Some(&target) = self.available_tabs().get(index) {
+                        self.set_tab(target);
+                    }
+                }
             }
             return;
         }
@@ -208,6 +218,41 @@ impl App {
         self.tabs.handle_activate(&self.ctx, target);
     }
 
+    pub(crate) fn available_tabs(&self) -> Vec<Tab> {
+        self.ctx
+            .device_snapshot
+            .as_ref()
+            .map_or_else(Vec::new, |snap| Tab::available(snap.capabilities))
+    }
+
+    fn cycle_tab(&mut self, forward: bool) {
+        let available = self.available_tabs();
+        let len = available.len();
+        if len == 0 {
+            return;
+        }
+        let current = available
+            .iter()
+            .position(|t| *t == self.active_tab)
+            .unwrap_or(0);
+        let next = if forward {
+            (current + 1) % len
+        } else {
+            (current + len - 1) % len
+        };
+        self.set_tab(available[next]);
+    }
+
+    fn ensure_active_tab_available(&mut self) {
+        let available = self.available_tabs();
+        if available.is_empty() || available.contains(&self.active_tab) {
+            return;
+        }
+        if let Some(&first) = available.first() {
+            self.set_tab(first);
+        }
+    }
+
     fn handle_device_event(&mut self, event: DeviceEvent) {
         match event {
             DeviceEvent::Connected(snap) => {
@@ -216,6 +261,7 @@ impl App {
                     snap.name, snap.usb_id, snap.bus_address, snap.battery
                 );
                 self.ctx.device_snapshot = Some(snap);
+                self.ensure_active_tab_available();
                 self.tabs.handle_device_connected(&self.ctx);
             }
             DeviceEvent::InfoUpdated(snap) => {
@@ -582,8 +628,12 @@ impl App {
         ])
         .areas(frame.area());
 
-        Header::draw(self, frame, header_area);
-        self.tabs.draw(&self.ctx, self.active_tab, frame, body_area);
+        if self.ctx.device_snapshot.is_none() {
+            Loading::draw(frame, header_area.union(body_area));
+        } else {
+            Header::draw(self, frame, header_area);
+            self.tabs.draw(&self.ctx, self.active_tab, frame, body_area);
+        }
         Status::draw(self, frame, status_area);
 
         if let Some(modal) = &self.modal {

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use crossterm::event::KeyEvent;
 use fujicore::{
-    CoreError,
+    Capability, CoreError,
     generated::{options::CustomSetting, simulations::SimulationBase},
 };
 use ratatui::{Frame, layout::Rect};
@@ -19,7 +19,10 @@ use crate::{
     workers::{
         ReqId, ReqIdGen,
         device::{DeviceHandle, DeviceSnapshot},
-        fs::{FsHandle, backup::BackupLibrarySnapshot, simulation::SimulationLibrarySnapshot, slug::Slug},
+        fs::{
+            FsHandle, backup::BackupLibrarySnapshot, simulation::SimulationLibrarySnapshot,
+            slug::Slug,
+        },
     },
 };
 
@@ -53,30 +56,20 @@ impl Tab {
     }
 
     #[must_use]
-    pub const fn index(self) -> usize {
+    pub const fn required_capability(self) -> Capability {
         match self {
-            Self::Simulation => 0,
-            Self::Render => 1,
-            Self::Backup => 2,
+            Self::Simulation => Capability::SimulationManagement,
+            Self::Render => Capability::RenderManagement,
+            Self::Backup => Capability::BackupManagement,
         }
     }
 
     #[must_use]
-    pub const fn next(self) -> Self {
-        match self {
-            Self::Simulation => Self::Render,
-            Self::Render => Self::Backup,
-            Self::Backup => Self::Simulation,
-        }
-    }
-
-    #[must_use]
-    pub const fn prev(self) -> Self {
-        match self {
-            Self::Simulation => Self::Backup,
-            Self::Render => Self::Simulation,
-            Self::Backup => Self::Render,
-        }
+    pub fn available(capabilities: &[Capability]) -> Vec<Self> {
+        Self::ALL
+            .into_iter()
+            .filter(|tab| capabilities.contains(&tab.required_capability()))
+            .collect()
     }
 }
 
@@ -303,5 +296,36 @@ impl Tabs {
         self.simulation.on_backup_entry_updated(ctx, slug);
         self.rendering.on_backup_entry_updated(ctx, slug);
         self.backup.on_backup_entry_updated(ctx, slug);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn available_filters_by_capability() {
+        assert_eq!(
+            Tab::available(&[Capability::BackupManagement]),
+            vec![Tab::Backup]
+        );
+    }
+
+    #[test]
+    fn available_preserves_canonical_order() {
+        let caps = [
+            Capability::RenderManagement,
+            Capability::BackupManagement,
+            Capability::SimulationManagement,
+        ];
+        assert_eq!(
+            Tab::available(&caps),
+            vec![Tab::Simulation, Tab::Render, Tab::Backup]
+        );
+    }
+
+    #[test]
+    fn available_is_empty_without_relevant_capabilities() {
+        assert!(Tab::available(&[Capability::SimulationParsing]).is_empty());
     }
 }
