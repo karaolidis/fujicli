@@ -1,62 +1,65 @@
-use crossterm::event::KeyEvent;
 use fujicore::generated::options::CustomSetting;
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    widgets::ListItem,
 };
 
-#[cfg(test)]
-use crate::ui::widgets::TextInputState;
 use crate::{
-    border_title,
     ui::{
-        border_style, danger, muted, warning,
-        widgets::{FilterOutcome, FilterState, Scrollbar},
+        danger, muted, warning,
+        widgets::{Cursor, ListPane},
     },
     workers::fs::slug::Slug,
 };
 
 use super::{
-    CursorMove, DIRTY_MARKER, INDENT, RenameState, SimulationCursor,
+    DIRTY_MARKER, INDENT, RenameState, SimulationCursor,
     library::{SimulationLibraryBuffer, SimulationLibraryView},
     slots::{SlotEntry, Slots},
 };
 
 const COL_SEPARATOR: &str = " ";
 
-#[derive(Debug, Default)]
-pub struct ListPane {
-    selection: SimulationCursor,
-    filter: FilterState,
-    scroll: usize,
+pub(super) type SimulationListPane = ListPane<SimulationCursor>;
+
+impl Cursor for SimulationCursor {
+    fn none() -> Self {
+        Self::None
+    }
+
+    fn rehome(&self, order: &[Self]) -> Self {
+        let first_or_none = || order.first().cloned().unwrap_or(Self::None);
+        match self {
+            Self::Library(lost) => order
+                .iter()
+                .find(|c| matches!(c, Self::Library(s) if s >= lost))
+                .or_else(|| {
+                    order
+                        .iter()
+                        .rev()
+                        .find(|c| matches!(c, Self::Library(s) if s < lost))
+                })
+                .cloned()
+                .unwrap_or_else(first_or_none),
+            Self::Slot(_) => order
+                .iter()
+                .find(|c| matches!(c, Self::Slot(_)))
+                .cloned()
+                .unwrap_or_else(first_or_none),
+            Self::None => Self::None,
+        }
+    }
 }
 
-impl ListPane {
-    pub(super) const fn selection(&self) -> &SimulationCursor {
-        &self.selection
-    }
-
-    pub(super) fn set_selection(&mut self, selection: SimulationCursor) {
-        self.selection = selection;
-    }
-
-    pub(super) const fn filtering(&self) -> bool {
-        self.filter.active()
-    }
-
-    #[cfg(test)]
-    pub(super) const fn filter(&self) -> &TextInputState {
-        self.filter.text()
-    }
-
+impl SimulationListPane {
     pub(super) fn simulation_slot_entries<'a>(
-        &'a self,
+        &self,
         slots: &'a Slots,
     ) -> impl Iterator<Item = (CustomSetting, &'a SlotEntry)> + 'a {
-        let needle = self.filter.needle_lower();
+        let needle = self.filter().needle_lower();
         slots.into_iter().filter(move |(_, entry)| {
             needle.is_empty()
                 || entry
@@ -66,10 +69,10 @@ impl ListPane {
     }
 
     pub(super) fn library_entries<'a>(
-        &'a self,
+        &self,
         library: &'a SimulationLibraryView,
     ) -> impl Iterator<Item = (&'a Slug, &'a SimulationLibraryBuffer)> + 'a {
-        let needle = self.filter.needle_lower();
+        let needle = self.filter().needle_lower();
         library.into_iter().filter(move |(_, lib)| {
             needle.is_empty() || lib.entry.name.to_lowercase().contains(&needle)
         })
@@ -89,69 +92,6 @@ impl ListPane {
             .collect()
     }
 
-    pub(super) fn step(&mut self, dir: CursorMove, order: &[SimulationCursor]) {
-        if order.is_empty() {
-            self.selection = SimulationCursor::None;
-            return;
-        }
-        let current = order.iter().position(|c| c == &self.selection);
-        let target = match (current, dir) {
-            (None, _) => 0,
-            (Some(i), CursorMove::Up) => i.saturating_sub(1),
-            (Some(i), CursorMove::Down) => (i + 1).min(order.len() - 1),
-        };
-        self.selection = order[target].clone();
-    }
-
-    pub(super) fn reset(&mut self, order: &[SimulationCursor]) {
-        self.selection = order.first().cloned().unwrap_or(SimulationCursor::None);
-    }
-
-    pub(super) fn settle_selection(&mut self, order: &[SimulationCursor]) {
-        if matches!(self.selection, SimulationCursor::None) {
-            self.reset(order);
-        } else {
-            self.ensure_valid(order);
-        }
-    }
-
-    pub(super) fn ensure_valid(&mut self, order: &[SimulationCursor]) {
-        if matches!(self.selection, SimulationCursor::None) || order.contains(&self.selection) {
-            return;
-        }
-        let first_or_none = || order.first().cloned().unwrap_or(SimulationCursor::None);
-        self.selection = match &self.selection {
-            SimulationCursor::Library(lost) => order
-                .iter()
-                .find(|c| matches!(c, SimulationCursor::Library(s) if s >= lost))
-                .or_else(|| {
-                    order
-                        .iter()
-                        .rev()
-                        .find(|c| matches!(c, SimulationCursor::Library(s) if s < lost))
-                })
-                .cloned()
-                .unwrap_or_else(first_or_none),
-            SimulationCursor::Slot(_) => order
-                .iter()
-                .find(|c| matches!(c, SimulationCursor::Slot(_)))
-                .cloned()
-                .unwrap_or_else(first_or_none),
-            SimulationCursor::None => SimulationCursor::None,
-        };
-    }
-
-    pub(super) fn start_filter(&mut self) {
-        self.filter.start();
-    }
-
-    pub(super) fn handle_filter_key(&mut self, key: KeyEvent) -> bool {
-        matches!(
-            self.filter.handle_key(key),
-            FilterOutcome::ContentChanged | FilterOutcome::Closed,
-        )
-    }
-
     pub(super) fn draw(
         &mut self,
         frame: &mut Frame,
@@ -161,39 +101,8 @@ impl ListPane {
         library: &SimulationLibraryView,
         rename: Option<&RenameState>,
     ) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(border_style(active))
-            .title(border_title!(1, "Simulations"));
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-
-        let list_area = if self.filter.show_chip() {
-            let [chip_area, list_area] =
-                Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
-            self.filter.draw(frame, chip_area);
-            list_area
-        } else {
-            inner
-        };
-
         let (items, selected) = self.make_list_items(slots, library, rename);
-        let content_len = items.len();
-        let mut list_state = ListState::default().with_offset(self.scroll);
-        list_state.select(selected);
-        frame.render_stateful_widget(List::new(items), list_area, &mut list_state);
-        self.scroll = list_state.offset();
-        Scrollbar::draw(
-            frame,
-            Rect {
-                x: area.x,
-                y: list_area.y,
-                width: area.width,
-                height: list_area.height,
-            },
-            content_len,
-            self.scroll,
-        );
+        self.render(frame, area, active, "Simulations", items, selected);
     }
 
     fn make_list_items(
@@ -202,8 +111,8 @@ impl ListPane {
         library: &SimulationLibraryView,
         rename: Option<&RenameState>,
     ) -> (Vec<ListItem<'static>>, Option<usize>) {
-        let filtering = !self.filter.buffer().is_empty();
-        let cursor = &self.selection;
+        let filtering = !self.filter().buffer().is_empty();
+        let cursor = self.selection();
         let mut out = Vec::new();
         let mut selected = None;
 

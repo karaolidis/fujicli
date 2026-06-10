@@ -41,10 +41,12 @@ mod library;
 mod list;
 mod slots;
 
+pub(super) use crate::ui::widgets::CursorMove;
+
 use apply::{ApplyOutcome, ApplyState};
 use editor::{EditorOutcome, EditorState};
 use library::{SimulationLibrarySyncReport, SimulationLibraryView};
-use list::ListPane;
+use list::SimulationListPane;
 use slots::{FetchSkipError, SlotEntry, SlotError, Slots};
 
 const INDENT: &str = "  ";
@@ -154,12 +156,6 @@ const EDITOR_KEYBINDS: &[Keybind] = &[
         action: "Back to list",
     },
 ];
-
-#[derive(Debug, Clone, Copy)]
-pub(super) enum CursorMove {
-    Up,
-    Down,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub(super) enum SimulationCursor {
@@ -292,7 +288,7 @@ struct PendingOps {
 pub struct SimulationTabState {
     slots: Slots,
     library: SimulationLibraryView,
-    list: ListPane,
+    list: SimulationListPane,
     editors: BTreeMap<SimulationCursor, EditorState>,
     focus: Pane,
     rename: Option<RenameState>,
@@ -850,9 +846,18 @@ impl SimulationTabState {
             .slots
             .request_fetch(ctx.device.as_ref(), camera, &ctx.req)?;
         let order = self.cursor_order();
-        self.list.settle_selection(&order);
+        self.settle_selection(&order);
         self.prune_editors(&order);
         Ok(req)
+    }
+
+    fn settle_selection(&mut self, order: &[SimulationCursor]) {
+        if matches!(self.list.selection(), SimulationCursor::None) {
+            self.list
+                .set_selection(order.first().cloned().unwrap_or(SimulationCursor::None));
+        } else {
+            self.list.ensure_valid(order);
+        }
     }
 
     pub(super) fn cancel_device_actions(&mut self) {
@@ -982,7 +987,7 @@ mod tests {
     fn enumerate(s: &mut SimulationTabState, slots: &[CustomSetting]) {
         s.slots.entries = slots.iter().map(|c| (*c, SlotEntry::Loading)).collect();
         let order = s.cursor_order();
-        s.list.settle_selection(&order);
+        s.settle_selection(&order);
     }
 
     fn step(s: &mut SimulationTabState, dir: CursorMove) {
@@ -1209,8 +1214,8 @@ mod tests {
     fn filter_default_state_is_inactive_and_empty() {
         let s = SimulationTabState::default();
         assert!(!s.list.filtering());
-        assert!(s.list.filter().buffer.is_empty());
-        assert_eq!(s.list.filter().cursor_col, 0);
+        assert!(s.list.filter_text().buffer.is_empty());
+        assert_eq!(s.list.filter_text().cursor_col, 0);
     }
 
     #[test]
@@ -1236,10 +1241,10 @@ mod tests {
         type_into_filter(&mut s, "vel");
         s.handle_key(ctx(), key_press(KeyCode::Enter));
         assert!(!s.list.filtering());
-        assert_eq!(s.list.filter().buffer, "vel");
+        assert_eq!(s.list.filter_text().buffer, "vel");
         s.handle_key(ctx(), slash());
         assert!(s.list.filtering());
-        assert_eq!(s.list.filter().cursor_col, 3);
+        assert_eq!(s.list.filter_text().cursor_col, 3);
     }
 
     #[test]
@@ -1247,8 +1252,8 @@ mod tests {
         let mut s = SimulationTabState::default();
         s.handle_key(ctx(), slash());
         type_into_filter(&mut s, "vel");
-        assert_eq!(s.list.filter().buffer, "vel");
-        assert_eq!(s.list.filter().cursor_col, 3);
+        assert_eq!(s.list.filter_text().buffer, "vel");
+        assert_eq!(s.list.filter_text().cursor_col, 3);
     }
 
     #[test]
@@ -1258,8 +1263,8 @@ mod tests {
         type_into_filter(&mut s, "vel");
         s.handle_key(ctx(), key_press(KeyCode::Esc));
         assert!(!s.list.filtering());
-        assert!(s.list.filter().buffer.is_empty());
-        assert_eq!(s.list.filter().cursor_col, 0);
+        assert!(s.list.filter_text().buffer.is_empty());
+        assert_eq!(s.list.filter_text().cursor_col, 0);
     }
 
     #[test]
@@ -1269,7 +1274,7 @@ mod tests {
         type_into_filter(&mut s, "vel");
         s.handle_key(ctx(), key_press(KeyCode::Enter));
         assert!(!s.list.filtering());
-        assert_eq!(s.list.filter().buffer, "vel");
+        assert_eq!(s.list.filter_text().buffer, "vel");
     }
 
     #[test]
@@ -1287,8 +1292,8 @@ mod tests {
         type_into_filter(&mut s, "vel");
         s.handle_key(ctx(), key_press(KeyCode::Backspace));
         assert!(s.list.filtering());
-        assert_eq!(s.list.filter().buffer, "ve");
-        assert_eq!(s.list.filter().cursor_col, 2);
+        assert_eq!(s.list.filter_text().buffer, "ve");
+        assert_eq!(s.list.filter_text().cursor_col, 2);
     }
 
     #[test]
@@ -1297,11 +1302,11 @@ mod tests {
         s.handle_key(ctx(), slash());
         type_into_filter(&mut s, "vel");
         s.handle_key(ctx(), key_press(KeyCode::Home));
-        assert_eq!(s.list.filter().cursor_col, 0);
+        assert_eq!(s.list.filter_text().cursor_col, 0);
         s.handle_key(ctx(), key_press(KeyCode::Right));
-        assert_eq!(s.list.filter().cursor_col, 1);
+        assert_eq!(s.list.filter_text().cursor_col, 1);
         s.handle_key(ctx(), key_press(KeyCode::End));
-        assert_eq!(s.list.filter().cursor_col, 3);
+        assert_eq!(s.list.filter_text().cursor_col, 3);
         assert!(s.list.filtering());
     }
 
@@ -1465,7 +1470,7 @@ mod tests {
         ]));
 
         assert!(s.list.filtering());
-        assert_eq!(s.list.filter().buffer, "vel");
+        assert_eq!(s.list.filter_text().buffer, "vel");
         assert_eq!(
             s.list.selection(),
             &SimulationCursor::Library(velvia_cool.clone())

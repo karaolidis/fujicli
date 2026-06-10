@@ -1,20 +1,17 @@
 use std::{
-    collections::BTreeMap,
-    fs::{self, File},
-    io,
+    fs,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 use fujicore::UsbId;
-use log::{debug, info, warn};
+use log::info;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use time::OffsetDateTime;
 
 use crate::workers::fs::{
-    atomic::{self, AtomicError},
-    slug::{Slug, SlugError},
+    atomic,
+    library::{Library, LibraryEntry, LibraryError, LibrarySnapshot},
+    slug::Slug,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,142 +25,38 @@ pub struct BackupLibraryEntry {
     pub modified: OffsetDateTime,
 }
 
-#[derive(Debug, Error)]
-pub enum BackupLibraryError {
-    #[error("i/o error at {path}: {source}")]
-    Io {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
+impl LibraryEntry for BackupLibraryEntry {
+    fn name(&self) -> &str {
+        &self.name
+    }
 
-    #[error("invalid backup library file {path}: {source}")]
-    Parse {
-        path: PathBuf,
-        #[source]
-        source: serde_json::Error,
-    },
-
-    #[error(transparent)]
-    Atomic(#[from] AtomicError),
-
-    #[error("backup library file {path} has a non-UTF-8 or missing filename")]
-    NonUtf8Filename { path: PathBuf },
-
-    #[error(
-        "backup library file {path}: name {name:?} slugifies to {actual:?} but file expects {expected:?}"
-    )]
-    SlugMismatch {
-        path: PathBuf,
-        name: String,
-        actual: Slug,
-        expected: String,
-    },
-
-    #[error("backup metadata {meta} has no matching blob at {blob}")]
-    MissingBlob { meta: PathBuf, blob: PathBuf },
-
-    #[error("slug {slug} already exists ({existing_name:?})")]
-    SlugConflict { slug: Slug, existing_name: String },
-
-    #[error("no backup library entry with slug {slug}")]
-    NotFound { slug: Slug },
-
-    #[error(transparent)]
-    InvalidName(#[from] SlugError),
-}
-
-#[derive(Debug)]
-pub struct BackupLibraryLoadReport {
-    pub loaded: usize,
-    pub skipped: Vec<BackupLibrarySkippedEntry>,
-}
-
-#[derive(Debug)]
-pub struct BackupLibrarySkippedEntry {
-    pub path: PathBuf,
-    pub reason: BackupLibraryError,
-}
-
-pub struct BackupLibrary {
-    dir: PathBuf,
-    entries: BTreeMap<Slug, BackupLibraryEntry>,
-    skipped: usize,
-}
-
-#[derive(Debug, Default)]
-pub struct BackupLibrarySnapshot {
-    pub entries: BTreeMap<Slug, BackupLibraryEntry>,
-}
-
-impl BackupLibrarySnapshot {
-    pub fn empty() -> Arc<Self> {
-        Arc::new(Self::default())
+    fn load_one(dir: &Path, path: &Path) -> Result<Option<(Slug, Self)>, LibraryError> {
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            return Ok(None);
+        }
+        let (slug, entry) = BackupLibrary::read_meta(path)?;
+        let blob = BackupLibrary::blob_path(dir, &slug);
+        if !blob.exists() {
+            return Err(LibraryError::MissingBlob {
+                meta: path.to_path_buf(),
+                blob,
+            });
+        }
+        Ok(Some((slug, entry)))
     }
 }
 
-impl BackupLibrary {
-    pub fn open(dir: PathBuf) -> Result<(Self, BackupLibraryLoadReport), BackupLibraryError> {
-        fs::create_dir_all(&dir).map_err(|source| BackupLibraryError::Io {
-            path: dir.clone(),
-            source,
-        })?;
-        let (entries, report) = Self::scan(&dir)?;
-        info!(
-            "opened backup library at {} ({} loaded, {} skipped)",
-            dir.display(),
-            report.loaded,
-            report.skipped.len(),
-        );
-        let skipped = report.skipped.len();
-        Ok((
-            Self {
-                dir,
-                entries,
-                skipped,
-            },
-            report,
-        ))
+pub type BackupLibrary = Library<BackupLibraryEntry>;
+pub type BackupLibraryError = LibraryError;
+pub type BackupLibrarySnapshot = LibrarySnapshot<BackupLibraryEntry>;
+
+impl Library<BackupLibraryEntry> {
+    fn meta_path(dir: &Path, slug: &Slug) -> PathBuf {
+        dir.join(format!("{}.json", slug.as_str()))
     }
 
-    pub fn reload(&mut self) -> Result<BackupLibraryLoadReport, BackupLibraryError> {
-        let (entries, report) = Self::scan(&self.dir)?;
-        self.entries = entries;
-        self.skipped = report.skipped.len();
-        info!(
-            "reloaded backup library ({} loaded, {} skipped)",
-            report.loaded,
-            report.skipped.len(),
-        );
-        Ok(report)
-    }
-
-    #[allow(dead_code)]
-    pub fn iter(&self) -> impl Iterator<Item = (&Slug, &BackupLibraryEntry)> {
-        self.entries.iter()
-    }
-
-    pub fn get(&self, slug: &Slug) -> Option<&BackupLibraryEntry> {
-        self.entries.get(slug)
-    }
-
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    pub const fn skipped(&self) -> usize {
-        self.skipped
-    }
-
-    pub fn snapshot(&self) -> Arc<BackupLibrarySnapshot> {
-        Arc::new(BackupLibrarySnapshot {
-            entries: self.entries.clone(),
-        })
+    fn blob_path(dir: &Path, slug: &Slug) -> PathBuf {
+        dir.join(format!("{}.bin", slug.as_str()))
     }
 
     pub fn add(
@@ -174,7 +67,7 @@ impl BackupLibrary {
     ) -> Result<Slug, BackupLibraryError> {
         let slug = Slug::try_from(name.as_str())?;
         if let Some(existing) = self.entries.get(&slug) {
-            return Err(BackupLibraryError::SlugConflict {
+            return Err(LibraryError::SlugConflict {
                 slug,
                 existing_name: existing.name.clone(),
             });
@@ -202,13 +95,13 @@ impl BackupLibrary {
         let existing = self
             .entries
             .get(slug)
-            .ok_or_else(|| BackupLibraryError::NotFound { slug: slug.clone() })?;
+            .ok_or_else(|| LibraryError::NotFound { slug: slug.clone() })?;
 
         let new_slug = Slug::try_from(new_name.as_str())?;
         if new_slug != *slug
             && let Some(other) = self.entries.get(&new_slug)
         {
-            return Err(BackupLibraryError::SlugConflict {
+            return Err(LibraryError::SlugConflict {
                 slug: new_slug,
                 existing_name: other.name.clone(),
             });
@@ -230,7 +123,7 @@ impl BackupLibrary {
             let new_blob = Self::blob_path(&self.dir, &new_slug);
             if let Err(source) = fs::rename(&old_blob, &new_blob) {
                 let _ = fs::remove_file(Self::meta_path(&self.dir, &new_slug));
-                return Err(BackupLibraryError::Io {
+                return Err(LibraryError::Io {
                     path: old_blob,
                     source,
                 });
@@ -239,7 +132,7 @@ impl BackupLibrary {
             if let Err(source) = fs::remove_file(&old_meta) {
                 let _ = fs::rename(&new_blob, &old_blob);
                 let _ = fs::remove_file(Self::meta_path(&self.dir, &new_slug));
-                return Err(BackupLibraryError::Io {
+                return Err(LibraryError::Io {
                     path: old_meta,
                     source,
                 });
@@ -254,12 +147,12 @@ impl BackupLibrary {
 
     pub fn remove(&mut self, slug: &Slug) -> Result<BackupLibraryEntry, BackupLibraryError> {
         if !self.entries.contains_key(slug) {
-            return Err(BackupLibraryError::NotFound { slug: slug.clone() });
+            return Err(LibraryError::NotFound { slug: slug.clone() });
         }
         let blob = Self::blob_path(&self.dir, slug);
         let meta = Self::meta_path(&self.dir, slug);
-        fs::remove_file(&blob).map_err(|source| BackupLibraryError::Io { path: blob, source })?;
-        fs::remove_file(&meta).map_err(|source| BackupLibraryError::Io { path: meta, source })?;
+        fs::remove_file(&blob).map_err(|source| LibraryError::Io { path: blob, source })?;
+        fs::remove_file(&meta).map_err(|source| LibraryError::Io { path: meta, source })?;
         let entry = self
             .entries
             .remove(slug)
@@ -270,108 +163,10 @@ impl BackupLibrary {
 
     pub fn read_blob(&self, slug: &Slug) -> Result<Vec<u8>, BackupLibraryError> {
         if !self.entries.contains_key(slug) {
-            return Err(BackupLibraryError::NotFound { slug: slug.clone() });
+            return Err(LibraryError::NotFound { slug: slug.clone() });
         }
         let path = Self::blob_path(&self.dir, slug);
-        fs::read(&path).map_err(|source| BackupLibraryError::Io { path, source })
-    }
-}
-
-impl BackupLibrary {
-    fn meta_path(dir: &Path, slug: &Slug) -> PathBuf {
-        dir.join(format!("{}.json", slug.as_str()))
-    }
-
-    fn blob_path(dir: &Path, slug: &Slug) -> PathBuf {
-        dir.join(format!("{}.bin", slug.as_str()))
-    }
-
-    fn scan(
-        dir: &Path,
-    ) -> Result<(BTreeMap<Slug, BackupLibraryEntry>, BackupLibraryLoadReport), BackupLibraryError>
-    {
-        let read = fs::read_dir(dir).map_err(|source| BackupLibraryError::Io {
-            path: dir.to_path_buf(),
-            source,
-        })?;
-
-        let mut entries = BTreeMap::new();
-        let mut skipped = Vec::new();
-
-        for dirent in read {
-            let dirent = match dirent {
-                Ok(d) => d,
-                Err(source) => {
-                    skipped.push(BackupLibrarySkippedEntry {
-                        path: dir.to_path_buf(),
-                        reason: BackupLibraryError::Io {
-                            path: dir.to_path_buf(),
-                            source,
-                        },
-                    });
-                    continue;
-                }
-            };
-
-            let path = dirent.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
-            }
-            match Self::load_one(dir, &path) {
-                Ok((slug, entry)) => {
-                    entries.insert(slug, entry);
-                }
-                Err(reason) => {
-                    warn!("skipping backup library file {}: {reason}", path.display());
-                    skipped.push(BackupLibrarySkippedEntry { path, reason });
-                }
-            }
-        }
-
-        debug!(
-            "scan of {} yielded {} entries",
-            dir.display(),
-            entries.len()
-        );
-        let loaded = entries.len();
-        Ok((entries, BackupLibraryLoadReport { loaded, skipped }))
-    }
-
-    fn load_one(dir: &Path, meta: &Path) -> Result<(Slug, BackupLibraryEntry), BackupLibraryError> {
-        let file = File::open(meta).map_err(|source| BackupLibraryError::Io {
-            path: meta.to_path_buf(),
-            source,
-        })?;
-        let entry: BackupLibraryEntry =
-            serde_json::from_reader(file).map_err(|source| BackupLibraryError::Parse {
-                path: meta.to_path_buf(),
-                source,
-            })?;
-
-        let name_slug = Slug::try_from(entry.name.as_str())?;
-        let file_stem = meta.file_stem().and_then(|s| s.to_str()).ok_or_else(|| {
-            BackupLibraryError::NonUtf8Filename {
-                path: meta.to_path_buf(),
-            }
-        })?;
-        if name_slug.as_str() != file_stem {
-            return Err(BackupLibraryError::SlugMismatch {
-                path: meta.to_path_buf(),
-                name: entry.name,
-                actual: name_slug,
-                expected: file_stem.to_owned(),
-            });
-        }
-
-        let blob = Self::blob_path(dir, &name_slug);
-        if !blob.exists() {
-            return Err(BackupLibraryError::MissingBlob {
-                meta: meta.to_path_buf(),
-                blob,
-            });
-        }
-
-        Ok((name_slug, entry))
+        fs::read(&path).map_err(|source| LibraryError::Io { path, source })
     }
 }
 

@@ -1,51 +1,56 @@
-use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    widgets::ListItem,
 };
 use time::format_description::well_known::Rfc3339;
 
 use crate::{
-    border_title,
     ui::{
-        border_style, muted,
+        muted,
         tabs::AppCtx,
-        widgets::{FilterOutcome, FilterState, Scrollbar},
+        widgets::{Cursor, ListPane},
     },
     workers::fs::{backup::BackupLibraryEntry, slug::Slug},
 };
 
-use super::{BackupCursor, COL_SEPARATOR, CursorMove, INDENT, RenameState};
+use super::{BackupCursor, COL_SEPARATOR, INDENT, RenameState};
 
-#[derive(Debug, Default)]
-pub(super) struct ListPane {
-    selection: BackupCursor,
-    filter: FilterState,
-    scroll: usize,
+pub(super) type BackupListPane = ListPane<BackupCursor>;
+
+impl Cursor for BackupCursor {
+    fn none() -> Self {
+        Self::None
+    }
+
+    fn rehome(&self, order: &[Self]) -> Self {
+        let first_or_none = || order.first().cloned().unwrap_or(Self::None);
+        match self {
+            Self::None => first_or_none(),
+            Self::Entry(lost) => order
+                .iter()
+                .find(|c| matches!(c, Self::Entry(s) if s >= lost))
+                .or_else(|| {
+                    order
+                        .iter()
+                        .rev()
+                        .find(|c| matches!(c, Self::Entry(s) if s < lost))
+                })
+                .cloned()
+                .unwrap_or_else(first_or_none),
+        }
+    }
 }
 
-impl ListPane {
-    pub(super) const fn selection(&self) -> &BackupCursor {
-        &self.selection
-    }
-
-    pub(super) fn set_selection(&mut self, selection: BackupCursor) {
-        self.selection = selection;
-    }
-
-    pub(super) const fn filtering(&self) -> bool {
-        self.filter.active()
-    }
-
+impl BackupListPane {
     pub(super) fn entries<'a>(
-        &'a self,
+        &self,
         ctx: &'a AppCtx,
     ) -> impl Iterator<Item = (&'a Slug, &'a BackupLibraryEntry)> + 'a {
         let connected = ctx.device_snapshot.as_ref().map(|s| s.usb_id);
-        let needle = self.filter.needle_lower();
+        let needle = self.filter().needle_lower();
         ctx.backup_library_snapshot
             .entries
             .iter()
@@ -61,52 +66,6 @@ impl ListPane {
             .collect()
     }
 
-    pub(super) fn step(&mut self, dir: CursorMove, order: &[BackupCursor]) {
-        if order.is_empty() {
-            self.selection = BackupCursor::None;
-            return;
-        }
-        let current = order.iter().position(|c| c == &self.selection);
-        let target = match (current, dir) {
-            (None, _) => 0,
-            (Some(i), CursorMove::Up) => i.saturating_sub(1),
-            (Some(i), CursorMove::Down) => (i + 1).min(order.len() - 1),
-        };
-        self.selection = order[target].clone();
-    }
-
-    pub(super) fn ensure_valid(&mut self, order: &[BackupCursor]) {
-        if order.contains(&self.selection) {
-            return;
-        }
-        let first_or_none = || order.first().cloned().unwrap_or(BackupCursor::None);
-        self.selection = match &self.selection {
-            BackupCursor::None => first_or_none(),
-            BackupCursor::Entry(lost) => order
-                .iter()
-                .find(|c| matches!(c, BackupCursor::Entry(s) if s >= lost))
-                .or_else(|| {
-                    order
-                        .iter()
-                        .rev()
-                        .find(|c| matches!(c, BackupCursor::Entry(s) if s < lost))
-                })
-                .cloned()
-                .unwrap_or_else(first_or_none),
-        };
-    }
-
-    pub(super) fn start_filter(&mut self) {
-        self.filter.start();
-    }
-
-    pub(super) fn handle_filter_key(&mut self, key: KeyEvent) -> bool {
-        matches!(
-            self.filter.handle_key(key),
-            FilterOutcome::ContentChanged | FilterOutcome::Closed,
-        )
-    }
-
     pub(super) fn draw(
         &mut self,
         frame: &mut Frame,
@@ -114,39 +73,8 @@ impl ListPane {
         ctx: &AppCtx,
         rename: Option<&RenameState>,
     ) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(border_style(true))
-            .title(border_title!(1, "Backups"));
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
-
-        let list_area = if self.filter.show_chip() {
-            let [chip_area, list_area] =
-                Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
-            self.filter.draw(frame, chip_area);
-            list_area
-        } else {
-            inner
-        };
-
         let (items, selected) = self.make_list_items(ctx, rename);
-        let content_len = items.len();
-        let mut list_state = ListState::default().with_offset(self.scroll);
-        list_state.select(selected);
-        frame.render_stateful_widget(List::new(items), list_area, &mut list_state);
-        self.scroll = list_state.offset();
-        Scrollbar::draw(
-            frame,
-            Rect {
-                x: area.x,
-                y: list_area.y,
-                width: area.width,
-                height: list_area.height,
-            },
-            content_len,
-            self.scroll,
-        );
+        self.render(frame, area, true, "Backups", items, selected);
     }
 
     fn make_list_items(
@@ -154,9 +82,9 @@ impl ListPane {
         ctx: &AppCtx,
         rename: Option<&RenameState>,
     ) -> (Vec<ListItem<'static>>, Option<usize>) {
+        let filtering = !self.filter().buffer().is_empty();
         let mut out = Vec::new();
         let mut selected = None;
-        let filtering = !self.filter.buffer().is_empty();
         let connected = ctx.device_snapshot.as_ref().map(|s| s.usb_id);
 
         let visible: Vec<(&Slug, &BackupLibraryEntry)> = self.entries(ctx).collect();
@@ -177,7 +105,7 @@ impl ListPane {
                 visible.len()
             )));
             for (slug, entry) in visible {
-                let is_selected = matches!(&self.selection, BackupCursor::Entry(s) if s == slug);
+                let is_selected = matches!(self.selection(), BackupCursor::Entry(s) if s == slug);
                 if is_selected {
                     selected = Some(out.len());
                 }
