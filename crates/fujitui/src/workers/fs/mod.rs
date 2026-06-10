@@ -1,5 +1,6 @@
 pub mod atomic;
 pub mod backup;
+mod library;
 pub mod simulation;
 pub mod slug;
 
@@ -9,7 +10,7 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
-    thread::{self, JoinHandle},
+    thread,
     time::Duration,
 };
 
@@ -19,12 +20,13 @@ use log::{debug, error, info, warn};
 use thiserror::Error;
 
 use crate::workers::{
-    ReqId,
+    ReqId, WorkerHandle,
     fs::{
-        backup::{BackupLibrary, BackupLibraryEntry, BackupLibraryError, BackupLibrarySnapshot},
+        backup::{BackupLibrary, BackupLibraryError, BackupLibrarySnapshot},
+        library::LibraryError,
         simulation::{
-            SimulationLibrary, SimulationLibraryEdit, SimulationLibraryEntry,
-            SimulationLibraryError, SimulationLibrarySnapshot,
+            SimulationLibrary, SimulationLibraryEdit, SimulationLibraryError,
+            SimulationLibrarySnapshot,
         },
         slug::Slug,
     },
@@ -35,10 +37,7 @@ const TICK: Duration = Duration::from_millis(100);
 #[derive(Debug, Error)]
 pub enum FsError {
     #[error(transparent)]
-    SimulationLibrary(#[from] SimulationLibraryError),
-
-    #[error(transparent)]
-    BackupLibrary(#[from] BackupLibraryError),
+    Library(#[from] LibraryError),
 }
 
 #[derive(Debug)]
@@ -115,20 +114,17 @@ pub enum FsEvent {
     SimulationEntryAdded {
         req: ReqId,
         slug: Slug,
-        entry: SimulationLibraryEntry,
         snapshot: Arc<SimulationLibrarySnapshot>,
     },
     SimulationEntryUpdated {
         req: ReqId,
         old_slug: Slug,
         new_slug: Slug,
-        entry: SimulationLibraryEntry,
         snapshot: Arc<SimulationLibrarySnapshot>,
     },
     SimulationEntryRemoved {
         req: ReqId,
         slug: Slug,
-        entry: SimulationLibraryEntry,
         snapshot: Arc<SimulationLibrarySnapshot>,
     },
     SimulationLibraryOpFailed {
@@ -149,20 +145,17 @@ pub enum FsEvent {
     BackupEntryAdded {
         req: ReqId,
         slug: Slug,
-        entry: BackupLibraryEntry,
         snapshot: Arc<BackupLibrarySnapshot>,
     },
     BackupEntryUpdated {
         req: ReqId,
         old_slug: Slug,
         new_slug: Slug,
-        entry: BackupLibraryEntry,
         snapshot: Arc<BackupLibrarySnapshot>,
     },
     BackupEntryRemoved {
         req: ReqId,
         slug: Slug,
-        entry: BackupLibraryEntry,
         snapshot: Arc<BackupLibrarySnapshot>,
     },
     BackupBlobRead {
@@ -189,13 +182,9 @@ pub enum FsEvent {
     Error(Box<FsError>),
 }
 
-pub struct FsHandle {
-    command_tx: Option<Sender<FsCommand>>,
-    inflight: Arc<AtomicUsize>,
-    join: Option<JoinHandle<()>>,
-}
+pub type FsHandle = WorkerHandle<FsCommand>;
 
-impl FsHandle {
+impl WorkerHandle<FsCommand> {
     pub fn spawn(simulation_dir: PathBuf, backup_dir: PathBuf, event_tx: Sender<FsEvent>) -> Self {
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
         let inflight = Arc::new(AtomicUsize::new(0));
@@ -212,34 +201,7 @@ impl FsHandle {
                 );
             })
             .expect("spawning fs worker");
-        Self {
-            command_tx: Some(command_tx),
-            inflight,
-            join: Some(join),
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn send(&self, cmd: FsCommand) {
-        if let Some(tx) = self.command_tx.as_ref() {
-            self.inflight.fetch_add(1, Ordering::Relaxed);
-            if tx.send(cmd).is_err() {
-                self.inflight.fetch_sub(1, Ordering::Relaxed);
-            }
-        }
-    }
-
-    pub fn is_busy(&self) -> bool {
-        self.inflight.load(Ordering::Relaxed) > 0
-    }
-}
-
-impl Drop for FsHandle {
-    fn drop(&mut self) {
-        drop(self.command_tx.take());
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
-        }
+        Self::new(command_tx, inflight, join)
     }
 }
 
@@ -423,11 +385,9 @@ impl FsWorker {
     ) {
         match self.simulation.add(init, source_camera) {
             Ok(slug) => {
-                let entry = self.simulation.get(&slug).expect("just added").clone();
                 let _ = event_tx.send(FsEvent::SimulationEntryAdded {
                     req,
                     slug,
-                    entry,
                     snapshot: self.simulation.snapshot(),
                 });
             }
@@ -450,16 +410,10 @@ impl FsWorker {
     ) {
         match self.simulation.update(&slug, edit) {
             Ok(new_slug) => {
-                let entry = self
-                    .simulation
-                    .get(&new_slug)
-                    .expect("just updated")
-                    .clone();
                 let _ = event_tx.send(FsEvent::SimulationEntryUpdated {
                     req,
                     old_slug: slug,
                     new_slug,
-                    entry,
                     snapshot: self.simulation.snapshot(),
                 });
             }
@@ -475,11 +429,10 @@ impl FsWorker {
 
     fn handle_simulation_remove(&mut self, req: ReqId, slug: Slug, event_tx: &Sender<FsEvent>) {
         match self.simulation.remove(&slug) {
-            Ok(entry) => {
+            Ok(_entry) => {
                 let _ = event_tx.send(FsEvent::SimulationEntryRemoved {
                     req,
                     slug,
-                    entry,
                     snapshot: self.simulation.snapshot(),
                 });
             }
@@ -530,11 +483,9 @@ impl FsWorker {
     ) {
         match self.backup.add(name, source_camera, blob) {
             Ok(slug) => {
-                let entry = self.backup.get(&slug).expect("just added").clone();
                 let _ = event_tx.send(FsEvent::BackupEntryAdded {
                     req,
                     slug,
-                    entry,
                     snapshot: self.backup.snapshot(),
                 });
             }
@@ -557,12 +508,10 @@ impl FsWorker {
     ) {
         match self.backup.rename(&slug, new_name) {
             Ok(new_slug) => {
-                let entry = self.backup.get(&new_slug).expect("just renamed").clone();
                 let _ = event_tx.send(FsEvent::BackupEntryUpdated {
                     req,
                     old_slug: slug,
                     new_slug,
-                    entry,
                     snapshot: self.backup.snapshot(),
                 });
             }
@@ -578,11 +527,10 @@ impl FsWorker {
 
     fn handle_backup_remove(&mut self, req: ReqId, slug: Slug, event_tx: &Sender<FsEvent>) {
         match self.backup.remove(&slug) {
-            Ok(entry) => {
+            Ok(_entry) => {
                 let _ = event_tx.send(FsEvent::BackupEntryRemoved {
                     req,
                     slug,
-                    entry,
                     snapshot: self.backup.snapshot(),
                 });
             }

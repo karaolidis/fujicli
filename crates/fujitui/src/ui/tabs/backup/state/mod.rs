@@ -18,7 +18,9 @@ use crate::{
 
 mod list;
 
-use list::ListPane;
+pub(super) use crate::ui::widgets::CursorMove;
+
+use list::BackupListPane;
 
 const INDENT: &str = "  ";
 const COL_SEPARATOR: &str = " ";
@@ -51,12 +53,6 @@ const LIST_KEYBINDS: &[Keybind] = &[
     },
 ];
 
-#[derive(Debug, Clone, Copy)]
-pub(super) enum CursorMove {
-    Up,
-    Down,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub(super) enum BackupCursor {
     #[default]
@@ -88,7 +84,7 @@ pub(in crate::ui::tabs::backup) enum BackupAnomaly {
 
 #[derive(Debug, Default)]
 pub struct BackupTabState {
-    list: ListPane,
+    list: BackupListPane,
     rename: Option<RenameState>,
     confirm: Option<PendingConfirm>,
     pending: PendingOps,

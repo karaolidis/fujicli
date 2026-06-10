@@ -810,6 +810,14 @@ impl EditorState {
         }
     }
 
+    fn dot_leader(inner_width: u16, label_w: usize, content_w: usize) -> String {
+        let gap = (inner_width as usize).saturating_sub(label_w + content_w);
+        let dots_w = gap.saturating_sub(2);
+        (0..dots_w)
+            .map(|i| if i % 2 == 0 { '.' } else { ' ' })
+            .collect()
+    }
+
     fn make_field_item(
         prefix: &'static str,
         name: &'static str,
@@ -824,12 +832,7 @@ impl EditorState {
             String::new()
         };
         let label_w = prefix.chars().count() + marker.chars().count() + name.chars().count();
-        let value_w = value.chars().count();
-        let gap = (inner_width as usize).saturating_sub(label_w + value_w);
-        let dots_w = gap.saturating_sub(2);
-        let dots: String = (0..dots_w)
-            .map(|i| if i % 2 == 0 { '.' } else { ' ' })
-            .collect();
+        let dots = Self::dot_leader(inner_width, label_w, value.chars().count());
         let mut text_style = Style::default();
         if highlight {
             text_style = text_style.add_modifier(Modifier::REVERSED);
@@ -858,11 +861,7 @@ impl EditorState {
     ) -> ListItem<'static> {
         let label_w = prefix.chars().count() + name.chars().count();
         let buf_w = text.buffer.chars().count().max(text.cursor_col + 1);
-        let gap = (inner_width as usize).saturating_sub(label_w + buf_w);
-        let dots_w = gap.saturating_sub(2);
-        let dots: String = (0..dots_w)
-            .map(|i| if i % 2 == 0 { '.' } else { ' ' })
-            .collect();
+        let dots = Self::dot_leader(inner_width, label_w, buf_w);
         let dots_style = Style::default().fg(muted());
 
         let mut spans = vec![

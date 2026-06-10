@@ -6,7 +6,7 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
-    thread::{self, JoinHandle},
+    thread,
     time::{Duration, Instant},
 };
 
@@ -18,7 +18,7 @@ use fujicore::{
 use log::{debug, error, info};
 use rusb::{Device, GlobalContext};
 
-use crate::workers::ReqId;
+use crate::workers::{ReqId, WorkerHandle};
 
 const TICK: Duration = Duration::from_millis(100);
 const REFRESH_INTERVAL: Duration = Duration::from_secs(30);
@@ -116,13 +116,9 @@ pub enum DeviceEvent {
     },
 }
 
-pub struct DeviceHandle {
-    command_tx: Option<Sender<DeviceCommand>>,
-    inflight: Arc<AtomicUsize>,
-    join: Option<JoinHandle<()>>,
-}
+pub type DeviceHandle = WorkerHandle<DeviceCommand>;
 
-impl DeviceHandle {
+impl WorkerHandle<DeviceCommand> {
     pub fn spawn(device: Device<GlobalContext>, event_tx: Sender<DeviceEvent>) -> Self {
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
         let inflight = Arc::new(AtomicUsize::new(0));
@@ -131,34 +127,7 @@ impl DeviceHandle {
             .name("fujitui-device".to_owned())
             .spawn(move || DeviceWorker::run(&device, &command_rx, &event_tx, &worker_inflight))
             .expect("spawning device worker");
-        Self {
-            command_tx: Some(command_tx),
-            inflight,
-            join: Some(join),
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn send(&self, cmd: DeviceCommand) {
-        if let Some(tx) = self.command_tx.as_ref() {
-            self.inflight.fetch_add(1, Ordering::Relaxed);
-            if tx.send(cmd).is_err() {
-                self.inflight.fetch_sub(1, Ordering::Relaxed);
-            }
-        }
-    }
-
-    pub fn is_busy(&self) -> bool {
-        self.inflight.load(Ordering::Relaxed) > 0
-    }
-}
-
-impl Drop for DeviceHandle {
-    fn drop(&mut self) {
-        drop(self.command_tx.take());
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
-        }
+        Self::new(command_tx, inflight, join)
     }
 }
 
