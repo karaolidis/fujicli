@@ -3,7 +3,7 @@ use fujicore::generated::options::CustomSetting;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState},
 };
@@ -13,14 +13,14 @@ use crate::ui::widgets::TextInputState;
 use crate::{
     border_title,
     ui::{
-        border_style,
+        border_style, danger, muted, warning,
         widgets::{FilterOutcome, FilterState, Scrollbar},
     },
     workers::fs::slug::Slug,
 };
 
 use super::{
-    CursorMove, DIRTY_MARKER, INDENT, SimulationCursor,
+    CursorMove, DIRTY_MARKER, INDENT, RenameState, SimulationCursor,
     library::{SimulationLibraryBuffer, SimulationLibraryView},
     slots::{SlotEntry, Slots},
 };
@@ -39,6 +39,10 @@ impl ListPane {
         &self.selection
     }
 
+    pub(super) fn set_selection(&mut self, selection: SimulationCursor) {
+        self.selection = selection;
+    }
+
     pub(super) const fn filtering(&self) -> bool {
         self.filter.active()
     }
@@ -48,7 +52,7 @@ impl ListPane {
         self.filter.text()
     }
 
-    pub(super) fn slot_entries<'a>(
+    pub(super) fn simulation_slot_entries<'a>(
         &'a self,
         slots: &'a Slots,
     ) -> impl Iterator<Item = (CustomSetting, &'a SlotEntry)> + 'a {
@@ -76,7 +80,7 @@ impl ListPane {
         slots: &Slots,
         library: &SimulationLibraryView,
     ) -> Vec<SimulationCursor> {
-        self.slot_entries(slots)
+        self.simulation_slot_entries(slots)
             .map(|(slot, _)| SimulationCursor::Slot(slot))
             .chain(
                 self.library_entries(library)
@@ -155,6 +159,7 @@ impl ListPane {
         active: bool,
         slots: &Slots,
         library: &SimulationLibraryView,
+        rename: Option<&RenameState>,
     ) {
         let block = Block::default()
             .borders(Borders::ALL)
@@ -172,7 +177,7 @@ impl ListPane {
             inner
         };
 
-        let (items, selected) = self.make_list_items(slots, library);
+        let (items, selected) = self.make_list_items(slots, library, rename);
         let content_len = items.len();
         let mut list_state = ListState::default().with_offset(self.scroll);
         list_state.select(selected);
@@ -195,13 +200,14 @@ impl ListPane {
         &self,
         slots: &Slots,
         library: &SimulationLibraryView,
+        rename: Option<&RenameState>,
     ) -> (Vec<ListItem<'static>>, Option<usize>) {
         let filtering = !self.filter.buffer().is_empty();
         let cursor = &self.selection;
         let mut out = Vec::new();
         let mut selected = None;
 
-        let slot_count = self.slot_entries(slots).count();
+        let slot_count = self.simulation_slot_entries(slots).count();
         out.push(Self::make_section_header(&format!("Slots ({slot_count})")));
         if slot_count == 0 {
             out.push(Self::make_placeholder(if filtering {
@@ -210,11 +216,11 @@ impl ListPane {
                 "(no slots)"
             }));
         } else {
-            for (slot, entry) in self.slot_entries(slots) {
+            for (slot, entry) in self.simulation_slot_entries(slots) {
                 if matches!(cursor, SimulationCursor::Slot(s) if *s == slot) {
                     selected = Some(out.len());
                 }
-                out.push(Self::make_slot_item(slot, entry, cursor));
+                out.push(Self::make_simulation_slot_item(slot, entry, cursor));
             }
         }
 
@@ -231,7 +237,7 @@ impl ListPane {
                 if matches!(cursor, SimulationCursor::Library(s) if s == slug) {
                     selected = Some(out.len());
                 }
-                out.push(Self::make_library_item(slug, lib, cursor));
+                out.push(Self::make_library_item(slug, lib, cursor, rename));
             }
         }
 
@@ -248,11 +254,19 @@ impl ListPane {
     fn make_placeholder(label: &str) -> ListItem<'static> {
         ListItem::new(Line::from(Span::styled(
             format!("{INDENT}{label}"),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(muted()),
         )))
     }
 
-    fn make_slot_item(
+    fn dirty_marker_span(selected: bool) -> Span<'static> {
+        let mut style = Style::default().fg(warning());
+        if selected {
+            style = style.add_modifier(Modifier::REVERSED);
+        }
+        Span::styled(format!("{DIRTY_MARKER} "), style)
+    }
+
+    fn make_simulation_slot_item(
         slot: CustomSetting,
         entry: &SlotEntry,
         cursor: &SimulationCursor,
@@ -261,28 +275,22 @@ impl ListPane {
         let (label, style, dirty) = match entry {
             SlotEntry::Loading => (
                 format!("{slot}{COL_SEPARATOR}(loading...)"),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(muted()),
                 false,
             ),
             SlotEntry::Failed(_) => (
                 format!("{slot}{COL_SEPARATOR}(failed)"),
-                Style::default().fg(Color::Red),
+                Style::default().fg(danger()),
                 false,
             ),
             SlotEntry::Loaded(buf) => {
                 let name = entry
                     .name()
                     .map_or_else(|| "(unnamed)".to_owned(), ToString::to_string);
-                let dirty = buf.dirty();
-                let marker = if dirty {
-                    format!("{DIRTY_MARKER} ")
-                } else {
-                    String::new()
-                };
                 (
-                    format!("{marker}{slot}{COL_SEPARATOR}{name}"),
+                    format!("{slot}{COL_SEPARATOR}{name}"),
                     Style::default(),
-                    dirty,
+                    buf.dirty(),
                 )
             }
         };
@@ -293,25 +301,28 @@ impl ListPane {
         if dirty {
             text_style = text_style.add_modifier(Modifier::ITALIC);
         }
-        ListItem::new(Line::from(vec![
-            Span::raw(INDENT),
-            Span::styled(label, text_style),
-        ]))
+        let mut spans = vec![Span::raw(INDENT)];
+        if dirty {
+            spans.push(Self::dirty_marker_span(selected));
+        }
+        spans.push(Span::styled(label, text_style));
+        ListItem::new(Line::from(spans))
     }
 
     fn make_library_item(
         slug: &Slug,
         lib: &SimulationLibraryBuffer,
         cursor: &SimulationCursor,
+        rename: Option<&RenameState>,
     ) -> ListItem<'static> {
+        if let Some(rename) = rename.filter(|r| &r.slug == slug) {
+            let mut spans = vec![Span::raw(INDENT)];
+            spans.extend(rename.text.cursor_spans(Style::default()));
+            return ListItem::new(Line::from(spans));
+        }
         let selected = matches!(cursor, SimulationCursor::Library(s) if s == slug);
         let dirty = lib.buffer.dirty();
-        let marker = if dirty {
-            format!("{DIRTY_MARKER} ")
-        } else {
-            String::new()
-        };
-        let label = format!("{marker}{}", lib.entry.name);
+        let label = lib.entry.name.clone();
         let mut text_style = Style::default();
         if selected {
             text_style = text_style.add_modifier(Modifier::REVERSED);
@@ -319,9 +330,11 @@ impl ListPane {
         if dirty {
             text_style = text_style.add_modifier(Modifier::ITALIC);
         }
-        ListItem::new(Line::from(vec![
-            Span::raw(INDENT),
-            Span::styled(label, text_style),
-        ]))
+        let mut spans = vec![Span::raw(INDENT)];
+        if dirty {
+            spans.push(Self::dirty_marker_span(selected));
+        }
+        spans.push(Span::styled(label, text_style));
+        ListItem::new(Line::from(spans))
     }
 }

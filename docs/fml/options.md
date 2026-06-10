@@ -122,11 +122,12 @@ if any value is negative, `u16` otherwise, and bails if the range spans both
 
 ## `codegen` Block
 
-Optional knobs for the codegen, not part of the runtime semantics:
+Optional knobs that shape what codegen emits:
 
 ```cue
 codegen: {
-    skip?: true  // do not expose this option to any user-facing surface
+    skip?:  true  // do not expose this option to any user-facing surface
+    flaky?: true  // tolerate device-side set failures for this option
 }
 ```
 
@@ -134,6 +135,14 @@ codegen: {
 by `fujicli` itself, not by the user. The option still has a generated type and
 `SimulationSetting` impl; it just doesn't appear on `SimulationArgs` /
 `RenderArgs`, or any future user-facing list.
+
+`flaky` marks an option whose set can be rejected by the camera depending on
+hardware state - e.g. `lens_modulation_optimizer`, which the camera refuses to
+set with a PTP error when no lens is attached. In the generated `try_push`, a
+flaky field's set is wrapped so that a device-side rejection is logged
+(`log::warn!`) and skipped instead of aborting the whole simulation write; the
+remaining fields still land. Codegen also emits a `cargo:warning` naming each
+flaky option, so a field never becomes best-effort silently.
 
 ## What Gets Generated
 

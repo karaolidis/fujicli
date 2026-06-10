@@ -22,10 +22,30 @@ macro_rules! border_title {
     }};
 }
 
+pub const fn danger() -> Color {
+    Color::Red
+}
+
+pub const fn success() -> Color {
+    Color::Green
+}
+
+pub const fn warning() -> Color {
+    Color::Yellow
+}
+
+pub const fn accent() -> Color {
+    Color::Cyan
+}
+
+pub const fn muted() -> Color {
+    Color::DarkGray
+}
+
 pub fn border_style(active: bool) -> Style {
     if active {
         Style::default()
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(muted())
     }
 }

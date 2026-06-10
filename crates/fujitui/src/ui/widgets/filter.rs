@@ -2,12 +2,12 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Style},
+    style::Style,
     text::{Line, Span},
     widgets::Paragraph,
 };
 
-use crate::ui::widgets::text_input::TextInputState;
+use crate::ui::{muted, widgets::text_input::TextInputState};
 
 const PROMPT: &str = "> ";
 
@@ -52,41 +52,23 @@ impl FilterState {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> FilterOutcome {
-        let mut order_dirty = false;
-        let mut close = false;
-        let mut clear = false;
         match key.code {
             KeyCode::Esc => {
-                close = true;
-                clear = !self.text.buffer.is_empty();
+                self.text.clear();
+                self.active = false;
+                return FilterOutcome::Closed;
             }
-            KeyCode::Enter => close = true,
-            KeyCode::Backspace => {
-                if self.text.buffer.is_empty() {
-                    close = true;
-                } else {
-                    order_dirty = self.text.delete_before();
-                }
+            KeyCode::Enter => {
+                self.active = false;
+                return FilterOutcome::Closed;
             }
-            KeyCode::Delete => order_dirty = self.text.delete_after(),
-            KeyCode::Left => self.text.move_left(),
-            KeyCode::Right => self.text.move_right(),
-            KeyCode::Home => self.text.move_home(),
-            KeyCode::End => self.text.move_end(),
-            KeyCode::Char(c) if !c.is_control() => {
-                order_dirty = self.text.insert(c);
+            KeyCode::Backspace if self.text.buffer.is_empty() => {
+                self.active = false;
+                return FilterOutcome::Closed;
             }
             _ => {}
         }
-        if clear {
-            self.text.clear();
-            order_dirty = true;
-        }
-        if close {
-            self.active = false;
-            return FilterOutcome::Closed;
-        }
-        if order_dirty {
+        if self.text.handle_edit_key(key) {
             FilterOutcome::ContentChanged
         } else {
             FilterOutcome::Idle
@@ -94,7 +76,7 @@ impl FilterState {
     }
 
     pub fn draw(&self, frame: &mut Frame, area: Rect) {
-        let prompt = Span::styled(PROMPT, Style::default().fg(Color::DarkGray));
+        let prompt = Span::styled(PROMPT, Style::default().fg(muted()));
         let line = if self.active {
             let mut spans = vec![prompt];
             spans.extend(self.text.cursor_spans(Style::default()));
@@ -102,10 +84,7 @@ impl FilterState {
         } else {
             Line::from(vec![
                 prompt,
-                Span::styled(
-                    self.text.buffer.clone(),
-                    Style::default().fg(Color::DarkGray),
-                ),
+                Span::styled(self.text.buffer.clone(), Style::default().fg(muted())),
             ])
         };
         frame.render_widget(Paragraph::new(line), area);

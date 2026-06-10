@@ -97,6 +97,11 @@ fn generate_one(
     let read_order = write_order.clone();
 
     let optional_field_ids: BTreeSet<String> = presence_info.conditions.keys().cloned().collect();
+    let flaky_field_ids: BTreeSet<String> = write_order
+        .iter()
+        .filter(|id| options.get(id.as_str()).is_some_and(|o| o.codegen.flaky))
+        .cloned()
+        .collect();
     let foreign_field_ids: Vec<&str> = base_union
         .iter()
         .map(String::as_str)
@@ -171,6 +176,7 @@ fn generate_one(
     let simulation_impl = generate_simulation_impl(
         &settings,
         &optional_field_ids,
+        &flaky_field_ids,
         &complete_ident,
         &draft_ident,
         &options_path,
@@ -638,6 +644,7 @@ fn generate_deserialize_impl(complete_ident: &Ident, draft_ident: &Ident) -> Tok
 fn generate_simulation_impl(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     optional: &BTreeSet<String>,
+    flaky: &BTreeSet<String>,
     complete_ident: &Ident,
     draft_ident: &Ident,
     options_path: &TokenStream,
@@ -646,7 +653,7 @@ fn generate_simulation_impl(
     presence_conditions: &BTreeMap<String, Dnf>,
 ) -> anyhow::Result<TokenStream> {
     let try_pull = generate_try_pull(settings, draft_ident, read_order, presence_conditions)?;
-    let try_push = generate_try_push(settings, optional, write_order);
+    let try_push = generate_try_push(settings, optional, flaky, write_order);
 
     Ok(quote! {
         impl crate::features::simulation::Simulation for #complete_ident {
@@ -714,21 +721,41 @@ fn generate_try_pull(
 fn generate_try_push(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     optional: &BTreeSet<String>,
+    flaky: &BTreeSet<String>,
     write_order: &[String],
 ) -> TokenStream {
     let writes = write_order.iter().map(|id| {
         let info = &settings[id.as_str()];
         let ident = info.field_ident();
-        if optional.contains(id.as_str()) {
+        let value = if optional.contains(id.as_str()) {
+            quote! { value }
+        } else {
+            quote! { &self.#ident }
+        };
+
+        let push = if flaky.contains(id.as_str()) {
             quote! {
-                if let Some(value) = self.#ident.as_ref() {
-                    crate::ptp::option::SimulationSetting::try_push(value, ptp)?;
+                if let Err(error) = crate::ptp::option::SimulationSetting::try_push(#value, ptp) {
+                    if error.is_disconnect() {
+                        return Err(error);
+                    }
+                    log::warn!("flaky field `{}` rejected by camera ({error}); skipping", #id);
                 }
             }
         } else {
             quote! {
-                crate::ptp::option::SimulationSetting::try_push(&self.#ident, ptp)?;
+                crate::ptp::option::SimulationSetting::try_push(#value, ptp)?;
             }
+        };
+
+        if optional.contains(id.as_str()) {
+            quote! {
+                if let Some(value) = self.#ident.as_ref() {
+                    #push
+                }
+            }
+        } else {
+            push
         }
     });
 

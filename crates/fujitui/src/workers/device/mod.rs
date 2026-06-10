@@ -25,15 +25,14 @@ const REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Debug)]
 pub enum DeviceCommand {
-    #[allow(dead_code)]
     FetchSlot {
         req: ReqId,
         slot: CustomSetting,
     },
-    FetchAllSlots {
+    FetchSlots {
         req: ReqId,
+        slots: Vec<CustomSetting>,
     },
-    #[allow(dead_code)]
     PushSlot {
         req: ReqId,
         slot: CustomSetting,
@@ -63,14 +62,6 @@ pub enum DeviceEvent {
     InfoUpdated(DeviceSnapshot),
     Disconnected,
     Error(Box<CoreError>),
-    SlotsEnumerated {
-        req: ReqId,
-        slots: Vec<CustomSetting>,
-    },
-    SlotsEnumerationFailed {
-        req: ReqId,
-        error: Box<CoreError>,
-    },
     SlotFetched {
         req: ReqId,
         slot: CustomSetting,
@@ -205,11 +196,13 @@ impl DeviceWorker {
                 Ok(cmd) => {
                     let outcome = match cmd {
                         DeviceCommand::FetchSlot { req, slot } => {
-                            self.fetch_slot(req, slot, event_tx)
+                            self.fetch_simulation_slot(req, slot, event_tx)
                         }
-                        DeviceCommand::FetchAllSlots { req } => self.fetch_all_slots(req, event_tx),
+                        DeviceCommand::FetchSlots { req, slots } => {
+                            self.fetch_simulation_slots(req, &slots, event_tx)
+                        }
                         DeviceCommand::PushSlot { req, slot, base } => {
-                            self.push_slot(req, slot, base, event_tx)
+                            self.push_simulation_slot(req, slot, base, event_tx)
                         }
                         DeviceCommand::ExportBackup { req } => self.export_backup(req, event_tx),
                         DeviceCommand::ImportBackup { req, blob } => {
@@ -267,7 +260,7 @@ impl DeviceWorker {
         })
     }
 
-    fn fetch_slot(
+    fn fetch_simulation_slot(
         &mut self,
         req: ReqId,
         slot: CustomSetting,
@@ -299,34 +292,19 @@ impl DeviceWorker {
         }
     }
 
-    fn fetch_all_slots(&mut self, req: ReqId, event_tx: &Sender<DeviceEvent>) -> ControlFlow<()> {
-        let slots = match self.camera.custom_settings_slots() {
-            Ok(s) => s,
-            Err(e) if e.is_disconnect() => {
-                error!("{req}: camera disconnected enumerating slots: {e}");
-                let _ = event_tx.send(DeviceEvent::Disconnected);
-                return ControlFlow::Break(());
-            }
-            Err(e) => {
-                error!("{req}: enumerating slots failed: {e}");
-                let _ = event_tx.send(DeviceEvent::SlotsEnumerationFailed {
-                    req,
-                    error: Box::new(e),
-                });
-                return ControlFlow::Continue(());
-            }
-        };
-        let _ = event_tx.send(DeviceEvent::SlotsEnumerated {
-            req,
-            slots: slots.clone(),
-        });
+    fn fetch_simulation_slots(
+        &mut self,
+        req: ReqId,
+        slots: &[CustomSetting],
+        event_tx: &Sender<DeviceEvent>,
+    ) -> ControlFlow<()> {
         for slot in slots {
-            self.fetch_slot(req, slot, event_tx)?;
+            self.fetch_simulation_slot(req, *slot, event_tx)?;
         }
         ControlFlow::Continue(())
     }
 
-    fn push_slot(
+    fn push_simulation_slot(
         &mut self,
         req: ReqId,
         slot: CustomSetting,

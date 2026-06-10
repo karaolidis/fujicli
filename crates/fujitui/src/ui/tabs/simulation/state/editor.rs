@@ -18,7 +18,7 @@ use ratatui::{
 
 use crate::{
     border_title,
-    ui::{border_style, tabs::Buffer, widgets::Scrollbar},
+    ui::{border_style, danger, muted, tabs::Buffer, widgets::Scrollbar},
 };
 
 use super::{CursorMove, DIRTY_MARKER, EditorTarget, INDENT, SimulationState, TextInputState};
@@ -125,7 +125,7 @@ impl PickerState {
         };
         frame.render_widget(Clear, popup);
         let border = match status {
-            InlineStatus::Rejected => Style::default().fg(Color::Red),
+            InlineStatus::Rejected => Style::default().fg(danger()),
             InlineStatus::Idle => border_style(true),
         };
         let title = if dirty {
@@ -145,10 +145,7 @@ impl PickerState {
 
         let [filter_area, values_area] =
             Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(inner);
-        let mut filter_spans = vec![Span::styled(
-            FILTER_PROMPT,
-            Style::default().fg(Color::DarkGray),
-        )];
+        let mut filter_spans = vec![Span::styled(FILTER_PROMPT, Style::default().fg(muted()))];
         filter_spans.extend(self.filter.cursor_spans(Style::default()));
         frame.render_widget(Paragraph::new(Line::from(filter_spans)), filter_area);
 
@@ -156,7 +153,7 @@ impl PickerState {
             frame.render_widget(
                 Paragraph::new(Line::from(Span::styled(
                     "(no matches)",
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(muted()),
                 ))),
                 values_area,
             );
@@ -576,27 +573,21 @@ impl EditorState {
             .border_style(border_style(active));
         match target {
             EditorTarget::None => {
-                Self::draw_centered_message(
-                    frame,
-                    area,
-                    block,
-                    "(no entry selected)",
-                    Color::DarkGray,
-                );
+                Self::draw_centered_message(frame, area, block, "(no entry selected)", muted());
             }
             EditorTarget::Loading { title } => Self::draw_centered_message(
                 frame,
                 area,
                 block.title(border_title!(1, "{title}")),
                 "loading...",
-                Color::DarkGray,
+                muted(),
             ),
             EditorTarget::Failed { title, error } => Self::draw_centered_message(
                 frame,
                 area,
                 block.title(border_title!(1, "{title}")),
                 &format!("fetch failed: {error}"),
-                Color::Red,
+                danger(),
             ),
             EditorTarget::Ready {
                 title,
@@ -844,7 +835,7 @@ impl EditorState {
         if dirty {
             text_style = text_style.add_modifier(Modifier::ITALIC);
         }
-        let dots_style = Style::default().fg(Color::DarkGray);
+        let dots_style = Style::default().fg(muted());
         ListItem::new(Line::from(vec![
             Span::raw(prefix),
             Span::styled(marker, text_style),
@@ -870,7 +861,7 @@ impl EditorState {
         let dots: String = (0..dots_w)
             .map(|i| if i % 2 == 0 { '.' } else { ' ' })
             .collect();
-        let dots_style = Style::default().fg(Color::DarkGray);
+        let dots_style = Style::default().fg(muted());
 
         let mut spans = vec![
             Span::raw(prefix),
@@ -881,7 +872,7 @@ impl EditorState {
         ];
         let base = match status {
             InlineStatus::Idle => Style::default(),
-            InlineStatus::Rejected => Style::default().fg(Color::Red),
+            InlineStatus::Rejected => Style::default().fg(danger()),
         };
         spans.extend(text.cursor_spans(base));
         ListItem::new(Line::from(spans))
@@ -1070,6 +1061,7 @@ mod tests {
         };
         const STUB_DESCRIPTORS: SimulationDescriptors = SimulationDescriptors {
             fields: &[],
+            slots: 0,
             validate: |b| Ok(b),
             validate_partial: |b| Ok(b),
         };

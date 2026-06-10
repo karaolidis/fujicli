@@ -139,7 +139,9 @@ merge and threads it through `solve` and `emit_warnings_and_infos`; see
 [analyses / presence DAG](analyses.md#the-presence-dag)); for each field with a
 derived gate, the read is wrapped in `if gate { read }
 else { None }`.
-`try_push` writes every `Some` field in write order.
+`try_push` writes every `Some` field in write order. A field whose option is
+marked [`codegen.flaky`](../fml/options.md#codegen-block) has its set wrapped to
+log-and-continue on a device-side rejection, instead of aborting the whole push.
 
 ## Renders
 

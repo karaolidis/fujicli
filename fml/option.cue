@@ -259,6 +259,7 @@ options: [string]: #Option
 
 	#Codegen: {
 		skip?: true
+		flaky?: true
 	}
 }
 
@@ -734,6 +735,9 @@ options: {
 	}
 
 	lens_modulation_optimizer: #Option & {
+		// The camera rejects setting this with a PTP error when no lens is
+		// attached; tolerate that so the rest of the simulation still writes.
+		codegen: flaky: true
 		spec: {
 			name:     "Lens Modulation Optimizer"
 			category: "Lens"

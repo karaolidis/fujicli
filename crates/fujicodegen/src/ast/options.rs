@@ -17,6 +17,7 @@ pub struct FujiOption {
 #[serde(deny_unknown_fields, default)]
 pub struct Codegen {
     pub skip: bool,
+    pub flaky: bool,
 }
 
 #[derive(Debug, Deserialize)]

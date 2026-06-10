@@ -1,3 +1,4 @@
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     style::{Modifier, Style},
     text::Span,
@@ -100,6 +101,31 @@ impl TextInputState {
         let end = self.byte_at(self.cursor_col + 1);
         self.buffer.drain(start..end);
         true
+    }
+
+    pub fn handle_edit_key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Backspace => self.delete_before(),
+            KeyCode::Delete => self.delete_after(),
+            KeyCode::Char(c) if !c.is_control() => self.insert(c),
+            KeyCode::Left => {
+                self.move_left();
+                false
+            }
+            KeyCode::Right => {
+                self.move_right();
+                false
+            }
+            KeyCode::Home => {
+                self.move_home();
+                false
+            }
+            KeyCode::End => {
+                self.move_end();
+                false
+            }
+            _ => false,
+        }
     }
 
     #[must_use]

@@ -7,15 +7,16 @@ use fujicore::{
     CoreError,
     generated::{options::CustomSetting, simulations::SimulationBase},
 };
-use log::{debug, warn};
+use log::{debug, error};
 use ratatui::{Frame, layout::Rect};
 
 use crate::{
     ui::{
         Keybind,
         tabs::{AppCtx, TabBehavior},
+        widgets::StatusMessage,
     },
-    workers::ReqId,
+    workers::{ReqId, fs::slug::Slug},
 };
 
 pub use state::SimulationTabState;
@@ -48,53 +49,92 @@ impl TabBehavior for SimulationTabState {
     }
 
     fn on_device_disconnected(&mut self, _ctx: &AppCtx) {
-        self.mark_stale();
+        self.invalidate();
+        self.cancel_device_actions();
+    }
+
+    fn on_simulation_slot_changed(&mut self, ctx: &AppCtx, slot: CustomSetting) {
+        self.handle_simulation_slot_changed(ctx, slot);
+    }
+
+    fn on_simulation_slot_push_failed(
+        &mut self,
+        _ctx: &AppCtx,
+        slot: CustomSetting,
+        _error: &Arc<CoreError>,
+    ) {
+        self.handle_simulation_slot_push_failed(slot);
+    }
+
+    fn on_simulation_library_entry_added(&mut self, _ctx: &AppCtx, req: ReqId, slug: &Slug) {
+        self.handle_simulation_library_entry_added(req, slug);
+    }
+
+    fn on_simulation_library_entry_saved(&mut self, _ctx: &AppCtx, req: ReqId, slug: &Slug) {
+        if let Err(anomaly) = self.handle_simulation_library_entry_saved(req, slug) {
+            error!("library save anomaly: {anomaly}");
+        }
+    }
+
+    fn on_simulation_library_op_failed(&mut self, _ctx: &AppCtx, req: ReqId) {
+        self.handle_simulation_library_op_failed(req);
+    }
+
+    fn on_simulation_library_entry_renamed(
+        &mut self,
+        _ctx: &AppCtx,
+        old_slug: &Slug,
+        new_slug: &Slug,
+    ) {
+        self.handle_simulation_library_entry_renamed(old_slug, new_slug);
     }
 
     fn on_simulation_library_changed(&mut self, ctx: &AppCtx) {
         let report = self.sync_library(&ctx.simulation_library_snapshot);
         if !report.updated_with_conflict.is_empty() {
-            warn!(
+            error!(
                 "simulation library: external changed for entries with unsaved edits: {:?}",
                 report.updated_with_conflict
             );
         }
     }
 
-    fn on_slots_enumerated(&mut self, _ctx: &AppCtx, req: ReqId, slots: &[CustomSetting]) {
-        if let Err(anomaly) = self.handle_slots_enumerated(req, slots) {
-            warn!("slot enumeration anomaly: {anomaly}");
+    fn on_simulation_slot_fetched(
+        &mut self,
+        _ctx: &AppCtx,
+        slot: CustomSetting,
+        base: &SimulationBase,
+    ) {
+        if let Err(anomaly) = self.handle_simulation_slot_fetched(slot, base) {
+            error!("slot fetched anomaly ({slot}): {anomaly}");
         }
     }
 
-    fn on_slots_enumeration_failed(&mut self, _ctx: &AppCtx, req: ReqId) {
-        if let Err(anomaly) = self.handle_slots_enumeration_failed(req) {
-            warn!("slot enumeration failed anomaly: {anomaly}");
-        }
-    }
-
-    fn on_slot_fetched(&mut self, _ctx: &AppCtx, slot: CustomSetting, base: &SimulationBase) {
-        if let Err(anomaly) = self.handle_slot_fetched(slot, base) {
-            warn!("slot fetched anomaly ({slot}): {anomaly}");
-        }
-    }
-
-    fn on_slot_fetch_failed(&mut self, _ctx: &AppCtx, slot: CustomSetting, error: &Arc<CoreError>) {
-        if let Err(anomaly) = self.handle_slot_fetch_failed(slot, Arc::clone(error)) {
-            warn!("slot fetch-failed anomaly ({slot}): {anomaly}");
+    fn on_simulation_slot_fetch_failed(
+        &mut self,
+        _ctx: &AppCtx,
+        slot: CustomSetting,
+        error: &Arc<CoreError>,
+    ) {
+        if let Err(anomaly) = self.handle_simulation_slot_fetch_failed(slot, Arc::clone(error)) {
+            error!("slot fetch-failed anomaly ({slot}): {anomaly}");
         }
     }
 
     fn on_backup_imported(&mut self, ctx: &AppCtx, req: ReqId) {
         debug!("{req}: backup imported; refetching simulation slots");
-        self.mark_stale();
+        self.invalidate();
         match self.request_fetch(ctx) {
             Ok(req) => debug!("{req}: slot refetch requested"),
             Err(reason) => debug!("slot refetch skipped: {reason}"),
         }
     }
 
-    fn on_key(&mut self, _ctx: &AppCtx, key: KeyEvent) {
-        self.handle_key(key);
+    fn on_key(&mut self, ctx: &AppCtx, key: KeyEvent) {
+        self.handle_key(ctx, key);
+    }
+
+    fn take_status(&mut self) -> Vec<StatusMessage> {
+        self.drain_status()
     }
 }

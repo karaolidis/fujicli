@@ -8,7 +8,7 @@ use crossbeam_channel::{Receiver, Sender, after, select};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use directories::ProjectDirs;
 use fujicore::CoreError;
-use log::{debug, info, warn};
+use log::{debug, error, info};
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Layout},
@@ -69,8 +69,6 @@ pub struct App {
     device_rx: Receiver<DeviceEvent>,
     device_tx: Sender<DeviceEvent>,
     fs_rx: Receiver<FsEvent>,
-    #[allow(dead_code)]
-    fs_tx: Sender<FsEvent>,
 }
 
 pub fn run(dirs: &ProjectDirs) -> anyhow::Result<()> {
@@ -101,7 +99,7 @@ impl App {
 
         let (modal, device): (Option<Box<dyn ModalHandler>>, _) = match candidates.len() {
             0 => {
-                warn!("no supported camera connected");
+                error!("no supported camera connected");
                 (Some(Box::new(FatalModal::no_device())), None)
             }
             1 => {
@@ -119,7 +117,7 @@ impl App {
             }
         };
 
-        let fs = FsHandle::spawn(simulation_dir, backup_dir, fs_tx.clone());
+        let fs = FsHandle::spawn(simulation_dir, backup_dir, fs_tx);
         let req = ReqIdGen::new();
 
         let sim_load_req = req.next();
@@ -151,7 +149,6 @@ impl App {
             device_rx,
             device_tx,
             fs_rx,
-            fs_tx,
         }
     }
 
@@ -165,6 +162,10 @@ impl App {
                 recv(self.device_rx) -> msg => self.handle_device_event(msg?),
                 recv(self.fs_rx)     -> msg => self.handle_fs_event(msg?),
                 recv(after(TICK))    -> _   => {}
+            }
+
+            for update in self.tabs.take_status() {
+                self.status.push(update);
             }
         }
         info!("exiting event loop");
@@ -284,38 +285,31 @@ impl App {
                 self.tabs.handle_device_disconnected(&self.ctx);
             }
             DeviceEvent::Error(error) => {
-                warn!("device error: {error}");
+                error!("device error: {error}");
                 self.status.push_error(error.to_string());
-            }
-            DeviceEvent::SlotsEnumerated { req, slots } => {
-                debug!("{req}: slots enumerated ({} slots)", slots.len());
-                self.tabs.handle_slots_enumerated(&self.ctx, req, &slots);
-            }
-            DeviceEvent::SlotsEnumerationFailed { req, error } => {
-                warn!("{req}: slot enumeration failed: {error}");
-                self.tabs.handle_slots_enumeration_failed(&self.ctx, req);
-                self.status
-                    .push_error(format!("Slot enumeration failed: {error}"));
             }
             DeviceEvent::SlotFetched { req, slot, base } => {
                 debug!("{req}: slot {slot} fetched");
-                self.tabs.handle_slot_fetched(&self.ctx, slot, &base);
+                self.tabs
+                    .handle_simulation_slot_fetched(&self.ctx, slot, &base);
             }
             DeviceEvent::SlotFetchFailed { req, slot, error } => {
-                warn!("{req}: fetch of {slot} failed: {error}");
+                error!("{req}: fetch of {slot} failed: {error}");
                 let error: Arc<CoreError> = error.into();
-                self.tabs.handle_slot_fetch_failed(&self.ctx, slot, &error);
+                self.tabs
+                    .handle_simulation_slot_fetch_failed(&self.ctx, slot, &error);
                 self.status
                     .push_error(format!("Fetch of {slot} failed: {error}"));
             }
             DeviceEvent::SlotChanged { req, slot } => {
                 info!("{req}: slot {slot} pushed");
-                self.tabs.handle_slot_changed(&self.ctx, slot);
+                self.tabs.handle_simulation_slot_changed(&self.ctx, slot);
             }
             DeviceEvent::SlotPushFailed { req, slot, error } => {
-                warn!("{req}: push to {slot} failed: {error}");
+                error!("{req}: push to {slot} failed: {error}");
                 let error: Arc<CoreError> = error.into();
-                self.tabs.handle_slot_push_failed(&self.ctx, slot, &error);
+                self.tabs
+                    .handle_simulation_slot_push_failed(&self.ctx, slot, &error);
                 self.status
                     .push_error(format!("Push to {slot} failed: {error}"));
             }
@@ -324,7 +318,7 @@ impl App {
                 self.tabs.handle_backup_exported(&self.ctx, req, &blob);
             }
             DeviceEvent::BackupExportFailed { req, error } => {
-                warn!("{req}: backup export failed: {error}");
+                error!("{req}: backup export failed: {error}");
                 let error: Arc<CoreError> = error.into();
                 self.tabs
                     .handle_backup_export_failed(&self.ctx, req, &error);
@@ -337,7 +331,7 @@ impl App {
                 self.status.push_info("Backup imported");
             }
             DeviceEvent::BackupImportFailed { req, error } => {
-                warn!("{req}: backup import failed: {error}");
+                error!("{req}: backup import failed: {error}");
                 let error: Arc<CoreError> = error.into();
                 self.tabs
                     .handle_backup_import_failed(&self.ctx, req, &error);
@@ -364,20 +358,21 @@ impl App {
                 slug,
                 entry,
                 snapshot,
-            } => self.handle_simulation_entry_added(req, slug, entry, snapshot),
+            } => self.handle_simulation_library_entry_added(req, slug, entry, snapshot),
             FsEvent::SimulationEntryUpdated {
                 req,
                 old_slug,
                 new_slug,
                 entry,
                 snapshot,
-            } => self.handle_simulation_entry_updated(req, old_slug, new_slug, entry, snapshot),
+            } => self
+                .handle_simulation_library_entry_updated(req, old_slug, new_slug, entry, snapshot),
             FsEvent::SimulationEntryRemoved {
                 req,
                 slug,
                 entry,
                 snapshot,
-            } => self.handle_simulation_entry_removed(req, slug, entry, snapshot),
+            } => self.handle_simulation_library_entry_removed(req, slug, entry, snapshot),
             FsEvent::SimulationLibraryOpFailed { req, error } => {
                 self.handle_simulation_library_op_failed(req, error);
             }
@@ -396,20 +391,20 @@ impl App {
                 slug,
                 entry,
                 snapshot,
-            } => self.handle_backup_entry_added(req, slug, entry, snapshot),
+            } => self.handle_backup_library_entry_added(req, slug, entry, snapshot),
             FsEvent::BackupEntryUpdated {
                 req,
                 old_slug,
                 new_slug,
                 entry,
                 snapshot,
-            } => self.handle_backup_entry_updated(req, old_slug, new_slug, entry, snapshot),
+            } => self.handle_backup_library_entry_updated(req, old_slug, new_slug, entry, snapshot),
             FsEvent::BackupEntryRemoved {
                 req,
                 slug,
                 entry,
                 snapshot,
-            } => self.handle_backup_entry_removed(req, slug, entry, snapshot),
+            } => self.handle_backup_library_entry_removed(req, slug, entry, snapshot),
             FsEvent::BackupBlobRead { req, slug, blob } => {
                 self.handle_backup_blob_read(req, slug, blob);
             }
@@ -447,7 +442,7 @@ impl App {
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn handle_simulation_entry_added(
+    fn handle_simulation_library_entry_added(
         &mut self,
         req: ReqId,
         slug: Slug,
@@ -455,11 +450,13 @@ impl App {
         snapshot: Arc<SimulationLibrarySnapshot>,
     ) {
         info!("{req}: simulation entry added: {slug}");
+        self.tabs
+            .handle_simulation_library_entry_added(&self.ctx, req, &slug);
         self.set_simulation_library(snapshot);
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn handle_simulation_entry_updated(
+    fn handle_simulation_library_entry_updated(
         &mut self,
         req: ReqId,
         old_slug: Slug,
@@ -468,15 +465,20 @@ impl App {
         snapshot: Arc<SimulationLibrarySnapshot>,
     ) {
         if old_slug == new_slug {
-            info!("{req}: simulation entry updated: {new_slug}");
+            info!("{req}: simulation entry saved: {new_slug}");
+            self.tabs
+                .handle_simulation_library_entry_saved(&self.ctx, req, &new_slug);
+            self.set_simulation_library(snapshot);
         } else {
             info!("{req}: simulation entry renamed: {old_slug} -> {new_slug}");
+            self.set_simulation_library(snapshot);
+            self.tabs
+                .handle_simulation_library_entry_renamed(&self.ctx, &old_slug, &new_slug);
         }
-        self.set_simulation_library(snapshot);
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn handle_simulation_entry_removed(
+    fn handle_simulation_library_entry_removed(
         &mut self,
         req: ReqId,
         slug: Slug,
@@ -498,7 +500,9 @@ impl App {
         req: ReqId,
         error: Box<SimulationLibraryError>,
     ) {
-        warn!("{req}: simulation library operation failed: {error}");
+        error!("{req}: simulation library operation failed: {error}");
+        self.tabs
+            .handle_simulation_library_op_failed(&self.ctx, req);
         self.status
             .push_error(format!("Simulation library operation failed: {error}"));
     }
@@ -530,7 +534,7 @@ impl App {
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn handle_backup_entry_added(
+    fn handle_backup_library_entry_added(
         &mut self,
         req: ReqId,
         slug: Slug,
@@ -538,12 +542,13 @@ impl App {
         snapshot: Arc<BackupLibrarySnapshot>,
     ) {
         info!("{req}: backup entry added: {slug}");
-        self.tabs.handle_backup_entry_added(&self.ctx, &slug);
+        self.tabs
+            .handle_backup_library_entry_added(&self.ctx, &slug);
         self.set_backup_library(snapshot);
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn handle_backup_entry_updated(
+    fn handle_backup_library_entry_updated(
         &mut self,
         req: ReqId,
         old_slug: Slug,
@@ -556,12 +561,13 @@ impl App {
         } else {
             info!("{req}: backup entry renamed: {old_slug} -> {new_slug}");
         }
-        self.tabs.handle_backup_entry_updated(&self.ctx, &new_slug);
+        self.tabs
+            .handle_backup_library_entry_updated(&self.ctx, &new_slug);
         self.set_backup_library(snapshot);
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn handle_backup_entry_removed(
+    fn handle_backup_library_entry_removed(
         &mut self,
         req: ReqId,
         slug: Slug,
@@ -581,7 +587,7 @@ impl App {
         if let Some(device) = self.ctx.device.as_ref() {
             device.send(DeviceCommand::ImportBackup { req, blob });
         } else {
-            warn!("{req}: backup blob read but no device connected");
+            error!("{req}: backup blob read but no device connected");
             self.tabs.handle_backup_library_op_failed(&self.ctx, req);
             self.status
                 .push_error("No camera connected to import backup");
@@ -595,7 +601,7 @@ impl App {
 
     #[allow(clippy::needless_pass_by_value)]
     fn handle_backup_library_op_failed(&mut self, req: ReqId, error: Box<BackupLibraryError>) {
-        warn!("{req}: backup library operation failed: {error}");
+        error!("{req}: backup library operation failed: {error}");
         self.tabs.handle_backup_library_op_failed(&self.ctx, req);
         self.status
             .push_error(format!("Backup library operation failed: {error}"));
@@ -603,7 +609,7 @@ impl App {
 
     #[allow(clippy::needless_pass_by_value)]
     fn handle_fs_error(&mut self, error: Box<FsError>) {
-        warn!("fs error: {error}");
+        error!("fs error: {error}");
         self.status.push_error(format!("Filesystem error: {error}"));
     }
 

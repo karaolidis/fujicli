@@ -56,9 +56,8 @@ Every leaf also carries `scope: "current" | "original"`, defaulting to
 available in render-block _rules_ (the camera-reported profile before the user's
 partial). Transformation `when` predicates are restricted to current scope.
 Assignments never carry scope; you cannot write to the original. See
-[rules / cross-state rules](rules.md#cross-state-rules) for an
-example and [analyses / scope](../internals/analyses.md#scope) for the per-pass
-behaviour.
+[rules / cross-state rules](rules.md#cross-state-rules) for an example and
+[analyses / scope](../internals/analyses.md#scope) for the per-pass behaviour.
 
 ### Type Discipline
 

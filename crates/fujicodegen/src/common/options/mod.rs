@@ -19,6 +19,12 @@ pub fn generate(options: &BTreeMap<String, FujiOption>) -> anyhow::Result<TokenS
     let mut blocks = Vec::with_capacity(options.len() * 2);
 
     for (id, opt) in options {
+        if opt.codegen.flaky {
+            println!(
+                "cargo:warning=option `{id}` is flaky: camera failures will be tolerated at runtime"
+            );
+        }
+
         let kind_block = match &opt.spec {
             OptionSpec::Enum {
                 rules,
