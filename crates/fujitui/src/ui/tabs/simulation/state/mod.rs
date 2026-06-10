@@ -18,9 +18,11 @@ use thiserror::Error;
 
 use crate::{
     ui::{
-        Keybind,
+        Keybind, danger, muted,
         tabs::{AppCtx, Shadowed},
-        widgets::{ConfirmOutcome, ConfirmState, StatusMessage, TextInputState},
+        widgets::{
+            ConfirmOutcome, ConfirmState, EditorOutcome, EditorState, StatusMessage, TextInputState,
+        },
     },
     workers::{
         ReqId,
@@ -36,7 +38,6 @@ use crate::{
 pub(super) type SimulationState = Shadowed<SimulationBase>;
 
 mod apply;
-mod editor;
 mod library;
 mod list;
 mod slots;
@@ -44,7 +45,6 @@ mod slots;
 pub(super) use crate::ui::widgets::CursorMove;
 
 use apply::{ApplyOutcome, ApplyState};
-use editor::{EditorOutcome, EditorState};
 use library::{SimulationLibrarySyncReport, SimulationLibraryView};
 use list::SimulationListPane;
 use slots::{FetchSkipError, SlotEntry, SlotError, Slots};
@@ -289,7 +289,7 @@ pub struct SimulationTabState {
     slots: Slots,
     library: SimulationLibraryView,
     list: SimulationListPane,
-    editors: BTreeMap<SimulationCursor, EditorState>,
+    editors: BTreeMap<SimulationCursor, EditorState<SimulationBase>>,
     focus: Pane,
     rename: Option<RenameState>,
     confirm: Option<PendingConfirm>,
@@ -323,12 +323,57 @@ impl SimulationTabState {
             );
             let selection = list.selection().clone();
             let target = EditorTarget::resolve(&selection, slots, library);
-            editors.entry(selection).or_default().draw(
-                frame,
-                editor_area,
-                *focus == Pane::Editor,
-                target,
-            );
+            let active = *focus == Pane::Editor;
+            match target {
+                EditorTarget::None => {
+                    EditorState::<SimulationBase>::draw_message(
+                        frame,
+                        editor_area,
+                        active,
+                        None,
+                        "(no entry selected)",
+                        muted(),
+                    );
+                }
+                EditorTarget::Loading { title } => {
+                    EditorState::<SimulationBase>::draw_message(
+                        frame,
+                        editor_area,
+                        active,
+                        Some(&title),
+                        "loading...",
+                        muted(),
+                    );
+                }
+                EditorTarget::Failed { title, error } => {
+                    EditorState::<SimulationBase>::draw_message(
+                        frame,
+                        editor_area,
+                        active,
+                        Some(&title),
+                        &format!("fetch failed: {error}"),
+                        danger(),
+                    );
+                }
+                EditorTarget::Ready {
+                    title,
+                    working,
+                    fetched,
+                    descriptors,
+                    dirty,
+                } => {
+                    editors.entry(selection).or_default().draw(
+                        frame,
+                        editor_area,
+                        active,
+                        &title,
+                        working,
+                        fetched,
+                        descriptors,
+                        dirty,
+                    );
+                }
+            }
         }
         if let Some(apply) = self.apply.as_mut() {
             apply.draw(frame, area);

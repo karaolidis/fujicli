@@ -1,4 +1,5 @@
 pub mod confirm;
+pub mod editor;
 pub mod filter;
 pub mod header;
 pub mod list;
@@ -9,6 +10,7 @@ pub mod status;
 pub mod text_input;
 
 pub use confirm::{ConfirmOutcome, ConfirmState};
+pub use editor::{EditorOutcome, EditorState};
 pub use filter::{FilterOutcome, FilterState};
 pub use header::Header;
 pub use list::{Cursor, CursorMove, ListPane};

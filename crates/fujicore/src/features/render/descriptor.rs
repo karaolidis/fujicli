@@ -1,5 +1,8 @@
 use crate::{
-    features::{descriptor::OptionDescriptor, simulation::SimulationError},
+    features::{
+        descriptor::{DescriptorTable, OptionDescriptor},
+        simulation::SimulationError,
+    },
     generated::{options::OptionCategory, renders::RenderBase},
 };
 
@@ -75,6 +78,22 @@ impl RenderDescriptors {
             }
         }
         shadow
+    }
+}
+
+impl DescriptorTable for RenderDescriptors {
+    type Base = RenderBase;
+
+    fn fields(&self) -> &'static [&'static OptionDescriptor<RenderBase>] {
+        self.fields
+    }
+
+    fn visible_fields(&self, canonical: &RenderBase) -> Vec<&'static OptionDescriptor<RenderBase>> {
+        Self::visible_fields(self, canonical)
+    }
+
+    fn validate_partial(&self, base: RenderBase) -> Option<RenderBase> {
+        (self.validate_partial)(base).ok()
     }
 }
 

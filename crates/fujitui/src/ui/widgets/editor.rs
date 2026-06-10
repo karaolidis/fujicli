@@ -2,13 +2,11 @@ use std::ptr;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fujicore::{
-    features::{
-        descriptor::{
-            Direction, EnumOps, Extreme, Magnitude, OptionDescriptor, OptionOps, SetOutcome,
-        },
-        simulation::SimulationDescriptors,
+    features::descriptor::{
+        DescriptorTable, Direction, EnumOps, Extreme, Magnitude, OptionDescriptor, OptionOps,
+        SetOutcome,
     },
-    generated::{options::OptionCategory, simulations::SimulationBase},
+    generated::options::OptionCategory,
 };
 use ratatui::{
     Frame,
@@ -20,14 +18,18 @@ use ratatui::{
 
 use crate::{
     border_title,
-    ui::{border_style, danger, muted, tabs::Buffer, widgets::Scrollbar},
+    ui::{
+        border_style, danger, muted,
+        tabs::{Buffer, Shadowed},
+        widgets::{CursorMove, Scrollbar, TextInputState},
+    },
 };
 
-use super::{CursorMove, DIRTY_MARKER, EditorTarget, INDENT, SimulationState, TextInputState};
-
 const FILTER_PROMPT: &str = "> ";
+const DIRTY_MARKER: &str = "*";
+const INDENT: &str = "  ";
 
-pub(super) enum EditorOutcome {
+pub enum EditorOutcome {
     Continue,
     ExitToList,
 }
@@ -40,20 +42,20 @@ enum EditorAction {
 }
 
 #[derive(Debug)]
-pub(super) struct InlineEdit {
-    pub descriptor: &'static OptionDescriptor<SimulationBase>,
+pub struct InlineEdit<B: 'static> {
+    pub descriptor: &'static OptionDescriptor<B>,
     pub status: InlineStatus,
     pub kind: InlineKind,
 }
 
 #[derive(Debug)]
-pub(super) enum InlineKind {
+pub enum InlineKind {
     TextInput(TextInputState),
     Picker(PickerState),
 }
 
 #[derive(Debug)]
-pub(super) struct PickerState {
+pub struct PickerState {
     pub filter: TextInputState,
     pub cursor_row: usize,
     pub rows: Vec<PickerRow>,
@@ -61,14 +63,14 @@ pub(super) struct PickerState {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct PickerRow {
+pub struct PickerRow {
     pub id: &'static str,
     pub label: &'static str,
     pub label_lower: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(super) enum InlineStatus {
+pub enum InlineStatus {
     #[default]
     Idle,
     Rejected,
@@ -186,12 +188,12 @@ impl PickerState {
         self.scroll = new_offset;
     }
 
-    fn compute_rows(
-        ops: &EnumOps<SimulationBase>,
-        canonical: &SimulationBase,
-        descriptors: &SimulationDescriptors,
+    fn compute_rows<B: Clone + 'static, D: DescriptorTable<Base = B>>(
+        ops: &EnumOps<B>,
+        canonical: &B,
+        descriptors: &D,
     ) -> Vec<PickerRow> {
-        let validator = descriptors.partial_validator();
+        let validator = |b: B| descriptors.validate_partial(b);
         ops.variants
             .iter()
             .filter_map(|variant| {
@@ -221,7 +223,7 @@ impl PickerState {
     }
 }
 
-impl InlineEdit {
+impl<B: 'static> InlineEdit<B> {
     fn handle_key(&mut self, key: KeyEvent) -> EditModeOutcome {
         let Self {
             descriptor: _,
@@ -308,42 +310,52 @@ impl InlineEdit {
     }
 }
 
-#[derive(Debug, Default)]
-pub(super) struct EditorState {
+#[derive(Debug)]
+pub struct EditorState<B: 'static> {
     field: usize,
     scroll: usize,
-    edit: Option<InlineEdit>,
+    edit: Option<InlineEdit<B>>,
 }
 
-impl EditorState {
+impl<B: 'static> Default for EditorState<B> {
+    fn default() -> Self {
+        Self {
+            field: 0,
+            scroll: 0,
+            edit: None,
+        }
+    }
+}
+
+impl<B: Clone + PartialEq + 'static> EditorState<B> {
     #[cfg(test)]
-    pub(super) const fn set_field(&mut self, field: usize) {
+    pub const fn set_field(&mut self, field: usize) {
         self.field = field;
     }
 
     #[cfg(test)]
-    const fn editing(&self) -> Option<&InlineEdit> {
+    const fn editing(&self) -> Option<&InlineEdit<B>> {
         self.edit.as_ref()
     }
 
-    pub(super) const fn is_editing(&self) -> bool {
+    pub const fn is_editing(&self) -> bool {
         self.edit.is_some()
     }
 
-    fn cursor(
+    fn cursor<D: DescriptorTable<Base = B>>(
         &self,
-        descriptors: &SimulationDescriptors,
-        canonical: &SimulationBase,
+        descriptors: &D,
+        canonical: &B,
     ) -> Option<usize> {
         let count = descriptors.visible_fields(canonical).len();
         (count > 0).then(|| self.field.min(count - 1))
     }
 
-    pub(super) fn handle_key(
+    pub fn handle_key<D: DescriptorTable<Base = B>>(
         &mut self,
         key: KeyEvent,
-        buffer: &mut Buffer<SimulationState>,
-        descriptors: &'static SimulationDescriptors,
+        buffer: &mut Buffer<Shadowed<B>>,
+        descriptors: &'static D,
     ) -> EditorOutcome {
         if self.edit.is_some() {
             self.handle_edit_key(key, buffer, descriptors);
@@ -398,11 +410,11 @@ impl EditorState {
         };
     }
 
-    fn focused_descriptor(
+    fn focused_descriptor<D: DescriptorTable<Base = B>>(
         &self,
-        descriptors: &SimulationDescriptors,
-        canonical: &SimulationBase,
-    ) -> Option<&'static OptionDescriptor<SimulationBase>> {
+        descriptors: &D,
+        canonical: &B,
+    ) -> Option<&'static OptionDescriptor<B>> {
         let visible = descriptors.visible_fields(canonical);
         if visible.is_empty() {
             return None;
@@ -410,17 +422,17 @@ impl EditorState {
         visible.get(self.field.min(visible.len() - 1)).copied()
     }
 
-    fn apply(
+    fn apply<D: DescriptorTable<Base = B>>(
         &self,
         action: EditorAction,
-        buffer: &mut Buffer<SimulationState>,
-        descriptors: &'static SimulationDescriptors,
+        buffer: &mut Buffer<Shadowed<B>>,
+        descriptors: &'static D,
     ) {
         let Some(desc) = self.focused_descriptor(descriptors, &buffer.working.canonical) else {
             return;
         };
         let outcome = {
-            let validator = descriptors.partial_validator();
+            let validator = |b: B| descriptors.validate_partial(b);
             let canonical = &mut buffer.working.canonical;
             match (&desc.ops, action) {
                 (OptionOps::Enum(ops), EditorAction::Bump(d)) => {
@@ -452,10 +464,10 @@ impl EditorState {
         }
     }
 
-    fn enter_edit(
+    fn enter_edit<D: DescriptorTable<Base = B>>(
         &mut self,
-        buffer: &Buffer<SimulationState>,
-        descriptors: &'static SimulationDescriptors,
+        buffer: &Buffer<Shadowed<B>>,
+        descriptors: &'static D,
     ) {
         let canonical = &buffer.working.canonical;
         let Some(desc) = self.focused_descriptor(descriptors, canonical) else {
@@ -491,11 +503,11 @@ impl EditorState {
         });
     }
 
-    fn handle_edit_key(
+    fn handle_edit_key<D: DescriptorTable<Base = B>>(
         &mut self,
         key: KeyEvent,
-        buffer: &mut Buffer<SimulationState>,
-        descriptors: &'static SimulationDescriptors,
+        buffer: &mut Buffer<Shadowed<B>>,
+        descriptors: &'static D,
     ) {
         let Some(edit) = self.edit.as_mut() else {
             return;
@@ -508,11 +520,11 @@ impl EditorState {
         }
     }
 
-    fn commit_text(
+    fn commit_text<D: DescriptorTable<Base = B>>(
         &mut self,
         text: &str,
-        buffer: &mut Buffer<SimulationState>,
-        descriptors: &'static SimulationDescriptors,
+        buffer: &mut Buffer<Shadowed<B>>,
+        descriptors: &'static D,
     ) {
         let Some(desc) = self.edit.as_ref().map(|e| e.descriptor) else {
             return;
@@ -521,7 +533,7 @@ impl EditorState {
             unreachable!("commit_text; descriptor.ops is OptionOps::String");
         };
         let outcome = {
-            let validator = descriptors.partial_validator();
+            let validator = |b: B| descriptors.validate_partial(b);
             (ops.set_by_text)(&mut buffer.working.canonical, text, &validator)
         };
         if matches!(outcome, SetOutcome::Set) {
@@ -530,11 +542,11 @@ impl EditorState {
         self.finish_commit(&outcome);
     }
 
-    fn commit_pick(
+    fn commit_pick<D: DescriptorTable<Base = B>>(
         &mut self,
         id: &'static str,
-        buffer: &mut Buffer<SimulationState>,
-        descriptors: &'static SimulationDescriptors,
+        buffer: &mut Buffer<Shadowed<B>>,
+        descriptors: &'static D,
     ) {
         let Some(desc) = self.edit.as_ref().map(|e| e.descriptor) else {
             return;
@@ -543,7 +555,7 @@ impl EditorState {
             unreachable!("commit_pick; descriptor.ops is OptionOps::Enum");
         };
         let outcome = {
-            let validator = descriptors.partial_validator();
+            let validator = |b: B| descriptors.validate_partial(b);
             (ops.set_by_id)(&mut buffer.working.canonical, id, &validator)
         };
         if matches!(outcome, SetOutcome::Set) {
@@ -563,67 +575,21 @@ impl EditorState {
         }
     }
 
-    pub(super) fn draw(
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw<D: DescriptorTable<Base = B>>(
         &mut self,
         frame: &mut Frame,
         area: Rect,
         active: bool,
-        target: EditorTarget<'_>,
+        title: &str,
+        working: &Shadowed<B>,
+        fetched: &B,
+        descriptors: &'static D,
+        dirty: bool,
     ) {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(border_style(active));
-        match target {
-            EditorTarget::None => {
-                Self::draw_centered_message(frame, area, block, "(no entry selected)", muted());
-            }
-            EditorTarget::Loading { title } => Self::draw_centered_message(
-                frame,
-                area,
-                block.title(border_title!(1, "{title}")),
-                "loading...",
-                muted(),
-            ),
-            EditorTarget::Failed { title, error } => Self::draw_centered_message(
-                frame,
-                area,
-                block.title(border_title!(1, "{title}")),
-                &format!("fetch failed: {error}"),
-                danger(),
-            ),
-            EditorTarget::Ready {
-                title,
-                working,
-                fetched,
-                descriptors,
-                dirty,
-            } => self.draw_fields(
-                frame,
-                area,
-                block,
-                &title,
-                working,
-                fetched,
-                descriptors,
-                dirty,
-                active,
-            ),
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn draw_fields(
-        &mut self,
-        frame: &mut Frame,
-        area: Rect,
-        block: Block<'_>,
-        title: &str,
-        working: &SimulationState,
-        fetched: &SimulationBase,
-        descriptors: &'static SimulationDescriptors,
-        dirty: bool,
-        active: bool,
-    ) {
         let cursor = if active {
             self.cursor(descriptors, &working.canonical)
         } else {
@@ -682,11 +648,11 @@ impl EditorState {
         }
     }
 
-    fn make_field_items(
+    fn make_field_items<D: DescriptorTable<Base = B>>(
         &self,
-        descriptors: &SimulationDescriptors,
-        canonical: &SimulationBase,
-        fetched: &SimulationBase,
+        descriptors: &D,
+        canonical: &B,
+        fetched: &B,
         cursor: Option<usize>,
         inner_width: u16,
     ) -> (Vec<ListItem<'static>>, Option<usize>) {
@@ -759,22 +725,22 @@ impl EditorState {
         (items, scroll_target)
     }
 
-    fn mirror_and_settle(
-        state: &mut SimulationState,
-        edited: &OptionDescriptor<SimulationBase>,
-        descriptors: &SimulationDescriptors,
+    fn mirror_and_settle<D: DescriptorTable<Base = B>>(
+        state: &mut Shadowed<B>,
+        edited: &OptionDescriptor<B>,
+        descriptors: &D,
     ) {
         (edited.copy_from)(&mut state.shadow, &state.canonical);
         Self::settle(state, descriptors, Some(edited));
     }
 
-    pub(super) fn settle(
-        state: &mut SimulationState,
-        descriptors: &SimulationDescriptors,
-        edited: Option<&OptionDescriptor<SimulationBase>>,
+    pub fn settle<D: DescriptorTable<Base = B>>(
+        state: &mut Shadowed<B>,
+        descriptors: &D,
+        edited: Option<&OptionDescriptor<B>>,
     ) {
-        let delta: Vec<&'static OptionDescriptor<SimulationBase>> = descriptors
-            .fields
+        let delta: Vec<&'static OptionDescriptor<B>> = descriptors
+            .fields()
             .iter()
             .copied()
             .filter(|d| !(d.eq)(&state.canonical, &state.shadow))
@@ -785,14 +751,13 @@ impl EditorState {
         }
 
         let pre_canonical = state.canonical.clone();
-        let preserves_edit =
-            |b: &SimulationBase| -> bool { edited.is_none_or(|e| (e.eq)(b, &pre_canonical)) };
+        let preserves_edit = |b: &B| -> bool { edited.is_none_or(|e| (e.eq)(b, &pre_canonical)) };
 
         let mut combined = state.canonical.clone();
         for d in &delta {
             (d.copy_from)(&mut combined, &state.shadow);
         }
-        if let Ok(v) = (descriptors.validate_partial)(combined)
+        if let Some(v) = descriptors.validate_partial(combined)
             && preserves_edit(&v)
         {
             state.canonical = v;
@@ -802,7 +767,7 @@ impl EditorState {
         for d in delta {
             let mut candidate = state.canonical.clone();
             (d.copy_from)(&mut candidate, &state.shadow);
-            if let Ok(v) = (descriptors.validate_partial)(candidate)
+            if let Some(v) = descriptors.validate_partial(candidate)
                 && preserves_edit(&v)
             {
                 state.canonical = v;
@@ -879,13 +844,20 @@ impl EditorState {
         ListItem::new(Line::from(spans))
     }
 
-    fn draw_centered_message(
+    pub fn draw_message(
         frame: &mut Frame,
         area: Rect,
-        block: Block<'_>,
+        active: bool,
+        title: Option<&str>,
         text: &str,
         color: Color,
     ) {
+        let mut block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(border_style(active));
+        if let Some(title) = title {
+            block = block.title(border_title!(1, "{title}"));
+        }
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let [centered] = Layout::vertical([Constraint::Length(1)])
@@ -906,14 +878,20 @@ impl EditorState {
 mod tests {
     use crossterm::event::{KeyEventKind, KeyEventState};
     use fujicore::{
-        features::descriptor::{BumpError, VariantInfo},
+        features::{
+            descriptor::{BumpError, VariantInfo},
+            simulation::SimulationDescriptors,
+        },
         generated::{
             cameras::C_X_S20_SIMULATION,
             options::{Clarity, CustomSettingName, FilmSimulation, MonochromaticColorTemperature},
+            simulations::SimulationBase,
         },
     };
 
     use super::*;
+
+    type SimulationState = Shadowed<SimulationBase>;
 
     const DESC: &SimulationDescriptors = &C_X_S20_SIMULATION;
 
@@ -925,7 +903,11 @@ mod tests {
         })
     }
 
-    fn focus(editor: &mut EditorState, buf: &Buffer<SimulationState>, name: &str) -> bool {
+    fn focus(
+        editor: &mut EditorState<SimulationBase>,
+        buf: &Buffer<SimulationState>,
+        name: &str,
+    ) -> bool {
         match DESC
             .visible_fields(&buf.working.canonical)
             .iter()
@@ -955,7 +937,7 @@ mod tests {
         }
     }
 
-    fn picker(editor: &EditorState) -> &PickerState {
+    fn picker(editor: &EditorState<SimulationBase>) -> &PickerState {
         match editor.editing() {
             Some(InlineEdit {
                 kind: InlineKind::Picker(picker),
@@ -965,7 +947,7 @@ mod tests {
         }
     }
 
-    fn text(editor: &EditorState) -> &TextInputState {
+    fn text(editor: &EditorState<SimulationBase>) -> &TextInputState {
         match editor.editing() {
             Some(InlineEdit {
                 kind: InlineKind::TextInput(text),
@@ -1393,7 +1375,7 @@ mod tests {
             },
         };
         let before = state.canonical.clone();
-        EditorState::settle(&mut state, DESC, None);
+        EditorState::<SimulationBase>::settle(&mut state, DESC, None);
         assert_eq!(state.canonical, before);
     }
 }

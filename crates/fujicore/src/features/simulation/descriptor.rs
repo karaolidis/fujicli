@@ -1,7 +1,10 @@
 use strum::IntoEnumIterator;
 
 use crate::{
-    features::{descriptor::OptionDescriptor, simulation::SimulationError},
+    features::{
+        descriptor::{DescriptorTable, OptionDescriptor},
+        simulation::SimulationError,
+    },
     generated::{
         options::{CustomSetting, OptionCategory},
         simulations::SimulationBase,
@@ -86,6 +89,25 @@ impl SimulationDescriptors {
             }
         }
         shadow
+    }
+}
+
+impl DescriptorTable for SimulationDescriptors {
+    type Base = SimulationBase;
+
+    fn fields(&self) -> &'static [&'static OptionDescriptor<SimulationBase>] {
+        self.fields
+    }
+
+    fn visible_fields(
+        &self,
+        canonical: &SimulationBase,
+    ) -> Vec<&'static OptionDescriptor<SimulationBase>> {
+        Self::visible_fields(self, canonical)
+    }
+
+    fn validate_partial(&self, base: SimulationBase) -> Option<SimulationBase> {
+        (self.validate_partial)(base).ok()
     }
 }
 
