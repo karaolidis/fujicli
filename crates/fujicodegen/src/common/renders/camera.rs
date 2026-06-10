@@ -17,7 +17,7 @@ use crate::{
         presence::PresenceDag,
         repair::generate_solve,
     },
-    snake_case_ident, upper_camel_case_ident,
+    snake_case_ident, upper_camel_case_ident, uppercase_ident,
     util::dag::Dag,
 };
 
@@ -125,7 +125,8 @@ fn generate_one(
         &optional_field_ids,
         &complete_ident,
     );
-    let inherent_impl = generate_inherent_impl(&complete_ident, profile_code);
+    let inherent_impl =
+        generate_inherent_impl(&settings, &render.fields, &complete_ident, profile_code);
     let from_complete_for_draft = generate_from_complete_for_draft(
         &settings,
         &render.fields,
@@ -139,6 +140,13 @@ fn generate_one(
         &optional_field_ids,
         &foreign_field_ids,
         &complete_ident,
+        &renders_path,
+    );
+    let from_draft_for_base = generate_from_draft_for_base(
+        &settings,
+        &render.fields,
+        &foreign_field_ids,
+        &draft_ident,
         &renders_path,
     );
     let try_from_draft_for_complete = generate_try_from_draft_for_complete(
@@ -189,6 +197,7 @@ fn generate_one(
         #inherent_impl
         #from_complete_for_draft
         #from_complete_for_base
+        #from_draft_for_base
         #try_from_draft_for_complete
         #try_from_base_for_draft
         #ptp_serialize
@@ -320,11 +329,29 @@ fn generate_complete_struct(
     }
 }
 
-fn generate_inherent_impl(complete_ident: &Ident, profile_code: u32) -> TokenStream {
+fn generate_inherent_impl(
+    settings: &BTreeMap<&str, SettingInfo<'_>>,
+    fields: &[Field],
+    complete_ident: &Ident,
+    profile_code: u32,
+) -> TokenStream {
     let profile_code_lit = Literal::u32_suffixed(profile_code);
+
+    let field_refs = fields.iter().filter_map(|f| {
+        let info = &settings[f.id()];
+        info.option.is_some().then(|| {
+            let const_ident = uppercase_ident!("RENDER_OPT_{}", f.id());
+            quote! { &crate::generated::descriptors::#const_ident }
+        })
+    });
+
     quote! {
         impl #complete_ident {
             pub const PROFILE_CODE: u32 = #profile_code_lit;
+
+            pub const FIELDS: &'static [&'static crate::features::descriptor::OptionDescriptor<
+                crate::generated::renders::RenderBase,
+            >] = &[ #( #field_refs ),* ];
         }
     }
 }
@@ -403,6 +430,37 @@ fn generate_from_complete_for_base(
     quote! {
         impl ::std::convert::From<&#complete_ident> for #renders_path::RenderBase {
             fn from(profile: &#complete_ident) -> Self {
+                Self {
+                    #( #inits )*
+                    #tail
+                }
+            }
+        }
+    }
+}
+
+fn generate_from_draft_for_base(
+    settings: &BTreeMap<&str, SettingInfo<'_>>,
+    fields: &[Field],
+    foreign_field_ids: &[&str],
+    draft_ident: &Ident,
+    renders_path: &TokenStream,
+) -> TokenStream {
+    let inits = fields.iter().map(|f| {
+        let info = &settings[f.id()];
+        let ident = info.field_ident();
+        let value = copy_field(info, &quote! { draft });
+        quote! { #ident: #value, }
+    });
+    let tail = if foreign_field_ids.is_empty() {
+        quote! {}
+    } else {
+        quote! { ..::std::default::Default::default() }
+    };
+
+    quote! {
+        impl ::std::convert::From<&#draft_ident> for #renders_path::RenderBase {
+            fn from(draft: &#draft_ident) -> Self {
                 Self {
                     #( #inits )*
                     #tail

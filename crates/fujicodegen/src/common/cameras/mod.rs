@@ -12,6 +12,10 @@ struct CameraNames {
     simulation_const: Ident,
     simulation_draft: Ident,
     simulation_complete: Ident,
+    render_mod: Ident,
+    render_const: Ident,
+    render_draft: Ident,
+    render_complete: Ident,
 }
 
 impl From<&Camera> for CameraNames {
@@ -23,6 +27,10 @@ impl From<&Camera> for CameraNames {
             simulation_const: uppercase_ident!("C_{}_SIMULATION", camera.id),
             simulation_draft: upper_camel_case_ident!("{}_simulation_draft", camera.id),
             simulation_complete: upper_camel_case_ident!("{}_simulation", camera.id),
+            render_mod: snake_case_ident!("{}", camera.id),
+            render_const: uppercase_ident!("C_{}_RENDER", camera.id),
+            render_draft: upper_camel_case_ident!("{}_render_profile_draft", camera.id),
+            render_complete: upper_camel_case_ident!("{}_render_profile", camera.id),
         }
     }
 }
@@ -83,6 +91,7 @@ fn generate_one(camera: &Camera, names: &CameraNames) -> anyhow::Result<TokenStr
 
     let base_impl = generate_base_impl(camera, names, &features)?;
     let simulation_const = generate_simulation_descriptors_const(names, &features);
+    let render_const = generate_render_descriptors_const(names, &features);
     let supported_const = generate_supported_camera_const(camera, names, &features);
 
     Ok(quote! {
@@ -90,6 +99,7 @@ fn generate_one(camera: &Camera, names: &CameraNames) -> anyhow::Result<TokenStr
 
         #base_impl
         #simulation_const
+        #render_const
         #supported_const
     })
 }
@@ -207,6 +217,12 @@ fn generate_supported_camera_const(
     } else {
         quote! { None }
     };
+    let render = if features.has_render {
+        let render_const = &names.render_const;
+        quote! { Some(&#render_const) }
+    } else {
+        quote! { None }
+    };
 
     quote! {
         pub const #const_name: crate::SupportedCamera = crate::SupportedCamera {
@@ -214,6 +230,7 @@ fn generate_supported_camera_const(
             usb_id: crate::UsbId { vendor: #vendor, product: #product },
             camera_factory: || Box::new(#struct_name),
             simulation: #simulation,
+            render: #render,
         };
     }
 }
@@ -260,6 +277,54 @@ fn generate_simulation_descriptors_const(
                     ::std::result::Result::Ok(
                         <crate::generated::simulations::SimulationBase as ::std::convert::From<
                             &crate::generated::simulations::#draft,
+                        >>::from(&draft),
+                    )
+                },
+            };
+    })
+}
+
+fn generate_render_descriptors_const(
+    names: &CameraNames,
+    features: &Features,
+) -> Option<TokenStream> {
+    if !features.has_render {
+        return None;
+    }
+
+    let const_name = &names.render_const;
+    let complete = &names.render_complete;
+    let draft = &names.render_draft;
+    let r#mod = &names.render_mod;
+
+    Some(quote! {
+        pub const #const_name: crate::features::render::RenderDescriptors =
+            crate::features::render::RenderDescriptors {
+                fields: <crate::generated::renders::#complete>::FIELDS,
+                validate: |base| {
+                    let draft = <crate::generated::renders::#draft as ::std::convert::TryFrom<
+                        crate::generated::renders::RenderBase,
+                    >>::try_from(base)?;
+                    let complete = <crate::generated::renders::#complete as ::std::convert::TryFrom<
+                        crate::generated::renders::#draft,
+                    >>::try_from(draft)?;
+                    ::std::result::Result::Ok(
+                        <crate::generated::renders::RenderBase as ::std::convert::From<
+                            &crate::generated::renders::#complete,
+                        >>::from(&complete),
+                    )
+                },
+                validate_partial: |base| {
+                    let mut draft = <crate::generated::renders::#draft as ::std::convert::TryFrom<
+                        crate::generated::renders::RenderBase,
+                    >>::try_from(base)?;
+                    crate::generated::renders::#r#mod::try_update_from(
+                        &mut draft,
+                        &<crate::generated::renders::#draft as ::std::default::Default>::default(),
+                    )?;
+                    ::std::result::Result::Ok(
+                        <crate::generated::renders::RenderBase as ::std::convert::From<
+                            &crate::generated::renders::#draft,
                         >>::from(&draft),
                     )
                 },

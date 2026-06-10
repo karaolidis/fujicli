@@ -95,6 +95,7 @@ pub const UNKNOWN_CAMERA: SupportedCamera = SupportedCamera {
     },
     camera_factory: || Box::new(UnknownCamera),
     simulation: None,
+    render: None,
 };
 
 impl CameraBase for UnknownCamera {

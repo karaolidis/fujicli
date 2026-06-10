@@ -2,9 +2,11 @@ use std::ptr;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use fujicore::{
-    features::simulation::{
-        Direction, EnumOps, Extreme, Magnitude, OptionDescriptor, OptionOps, SetOutcome,
-        SimulationDescriptors,
+    features::{
+        descriptor::{
+            Direction, EnumOps, Extreme, Magnitude, OptionDescriptor, OptionOps, SetOutcome,
+        },
+        simulation::SimulationDescriptors,
     },
     generated::{options::OptionCategory, simulations::SimulationBase},
 };
@@ -905,7 +907,7 @@ impl EditorState {
 mod tests {
     use crossterm::event::{KeyEventKind, KeyEventState};
     use fujicore::{
-        features::simulation::{BumpError, VariantInfo},
+        features::descriptor::{BumpError, VariantInfo},
         generated::{
             cameras::C_X_S20_SIMULATION,
             options::{Clarity, CustomSettingName, FilmSimulation, MonochromaticColorTemperature},
@@ -1034,14 +1036,14 @@ mod tests {
         fn cycle_unused(
             _: &mut SimulationBase,
             _: Direction,
-            _: &fujicore::features::simulation::Validator<'_, SimulationBase>,
+            _: &fujicore::features::descriptor::Validator<'_, SimulationBase>,
         ) -> Result<(), BumpError> {
             Err(BumpError::Exhausted)
         }
         fn rejects_b(
             _: &mut SimulationBase,
             id: &str,
-            _: &fujicore::features::simulation::Validator<'_, SimulationBase>,
+            _: &fujicore::features::descriptor::Validator<'_, SimulationBase>,
         ) -> SetOutcome {
             if id == "b" {
                 SetOutcome::Rejected

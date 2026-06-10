@@ -8,6 +8,7 @@ pub use error::{Capability, CoreError, CoreResult};
 
 use features::{
     base::{CameraBase, info::CameraInfo},
+    render::RenderDescriptors,
     simulation::{Simulation, SimulationDescriptors},
 };
 use log::{debug, error};
@@ -176,6 +177,7 @@ pub struct SupportedCamera {
     pub usb_id: UsbId,
     pub camera_factory: CameraFactory,
     pub simulation: Option<&'static SimulationDescriptors>,
+    pub render: Option<&'static RenderDescriptors>,
 }
 
 impl Camera {
@@ -243,6 +245,17 @@ impl Camera {
         let descriptors = self
             .simulation_descriptors()
             .ok_or(CoreError::Unsupported(Capability::SimulationManagement))?;
+        (descriptors.validate)(base).map_err(Into::into)
+    }
+
+    pub fn render_descriptors(&self) -> Option<&'static RenderDescriptors> {
+        self.r#impl.camera_definition().render
+    }
+
+    pub fn validate_render(&self, base: RenderBase) -> CoreResult<RenderBase> {
+        let descriptors = self
+            .render_descriptors()
+            .ok_or(CoreError::Unsupported(Capability::RenderManagement))?;
         (descriptors.validate)(base).map_err(Into::into)
     }
 
