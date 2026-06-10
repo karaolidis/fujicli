@@ -2,11 +2,12 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 use crate::{
-    ast::EnumRules, common::descriptors::common::generate_descriptor, snake_case_ident,
-    upper_camel_case_ident,
+    ast::EnumRules,
+    common::descriptors::{Target, common::generate_descriptor},
+    snake_case_ident, upper_camel_case_ident,
 };
 
-pub fn generate(id: &str, name: &str, rules: &EnumRules) -> TokenStream {
+pub fn generate(id: &str, name: &str, rules: &EnumRules, target: &Target) -> TokenStream {
     let type_ident = upper_camel_case_ident!("{}", id);
     let field_ident = snake_case_ident!("{}", id);
 
@@ -14,7 +15,7 @@ pub fn generate(id: &str, name: &str, rules: &EnumRules) -> TokenStream {
         let id = v.id.as_str();
         let name = v.name.as_str();
         quote! {
-            crate::features::simulation::VariantInfo { id: #id, name: #name }
+            crate::features::descriptor::VariantInfo { id: #id, name: #name }
         }
     });
     let variant_match_arms = rules.variants.iter().map(|v| {
@@ -26,13 +27,13 @@ pub fn generate(id: &str, name: &str, rules: &EnumRules) -> TokenStream {
     });
 
     let ops = quote! {
-        crate::features::simulation::OptionOps::Enum(
-            crate::features::simulation::EnumOps {
+        crate::features::descriptor::OptionOps::Enum(
+            crate::features::descriptor::EnumOps {
                 variants: &[#(#variant_entries),*],
                 cycle: |base, dir, validator| {
                     let ::std::option::Option::Some(current) = base.#field_ident else {
                         return ::std::result::Result::Err(
-                            crate::features::simulation::BumpError::Unset,
+                            crate::features::descriptor::BumpError::Unset,
                         );
                     };
                     let variants: ::std::vec::Vec<_> = <
@@ -45,8 +46,8 @@ pub fn generate(id: &str, name: &str, rules: &EnumRules) -> TokenStream {
                         .expect("current value is a variant");
                     for i in 1..n {
                         let idx = match dir {
-                            crate::features::simulation::Direction::Next => (start + i) % n,
-                            crate::features::simulation::Direction::Prev => (start + n - i) % n,
+                            crate::features::descriptor::Direction::Next => (start + i) % n,
+                            crate::features::descriptor::Direction::Prev => (start + n - i) % n,
                         };
                         let want = variants[idx];
                         let mut candidate = base.clone();
@@ -58,12 +59,12 @@ pub fn generate(id: &str, name: &str, rules: &EnumRules) -> TokenStream {
                             return ::std::result::Result::Ok(());
                         }
                     }
-                    ::std::result::Result::Err(crate::features::simulation::BumpError::Exhausted)
+                    ::std::result::Result::Err(crate::features::descriptor::BumpError::Exhausted)
                 },
                 set_by_id: |base, id, validator| {
                     let want = match id {
                         #( #variant_match_arms, )*
-                        _ => return crate::features::simulation::SetOutcome::Rejected,
+                        _ => return crate::features::descriptor::SetOutcome::Rejected,
                     };
                     let mut candidate = base.clone();
                     candidate.#field_ident = ::std::option::Option::Some(want);
@@ -71,9 +72,9 @@ pub fn generate(id: &str, name: &str, rules: &EnumRules) -> TokenStream {
                         && v.#field_ident == ::std::option::Option::Some(want)
                     {
                         *base = v;
-                        crate::features::simulation::SetOutcome::Set
+                        crate::features::descriptor::SetOutcome::Set
                     } else {
-                        crate::features::simulation::SetOutcome::Rejected
+                        crate::features::descriptor::SetOutcome::Rejected
                     }
                 },
                 set_default: |base| {
@@ -85,5 +86,5 @@ pub fn generate(id: &str, name: &str, rules: &EnumRules) -> TokenStream {
         )
     };
 
-    generate_descriptor(id, name, &ops, true)
+    generate_descriptor(id, name, &ops, true, target)
 }

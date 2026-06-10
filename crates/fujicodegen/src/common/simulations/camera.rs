@@ -362,7 +362,7 @@ fn generate_inherent_impl(
     };
 
     let field_refs = fields.iter().map(|s| {
-        let const_ident = uppercase_ident!("OPT_{}", s.id);
+        let const_ident = uppercase_ident!("SIMULATION_OPT_{}", s.id);
         quote! { &crate::generated::descriptors::#const_ident }
     });
 
@@ -370,7 +370,7 @@ fn generate_inherent_impl(
         impl #complete_ident {
             pub const SLOTS: u32 = #slots_lit;
 
-            pub const FIELDS: &'static [&'static crate::features::simulation::OptionDescriptor<
+            pub const FIELDS: &'static [&'static crate::features::descriptor::OptionDescriptor<
                 crate::generated::simulations::SimulationBase,
             >] = &[ #( #field_refs ),* ];
 

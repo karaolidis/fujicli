@@ -2,16 +2,17 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 use crate::{
-    common::descriptors::common::generate_descriptor, snake_case_ident, upper_camel_case_ident,
+    common::descriptors::{Target, common::generate_descriptor},
+    snake_case_ident, upper_camel_case_ident,
 };
 
-pub fn generate(id: &str, name: &str) -> TokenStream {
+pub fn generate(id: &str, name: &str, target: &Target) -> TokenStream {
     let type_ident = upper_camel_case_ident!("{}", id);
     let field_ident = snake_case_ident!("{}", id);
 
     let ops = quote! {
-        crate::features::simulation::OptionOps::Integer(
-            crate::features::simulation::IntegerOps {
+        crate::features::descriptor::OptionOps::Integer(
+            crate::features::descriptor::IntegerOps {
                 min:  crate::generated::options::#type_ident::MIN,
                 max:  crate::generated::options::#type_ident::MAX,
                 step: crate::generated::options::#type_ident::STEP,
@@ -19,18 +20,18 @@ pub fn generate(id: &str, name: &str) -> TokenStream {
                 step_fn: |base, dir, mag, validator| {
                     let ::std::option::Option::Some(cur) = base.#field_ident.map(i32::from) else {
                         return ::std::result::Result::Err(
-                            crate::features::simulation::BumpError::Unset,
+                            crate::features::descriptor::BumpError::Unset,
                         );
                     };
                     let stride = match mag {
-                        crate::features::simulation::Magnitude::Single =>
+                        crate::features::descriptor::Magnitude::Single =>
                             crate::generated::options::#type_ident::STEP,
-                        crate::features::simulation::Magnitude::Big =>
+                        crate::features::descriptor::Magnitude::Big =>
                             crate::generated::options::#type_ident::STEP * 10i32,
                     };
                     let signed = match dir {
-                        crate::features::simulation::Direction::Next => stride,
-                        crate::features::simulation::Direction::Prev => -stride,
+                        crate::features::descriptor::Direction::Next => stride,
+                        crate::features::descriptor::Direction::Prev => -stride,
                     };
                     let min = crate::generated::options::#type_ident::MIN;
                     let max = crate::generated::options::#type_ident::MAX;
@@ -41,13 +42,13 @@ pub fn generate(id: &str, name: &str) -> TokenStream {
                         let clamped = raw_target.clamp(min, max);
                         if clamped == cur {
                             return ::std::result::Result::Err(
-                                crate::features::simulation::BumpError::Exhausted,
+                                crate::features::descriptor::BumpError::Exhausted,
                             );
                         }
                         let inward = match dir {
-                            crate::features::simulation::Direction::Next =>
+                            crate::features::descriptor::Direction::Next =>
                                 -crate::generated::options::#type_ident::STEP,
-                            crate::features::simulation::Direction::Prev =>
+                            crate::features::descriptor::Direction::Prev =>
                                 crate::generated::options::#type_ident::STEP,
                         };
                         (clamped, inward)
@@ -67,15 +68,15 @@ pub fn generate(id: &str, name: &str) -> TokenStream {
                         }
                         try_val += walk_step;
                     }
-                    ::std::result::Result::Err(crate::features::simulation::BumpError::Exhausted)
+                    ::std::result::Result::Err(crate::features::descriptor::BumpError::Exhausted)
                 },
                 jump_fn: |base, ext, validator| {
                     let (mut try_val, signed) = match ext {
-                        crate::features::simulation::Extreme::Min => (
+                        crate::features::descriptor::Extreme::Min => (
                             crate::generated::options::#type_ident::MIN,
                             crate::generated::options::#type_ident::STEP,
                         ),
-                        crate::features::simulation::Extreme::Max => (
+                        crate::features::descriptor::Extreme::Max => (
                             crate::generated::options::#type_ident::MAX,
                             -crate::generated::options::#type_ident::STEP,
                         ),
@@ -98,7 +99,7 @@ pub fn generate(id: &str, name: &str) -> TokenStream {
                         }
                         try_val += signed;
                     }
-                    ::std::result::Result::Err(crate::features::simulation::BumpError::Exhausted)
+                    ::std::result::Result::Err(crate::features::descriptor::BumpError::Exhausted)
                 },
                 set_default: |base| {
                     base.#field_ident = ::std::option::Option::Some(
@@ -109,5 +110,5 @@ pub fn generate(id: &str, name: &str) -> TokenStream {
         )
     };
 
-    generate_descriptor(id, name, &ops, true)
+    generate_descriptor(id, name, &ops, true, target)
 }

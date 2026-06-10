@@ -102,8 +102,8 @@ mod tests {
             "C_X_T5_SIMULATION",
         );
         assert_eq!(
-            uppercase_ident!("OPT_{}", "film_simulation").to_string(),
-            "OPT_FILM_SIMULATION",
+            uppercase_ident!("SIMULATION_OPT_{}", "film_simulation").to_string(),
+            "SIMULATION_OPT_FILM_SIMULATION",
         );
     }
 

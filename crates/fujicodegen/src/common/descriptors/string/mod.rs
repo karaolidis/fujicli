@@ -2,11 +2,12 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 use crate::{
-    ast::StringRules, common::descriptors::common::generate_descriptor, snake_case_ident,
-    upper_camel_case_ident,
+    ast::StringRules,
+    common::descriptors::{Target, common::generate_descriptor},
+    snake_case_ident, upper_camel_case_ident,
 };
 
-pub fn generate(id: &str, name: &str, rules: Option<&StringRules>) -> TokenStream {
+pub fn generate(id: &str, name: &str, rules: Option<&StringRules>, target: &Target) -> TokenStream {
     let type_ident = upper_camel_case_ident!("{}", id);
     let field_ident = snake_case_ident!("{}", id);
 
@@ -19,8 +20,8 @@ pub fn generate(id: &str, name: &str, rules: Option<&StringRules>) -> TokenStrea
     };
 
     let ops = quote! {
-        crate::features::simulation::OptionOps::String(
-            crate::features::simulation::StringOps {
+        crate::features::descriptor::OptionOps::String(
+            crate::features::descriptor::StringOps {
                 max_len: #max_len,
                 set_by_text: |base, text, validator| {
                     let parsed = match <
@@ -28,7 +29,7 @@ pub fn generate(id: &str, name: &str, rules: Option<&StringRules>) -> TokenStrea
                     >::from_str(text) {
                         ::std::result::Result::Ok(v) => v,
                         ::std::result::Result::Err(e) =>
-                            return crate::features::simulation::SetOutcome::InvalidInput(e),
+                            return crate::features::descriptor::SetOutcome::InvalidInput(e),
                     };
                     let mut candidate = base.clone();
                     candidate.#field_ident = ::std::option::Option::Some(parsed);
@@ -37,9 +38,9 @@ pub fn generate(id: &str, name: &str, rules: Option<&StringRules>) -> TokenStrea
                         && v.#field_ident == want
                     {
                         *base = v;
-                        crate::features::simulation::SetOutcome::Set
+                        crate::features::descriptor::SetOutcome::Set
                     } else {
-                        crate::features::simulation::SetOutcome::Rejected
+                        crate::features::descriptor::SetOutcome::Rejected
                     }
                 },
                 set_default: |base| {
@@ -51,5 +52,5 @@ pub fn generate(id: &str, name: &str, rules: Option<&StringRules>) -> TokenStrea
         )
     };
 
-    generate_descriptor(id, name, &ops, false)
+    generate_descriptor(id, name, &ops, false, target)
 }

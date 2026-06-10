@@ -1,121 +1,12 @@
 use strum::IntoEnumIterator;
-use thiserror::Error;
 
 use crate::{
-    features::simulation::SimulationError,
+    features::{descriptor::OptionDescriptor, simulation::SimulationError},
     generated::{
         options::{CustomSetting, OptionCategory},
         simulations::SimulationBase,
     },
-    input::OptionError,
 };
-
-#[derive(Debug, Clone, Copy)]
-pub struct OptionDescriptor<B: 'static> {
-    pub name: &'static str,
-    pub category: Option<OptionCategory>,
-    pub display: fn(&B) -> Option<String>,
-    pub copy_from: fn(dst: &mut B, src: &B),
-    pub eq: fn(a: &B, b: &B) -> bool,
-    pub ops: OptionOps<B>,
-}
-
-impl<B: 'static> OptionDescriptor<B> {
-    pub fn set_default(&self, base: &mut B) {
-        match &self.ops {
-            OptionOps::Enum(ops) => (ops.set_default)(base),
-            OptionOps::Integer(ops) => (ops.set_default)(base),
-            OptionOps::Float(ops) => (ops.set_default)(base),
-            OptionOps::String(ops) => (ops.set_default)(base),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum OptionOps<B: 'static> {
-    Enum(EnumOps<B>),
-    Integer(IntegerOps<B>),
-    Float(FloatOps<B>),
-    String(StringOps<B>),
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct VariantInfo {
-    pub id: &'static str,
-    pub name: &'static str,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct EnumOps<B: 'static> {
-    pub variants: &'static [VariantInfo],
-    pub cycle: fn(&mut B, Direction, &Validator<'_, B>) -> Result<(), BumpError>,
-    pub set_by_id: fn(&mut B, &str, &Validator<'_, B>) -> SetOutcome,
-    pub set_default: fn(&mut B),
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct IntegerOps<B: 'static> {
-    pub min: i32,
-    pub max: i32,
-    pub step: i32,
-    pub jump: i32,
-    pub step_fn: fn(&mut B, Direction, Magnitude, &Validator<'_, B>) -> Result<(), BumpError>,
-    pub jump_fn: fn(&mut B, Extreme, &Validator<'_, B>) -> Result<(), BumpError>,
-    pub set_default: fn(&mut B),
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct FloatOps<B: 'static> {
-    pub min: f32,
-    pub max: f32,
-    pub step: f32,
-    pub jump: f32,
-    pub step_fn: fn(&mut B, Direction, Magnitude, &Validator<'_, B>) -> Result<(), BumpError>,
-    pub jump_fn: fn(&mut B, Extreme, &Validator<'_, B>) -> Result<(), BumpError>,
-    pub set_default: fn(&mut B),
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct StringOps<B: 'static> {
-    pub max_len: Option<usize>,
-    pub set_by_text: fn(&mut B, &str, &Validator<'_, B>) -> SetOutcome,
-    pub set_default: fn(&mut B),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Direction {
-    Prev,
-    Next,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Magnitude {
-    Single,
-    Big,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Extreme {
-    Min,
-    Max,
-}
-
-#[derive(Debug)]
-pub enum SetOutcome {
-    Set,
-    Rejected,
-    InvalidInput(OptionError),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-pub enum BumpError {
-    #[error("validator rejected every candidate in the requested direction")]
-    Exhausted,
-    #[error("field has no current value to bump from")]
-    Unset,
-}
-
-pub type Validator<'a, B> = dyn Fn(B) -> Option<B> + 'a;
 
 #[derive(Debug, Clone, Copy)]
 pub struct SimulationDescriptors {
@@ -158,7 +49,7 @@ impl SimulationDescriptors {
     }
 
     #[must_use]
-    pub fn new_canonical_default_simulation(&self) -> SimulationBase {
+    pub fn new_canonical_default(&self) -> SimulationBase {
         let mut canonical = SimulationBase::default();
         for desc in self.fields {
             let mut candidate = canonical.clone();
@@ -171,7 +62,7 @@ impl SimulationDescriptors {
     }
 
     #[must_use]
-    pub fn new_shadow_default_simulation(&self) -> SimulationBase {
+    pub fn new_shadow_default(&self) -> SimulationBase {
         let mut shadow = SimulationBase::default();
         for desc in self.fields {
             desc.set_default(&mut shadow);
@@ -201,9 +92,15 @@ impl SimulationDescriptors {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generated::options::{FilmSimulation, MonochromaticColorTemperature};
+    use crate::{
+        features::descriptor::{
+            BumpError, Direction, EnumOps, FloatOps, IntegerOps, Magnitude, OptionOps, SetOutcome,
+            VariantInfo,
+        },
+        generated::options::{FilmSimulation, MonochromaticColorTemperature},
+    };
 
-    const OPT_FILM_SIM: OptionDescriptor<SimulationBase> = OptionDescriptor {
+    const SIMULATION_OPT_FILM_SIM: OptionDescriptor<SimulationBase> = OptionDescriptor {
         name: "Film Simulation",
         category: None,
         display: |b| b.film_simulation.as_ref().map(ToString::to_string),
@@ -220,7 +117,7 @@ mod tests {
         }),
     };
 
-    const OPT_MONO_TEMP: OptionDescriptor<SimulationBase> = OptionDescriptor {
+    const SIMULATION_OPT_MONO_TEMP: OptionDescriptor<SimulationBase> = OptionDescriptor {
         name: "Monochromatic Color Temperature",
         category: None,
         display: |b| {
@@ -249,7 +146,7 @@ mod tests {
         validate_partial: fn(SimulationBase) -> Result<SimulationBase, SimulationError>,
     ) -> SimulationDescriptors {
         SimulationDescriptors {
-            fields: &[&OPT_FILM_SIM, &OPT_MONO_TEMP],
+            fields: &[&SIMULATION_OPT_FILM_SIM, &SIMULATION_OPT_MONO_TEMP],
             slots: 0,
             validate: |_| panic!("validate is unused by seeding"),
             validate_partial,
@@ -269,7 +166,7 @@ mod tests {
             }
         });
 
-        let canonical = desc.new_canonical_default_simulation();
+        let canonical = desc.new_canonical_default();
 
         assert_eq!(canonical.film_simulation, Some(FilmSimulation::Provia));
         assert_eq!(canonical.monochromatic_color_temperature, None);
@@ -321,7 +218,7 @@ mod tests {
     fn shadow_seeding_sets_every_default_unconditionally() {
         let desc = mock_descriptors(|_| panic!("shadow must not call validate_partial"));
 
-        let shadow = desc.new_shadow_default_simulation();
+        let shadow = desc.new_shadow_default();
 
         assert_eq!(shadow.film_simulation, Some(FilmSimulation::Provia));
         assert_eq!(
@@ -336,7 +233,7 @@ mod tests {
             let Some(descriptors) = cam.simulation else {
                 continue;
             };
-            let canonical = descriptors.new_canonical_default_simulation();
+            let canonical = descriptors.new_canonical_default();
             let result = (descriptors.validate)(canonical);
             assert!(result.is_ok());
         }
@@ -348,7 +245,7 @@ mod tests {
             let Some(descriptors) = cam.simulation else {
                 continue;
             };
-            let source = descriptors.new_shadow_default_simulation();
+            let source = descriptors.new_shadow_default();
             for desc in descriptors.fields {
                 if (desc.display)(&source).is_none() {
                     continue;
@@ -370,7 +267,7 @@ mod tests {
 
     #[test]
     fn set_by_id_reports_rejected_when_validator_strips_the_requested_field() {
-        let desc = crate::generated::descriptors::OPT_FILM_SIMULATION;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_FILM_SIMULATION;
         let stripping_validator = |mut b: SimulationBase| -> Option<SimulationBase> {
             b.film_simulation = None;
             Some(b)
@@ -383,7 +280,7 @@ mod tests {
 
     #[test]
     fn set_by_id_accepts_when_validator_preserves_the_requested_field() {
-        let desc = crate::generated::descriptors::OPT_FILM_SIMULATION;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_FILM_SIMULATION;
         let identity = |b: SimulationBase| Some(b);
         let mut base = SimulationBase::default();
         let outcome = (enum_ops(&desc).set_by_id)(&mut base, "velvia", &identity);
@@ -393,7 +290,7 @@ mod tests {
 
     #[test]
     fn set_by_id_rejects_unknown_id() {
-        let desc = crate::generated::descriptors::OPT_FILM_SIMULATION;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_FILM_SIMULATION;
         let identity = |b: SimulationBase| Some(b);
         let mut base = SimulationBase::default();
         let outcome = (enum_ops(&desc).set_by_id)(&mut base, "Velvia", &identity);
@@ -402,7 +299,7 @@ mod tests {
 
     #[test]
     fn cycle_skips_variants_that_repair_strips() {
-        let desc = crate::generated::descriptors::OPT_FILM_SIMULATION;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_FILM_SIMULATION;
         let strip_all = |mut b: SimulationBase| -> Option<SimulationBase> {
             b.film_simulation = None;
             Some(b)
@@ -418,7 +315,7 @@ mod tests {
 
     #[test]
     fn variants_carry_canonical_id_and_display_name() {
-        let desc = crate::generated::descriptors::OPT_FILM_SIMULATION;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_FILM_SIMULATION;
         let provia = enum_ops(&desc)
             .variants
             .iter()
@@ -453,7 +350,7 @@ mod tests {
     #[test]
     fn integer_scaled_big_step_clamps_to_max_on_overshoot() {
         use crate::generated::options::Clarity;
-        let desc = crate::generated::descriptors::OPT_CLARITY;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_CLARITY;
         let identity = |b: SimulationBase| Some(b);
         let mut base = SimulationBase {
             clarity: Some(Clarity::try_from(4).unwrap()),
@@ -468,7 +365,7 @@ mod tests {
     #[test]
     fn integer_scaled_big_step_clamps_to_min_on_undershoot() {
         use crate::generated::options::Clarity;
-        let desc = crate::generated::descriptors::OPT_CLARITY;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_CLARITY;
         let identity = |b: SimulationBase| Some(b);
         let mut base = SimulationBase {
             clarity: Some(Clarity::try_from(-4).unwrap()),
@@ -483,7 +380,7 @@ mod tests {
     #[test]
     fn integer_scaled_step_returns_exhausted_when_already_at_boundary() {
         use crate::generated::options::Clarity;
-        let desc = crate::generated::descriptors::OPT_CLARITY;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_CLARITY;
         let identity = |b: SimulationBase| Some(b);
         let mut base = SimulationBase {
             clarity: Some(Clarity::try_from(5).unwrap()),
@@ -504,7 +401,7 @@ mod tests {
     #[test]
     fn integer_scaled_inward_walk_skips_validator_rejected_boundary() {
         use crate::generated::options::Clarity;
-        let desc = crate::generated::descriptors::OPT_CLARITY;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_CLARITY;
         let reject_max = |b: SimulationBase| -> Option<SimulationBase> {
             if b.clarity == Some(Clarity::try_from(5).unwrap()) {
                 None
@@ -525,7 +422,7 @@ mod tests {
     #[test]
     fn integer_lookup_big_step_clamps_to_last_variant_on_overshoot() {
         use crate::generated::options::NoiseReduction;
-        let desc = crate::generated::descriptors::OPT_NOISE_REDUCTION;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_NOISE_REDUCTION;
         let identity = |b: SimulationBase| Some(b);
         let mut base = SimulationBase {
             noise_reduction: Some(NoiseReduction::Plus3),
@@ -540,7 +437,7 @@ mod tests {
     #[test]
     fn integer_lookup_big_step_clamps_to_first_variant_on_undershoot() {
         use crate::generated::options::NoiseReduction;
-        let desc = crate::generated::descriptors::OPT_NOISE_REDUCTION;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_NOISE_REDUCTION;
         let identity = |b: SimulationBase| Some(b);
         let mut base = SimulationBase {
             noise_reduction: Some(NoiseReduction::Minus3),
@@ -555,7 +452,7 @@ mod tests {
     #[test]
     fn integer_lookup_step_returns_exhausted_when_already_at_terminal_variant() {
         use crate::generated::options::NoiseReduction;
-        let desc = crate::generated::descriptors::OPT_NOISE_REDUCTION;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_NOISE_REDUCTION;
         let identity = |b: SimulationBase| Some(b);
         let mut base = SimulationBase {
             noise_reduction: Some(NoiseReduction::Plus4),
@@ -569,7 +466,7 @@ mod tests {
     #[test]
     fn float_scaled_big_step_clamps_to_max_on_overshoot() {
         use crate::generated::options::HighlightTone;
-        let desc = crate::generated::descriptors::OPT_HIGHLIGHT_TONE;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_HIGHLIGHT_TONE;
         let identity = |b: SimulationBase| Some(b);
         let mut base = SimulationBase {
             highlight_tone: Some(HighlightTone::try_from(3.5_f32).unwrap()),
@@ -587,7 +484,7 @@ mod tests {
     #[test]
     fn float_scaled_big_step_clamps_to_min_on_undershoot() {
         use crate::generated::options::HighlightTone;
-        let desc = crate::generated::descriptors::OPT_HIGHLIGHT_TONE;
+        let desc = crate::generated::descriptors::SIMULATION_OPT_HIGHLIGHT_TONE;
         let identity = |b: SimulationBase| Some(b);
         let mut base = SimulationBase {
             highlight_tone: Some(HighlightTone::try_from(-1.5_f32).unwrap()),
