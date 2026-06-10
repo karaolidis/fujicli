@@ -93,6 +93,11 @@ pub enum FsCommand {
         req: ReqId,
         slug: Slug,
     },
+    #[allow(dead_code)]
+    ReadImage {
+        req: ReqId,
+        path: PathBuf,
+    },
 }
 
 #[derive(Debug)]
@@ -168,6 +173,17 @@ pub enum FsEvent {
     BackupLibraryOpFailed {
         req: ReqId,
         error: Box<BackupLibraryError>,
+    },
+
+    ImageRead {
+        req: ReqId,
+        path: PathBuf,
+        image: Arc<[u8]>,
+    },
+    ImageReadFailed {
+        req: ReqId,
+        path: PathBuf,
+        error: Box<std::io::Error>,
     },
 
     Error(Box<FsError>),
@@ -342,6 +358,32 @@ impl FsWorker {
             } => self.handle_backup_rename(req, slug, new_name, event_tx),
             FsCommand::RemoveBackup { req, slug } => self.handle_backup_remove(req, slug, event_tx),
             FsCommand::ReadBackupBlob { req, slug } => self.handle_backup_read(req, slug, event_tx),
+            FsCommand::ReadImage { req, path } => Self::handle_read_image(req, path, event_tx),
+        }
+    }
+
+    fn handle_read_image(req: ReqId, path: PathBuf, event_tx: &Sender<FsEvent>) {
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                info!(
+                    "{req}: read image {} ({} bytes)",
+                    path.display(),
+                    bytes.len()
+                );
+                let _ = event_tx.send(FsEvent::ImageRead {
+                    req,
+                    path,
+                    image: Arc::from(bytes),
+                });
+            }
+            Err(e) => {
+                error!("{req}: read image {} failed: {e}", path.display());
+                let _ = event_tx.send(FsEvent::ImageReadFailed {
+                    req,
+                    path,
+                    error: Box::new(e),
+                });
+            }
         }
     }
 
@@ -566,6 +608,67 @@ impl FsWorker {
                     error: Box::new(e),
                 });
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crossbeam_channel::unbounded;
+
+    use super::*;
+    use crate::workers::ReqIdGen;
+
+    fn spawn_worker() -> (FsHandle, Receiver<FsEvent>, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (tx, rx) = unbounded();
+        let fs = FsHandle::spawn(
+            dir.path().join("simulations"),
+            dir.path().join("backups"),
+            tx,
+        );
+        (fs, rx, dir)
+    }
+
+    #[test]
+    fn read_image_returns_file_bytes() {
+        let (fs, rx, dir) = spawn_worker();
+        let path = dir.path().join("DSCF0001.RAF");
+        let payload = b"II*\x00 fake raf payload";
+        std::fs::write(&path, payload).expect("write fixture");
+
+        let req = ReqIdGen::new().next();
+        fs.send(FsCommand::ReadImage {
+            req,
+            path: path.clone(),
+        });
+
+        match rx.recv_timeout(Duration::from_secs(5)).expect("event") {
+            FsEvent::ImageRead {
+                req: got,
+                path: got_path,
+                image,
+            } => {
+                assert_eq!(got, req);
+                assert_eq!(got_path, path);
+                assert_eq!(&*image, &payload[..]);
+            }
+            other => panic!("expected ImageRead, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn read_image_missing_file_reports_failure() {
+        let (fs, rx, dir) = spawn_worker();
+        let req = ReqIdGen::new().next();
+        fs.send(FsCommand::ReadImage {
+            req,
+            path: dir.path().join("missing.RAF"),
+        });
+
+        match rx.recv_timeout(Duration::from_secs(5)).expect("event") {
+            FsEvent::ImageReadFailed { req: got, .. } => assert_eq!(got, req),
+            other => panic!("expected ImageReadFailed, got {other:?}"),
         }
     }
 }

@@ -13,7 +13,7 @@ use std::{
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use fujicore::{
     Camera, Capability, CoreError, UsbId,
-    generated::{options::CustomSetting, simulations::SimulationBase},
+    generated::{options::CustomSetting, renders::RenderBase, simulations::SimulationBase},
 };
 use log::{debug, error, info};
 use rusb::{Device, GlobalContext};
@@ -37,6 +37,13 @@ pub enum DeviceCommand {
         req: ReqId,
         slot: CustomSetting,
         base: SimulationBase,
+    },
+    #[allow(dead_code)]
+    Render {
+        req: ReqId,
+        image: Arc<[u8]>,
+        base: RenderBase,
+        draft: bool,
     },
     ExportBackup {
         req: ReqId,
@@ -79,6 +86,17 @@ pub enum DeviceEvent {
     SlotPushFailed {
         req: ReqId,
         slot: CustomSetting,
+        error: Box<CoreError>,
+    },
+    RenderStarted {
+        req: ReqId,
+    },
+    RenderDone {
+        req: ReqId,
+        jpeg: Vec<u8>,
+    },
+    RenderFailed {
+        req: ReqId,
         error: Box<CoreError>,
     },
     BackupExported {
@@ -204,6 +222,12 @@ impl DeviceWorker {
                         DeviceCommand::PushSlot { req, slot, base } => {
                             self.push_simulation_slot(req, slot, base, event_tx)
                         }
+                        DeviceCommand::Render {
+                            req,
+                            image,
+                            base,
+                            draft,
+                        } => self.render_image(req, &image, &base, draft, event_tx),
                         DeviceCommand::ExportBackup { req } => self.export_backup(req, event_tx),
                         DeviceCommand::ImportBackup { req, blob } => {
                             self.import_backup(req, &blob, event_tx)
@@ -326,6 +350,37 @@ impl DeviceWorker {
                 let _ = event_tx.send(DeviceEvent::SlotPushFailed {
                     req,
                     slot,
+                    error: Box::new(e),
+                });
+                ControlFlow::Continue(())
+            }
+        }
+    }
+
+    fn render_image(
+        &mut self,
+        req: ReqId,
+        image: &[u8],
+        base: &RenderBase,
+        draft: bool,
+        event_tx: &Sender<DeviceEvent>,
+    ) -> ControlFlow<()> {
+        let _ = event_tx.send(DeviceEvent::RenderStarted { req });
+        match self.camera.render(image, base, draft) {
+            Ok(jpeg) => {
+                info!("{req}: rendered image ({} bytes)", jpeg.len());
+                let _ = event_tx.send(DeviceEvent::RenderDone { req, jpeg });
+                ControlFlow::Continue(())
+            }
+            Err(e) if e.is_disconnect() => {
+                error!("{req}: camera disconnected during render: {e}");
+                let _ = event_tx.send(DeviceEvent::Disconnected);
+                ControlFlow::Break(())
+            }
+            Err(e) => {
+                error!("{req}: render failed: {e}");
+                let _ = event_tx.send(DeviceEvent::RenderFailed {
+                    req,
                     error: Box::new(e),
                 });
                 ControlFlow::Continue(())
