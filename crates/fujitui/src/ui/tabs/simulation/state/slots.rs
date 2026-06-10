@@ -38,48 +38,26 @@ impl SlotEntry {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(in crate::ui::tabs::simulation) enum SlotsState {
-    /// No fetch has been requested.
-    #[default]
-    Idle,
-    /// Waiting for the device to echo back the slot list.
-    Requested(ReqId),
-    /// Slot list received; awaiting per-slot data.
-    InFlight(ReqId),
-    /// All slots have resolved.
-    Loaded,
-    /// Device dropped; refetch is permitted once a device reappears.
-    Stale,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub(in crate::ui::tabs::simulation) enum FetchSkipError {
     #[error("no device connected")]
     NoDevice,
     #[error("connected camera has no simulation descriptors")]
     NoDescriptors,
-    #[error("a fetch is already requested")]
-    AlreadyRequested,
-    #[error("a fetch is already in flight")]
-    AlreadyInFlight,
-    #[error("slots already loaded")]
-    AlreadyLoaded,
+    #[error("slots already fetched or in flight")]
+    AlreadyFetched,
 }
 
 #[derive(Debug, Clone, Error)]
 pub(in crate::ui::tabs::simulation) enum SlotError {
-    #[error("slots enumeration arrived in state {state:?} with req {req} we didn't issue")]
-    UnexpectedEnumeration { state: SlotsState, req: ReqId },
     #[error("event arrived for unknown slot {0}")]
     UnknownSlot(CustomSetting),
-    #[error("per-slot event arrived while no fetch was in flight")]
-    NoFetchInFlight,
+    #[error("per-slot event arrived for slot {0} that wasn't awaiting data")]
+    UnexpectedData(CustomSetting),
 }
 
 #[derive(Debug, Default)]
 pub(super) struct Slots {
-    pub(super) state: SlotsState,
     pub(super) entries: Vec<(CustomSetting, SlotEntry)>,
     pub(super) descriptors: Option<&'static SimulationDescriptors>,
 }
@@ -91,46 +69,20 @@ impl Slots {
         camera: Option<&'static SupportedCamera>,
         req_gen: &ReqIdGen,
     ) -> Result<ReqId, FetchSkipError> {
-        match self.state {
-            SlotsState::Requested(_) => return Err(FetchSkipError::AlreadyRequested),
-            SlotsState::InFlight(_) => return Err(FetchSkipError::AlreadyInFlight),
-            SlotsState::Loaded => return Err(FetchSkipError::AlreadyLoaded),
-            SlotsState::Idle | SlotsState::Stale => {}
+        if !self.entries.is_empty() {
+            return Err(FetchSkipError::AlreadyFetched);
         }
         let device = device.ok_or(FetchSkipError::NoDevice)?;
         let descriptors = camera
             .and_then(|c| c.simulation)
             .ok_or(FetchSkipError::NoDescriptors)?;
+        let slots = descriptors.slots();
         let req = req_gen.next();
-        debug!("{req}: fetching all slots");
-        device.send(DeviceCommand::FetchAllSlots { req });
-        self.state = SlotsState::Requested(req);
+        debug!("{req}: fetching {} slots", slots.len());
         self.descriptors = Some(descriptors);
-        Ok(req)
-    }
-
-    pub fn handle_enumerated(
-        &mut self,
-        req: ReqId,
-        slots: &[CustomSetting],
-    ) -> Result<(), SlotError> {
-        match self.state {
-            SlotsState::Requested(r) if r == req => {}
-            state => return Err(SlotError::UnexpectedEnumeration { state, req }),
-        }
         self.entries = slots.iter().map(|s| (*s, SlotEntry::Loading)).collect();
-        self.state = SlotsState::InFlight(req);
-        Ok(())
-    }
-
-    pub fn handle_enumeration_failed(&mut self, req: ReqId) -> Result<(), SlotError> {
-        match self.state {
-            SlotsState::Requested(r) if r == req => {
-                self.state = SlotsState::Idle;
-                Ok(())
-            }
-            state => Err(SlotError::UnexpectedEnumeration { state, req }),
-        }
+        device.send(DeviceCommand::FetchSlots { req, slots });
+        Ok(req)
     }
 
     pub fn handle_fetched(
@@ -138,20 +90,8 @@ impl Slots {
         slot: CustomSetting,
         base: &SimulationBase,
     ) -> Result<(), SlotError> {
-        if !matches!(self.state, SlotsState::InFlight(_)) {
-            return Err(SlotError::NoFetchInFlight);
-        }
-        let shadow = self
-            .descriptors
-            .map_or_else(|| base.clone(), |d| d.new_shadow_from(base));
-        let state = SimulationState {
-            canonical: base.clone(),
-            shadow,
-        };
-        let buffer = Buffer::from(state);
-        self.replace(slot, SlotEntry::Loaded(buffer))?;
-        self.advance_if_all_resolved();
-        Ok(())
+        self.expect_awaiting(slot)?;
+        self.replace(slot, SlotEntry::Loaded(Buffer::from(self.state_from(base))))
     }
 
     pub fn handle_fetch_failed(
@@ -159,16 +99,20 @@ impl Slots {
         slot: CustomSetting,
         error: Arc<CoreError>,
     ) -> Result<(), SlotError> {
-        if !matches!(self.state, SlotsState::InFlight(_)) {
-            return Err(SlotError::NoFetchInFlight);
-        }
-        self.replace(slot, SlotEntry::Failed(error))?;
-        self.advance_if_all_resolved();
-        Ok(())
+        self.expect_awaiting(slot)?;
+        self.replace(slot, SlotEntry::Failed(error))
     }
 
-    pub const fn mark_stale(&mut self) {
-        self.state = SlotsState::Stale;
+    fn expect_awaiting(&self, slot: CustomSetting) -> Result<(), SlotError> {
+        match self.get(slot) {
+            Some(SlotEntry::Loading) => Ok(()),
+            Some(_) => Err(SlotError::UnexpectedData(slot)),
+            None => Err(SlotError::UnknownSlot(slot)),
+        }
+    }
+
+    pub fn invalidate(&mut self) {
+        self.entries.clear();
     }
 
     fn replace(&mut self, slot: CustomSetting, entry: SlotEntry) -> Result<(), SlotError> {
@@ -181,16 +125,28 @@ impl Slots {
         Ok(())
     }
 
-    fn advance_if_all_resolved(&mut self) {
-        if !matches!(self.state, SlotsState::InFlight(_)) {
-            return;
-        }
-        if self
-            .entries
-            .iter()
-            .all(|(_, e)| !matches!(e, SlotEntry::Loading))
-        {
-            self.state = SlotsState::Loaded;
+    pub(super) fn request_refetch(
+        &mut self,
+        slot: CustomSetting,
+        device: Option<&DeviceHandle>,
+        req_gen: &ReqIdGen,
+    ) -> Option<ReqId> {
+        let device = device?;
+        let entry = self.entries.iter_mut().find(|(s, _)| *s == slot)?;
+        let req = req_gen.next();
+        debug!("{req}: refetching slot {slot}");
+        entry.1 = SlotEntry::Loading;
+        device.send(DeviceCommand::FetchSlot { req, slot });
+        Some(req)
+    }
+
+    fn state_from(&self, base: &SimulationBase) -> SimulationState {
+        let shadow = self
+            .descriptors
+            .map_or_else(|| base.clone(), |d| d.new_shadow_from(base));
+        SimulationState {
+            canonical: base.clone(),
+            shadow,
         }
     }
 
@@ -225,8 +181,11 @@ impl<'a> IntoIterator for &'a Slots {
 mod tests {
     use super::*;
 
-    fn req() -> ReqId {
-        ReqIdGen::new().next()
+    fn loading(slots: &[CustomSetting]) -> Slots {
+        Slots {
+            entries: slots.iter().map(|s| (*s, SlotEntry::Loading)).collect(),
+            descriptors: None,
+        }
     }
 
     fn named(name: &str) -> SimulationBase {
@@ -244,22 +203,26 @@ mod tests {
     }
 
     #[test]
-    fn handle_slot_fetched_marks_loaded_when_all_resolve() {
-        let mut slots = Slots::default();
-        let r = req();
-        slots.state = SlotsState::Requested(r);
-        slots
-            .handle_enumerated(r, &[CustomSetting::C1, CustomSetting::C2])
-            .unwrap();
-        assert!(matches!(slots.state, SlotsState::InFlight(_)));
+    fn per_slot_data_resolves_loading_entries() {
+        let mut slots = loading(&[CustomSetting::C1, CustomSetting::C2]);
         slots
             .handle_fetched(CustomSetting::C1, &SimulationBase::default())
             .unwrap();
-        assert!(matches!(slots.state, SlotsState::InFlight(_)));
+        assert!(matches!(
+            slots.get(CustomSetting::C1),
+            Some(SlotEntry::Loaded(_))
+        ));
+        assert!(matches!(
+            slots.get(CustomSetting::C2),
+            Some(SlotEntry::Loading)
+        ));
         slots
             .handle_fetched(CustomSetting::C2, &SimulationBase::default())
             .unwrap();
-        assert_eq!(slots.state, SlotsState::Loaded);
+        assert!(matches!(
+            slots.get(CustomSetting::C2),
+            Some(SlotEntry::Loaded(_))
+        ));
     }
 
     #[test]
@@ -270,81 +233,45 @@ mod tests {
             slots.request_fetch(None, None, &req_gen),
             Err(FetchSkipError::NoDevice)
         );
-        assert_eq!(slots.state, SlotsState::Idle);
+        assert!(slots.entries.is_empty());
     }
 
     #[test]
-    fn request_fetch_blocks_after_loaded() {
-        let mut slots = Slots {
-            state: SlotsState::Loaded,
-            ..Default::default()
-        };
+    fn request_fetch_blocks_when_entries_present() {
+        let mut slots = loading(&[CustomSetting::C1]);
         let req_gen = ReqIdGen::new();
         assert_eq!(
             slots.request_fetch(None, None, &req_gen),
-            Err(FetchSkipError::AlreadyLoaded)
+            Err(FetchSkipError::AlreadyFetched)
         );
     }
 
     #[test]
-    fn mark_stale_unblocks_request() {
-        let mut slots = Slots {
-            state: SlotsState::Loaded,
-            ..Default::default()
-        };
-        slots.mark_stale();
-        assert_eq!(slots.state, SlotsState::Stale);
-        let req_gen = ReqIdGen::new();
-        assert_eq!(
-            slots.request_fetch(None, None, &req_gen),
-            Err(FetchSkipError::NoDevice)
-        );
-    }
-
-    #[test]
-    fn handle_slots_enumerated_rejects_mismatched_req() {
-        let mut slots = Slots::default();
-        let req_gen = ReqIdGen::new();
-        let issued = req_gen.next();
-        let other = req_gen.next();
-        slots.state = SlotsState::Requested(issued);
-        let err = slots
-            .handle_enumerated(other, &[CustomSetting::C1])
-            .unwrap_err();
-        assert!(matches!(err, SlotError::UnexpectedEnumeration { .. }));
-    }
-
-    #[test]
-    fn enumeration_failure_resets_to_idle_and_allows_refetch() {
-        let mut slots = Slots::default();
-        let issued = req();
-        slots.state = SlotsState::Requested(issued);
-        slots.handle_enumeration_failed(issued).unwrap();
-        assert_eq!(slots.state, SlotsState::Idle);
-    }
-
-    #[test]
-    fn enumeration_failure_rejects_mismatched_req() {
-        let mut slots = Slots::default();
-        let req_gen = ReqIdGen::new();
-        let issued = req_gen.next();
-        let other = req_gen.next();
-        slots.state = SlotsState::Requested(issued);
-        let err = slots.handle_enumeration_failed(other).unwrap_err();
-        assert!(matches!(err, SlotError::UnexpectedEnumeration { .. }));
-        assert_eq!(slots.state, SlotsState::Requested(issued));
+    fn invalidate_clears_entries() {
+        let mut slots = loading(&[CustomSetting::C1, CustomSetting::C2]);
+        slots.invalidate();
+        assert!(slots.entries.is_empty());
     }
 
     #[test]
     fn handle_slot_fetched_rejects_unknown_slot() {
-        let mut slots = Slots::default();
-        let r = req();
-        slots.state = SlotsState::Requested(r);
-        slots.handle_enumerated(r, &[CustomSetting::C1]).unwrap();
+        let mut slots = loading(&[CustomSetting::C1]);
         let err = slots
             .handle_fetched(CustomSetting::C2, &SimulationBase::default())
             .unwrap_err();
         assert!(matches!(err, SlotError::UnknownSlot(CustomSetting::C2)));
+    }
+
+    #[test]
+    fn handle_slot_fetched_rejects_entry_not_awaiting() {
+        let mut slots = loading(&[CustomSetting::C1]);
+        slots
+            .handle_fetched(CustomSetting::C1, &SimulationBase::default())
+            .unwrap();
+        let err = slots
+            .handle_fetched(CustomSetting::C1, &SimulationBase::default())
+            .unwrap_err();
+        assert!(matches!(err, SlotError::UnexpectedData(CustomSetting::C1)));
     }
 
     #[test]

@@ -2,7 +2,7 @@ use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState},
 };
@@ -11,7 +11,7 @@ use time::format_description::well_known::Rfc3339;
 use crate::{
     border_title,
     ui::{
-        border_style,
+        border_style, muted,
         tabs::AppCtx,
         widgets::{FilterOutcome, FilterState, Scrollbar},
     },
@@ -199,7 +199,7 @@ impl ListPane {
     fn make_placeholder(label: &str) -> ListItem<'static> {
         ListItem::new(Line::from(Span::styled(
             format!("{INDENT}{label}"),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(muted()),
         )))
     }
 
@@ -219,7 +219,7 @@ impl ListPane {
         if let Some(rename) = rename {
             let mut spans = vec![Span::raw(INDENT)];
             spans.extend(rename.text.cursor_spans(Style::default()));
-            spans.push(Span::styled(suffix, Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(suffix, Style::default().fg(muted())));
             ListItem::new(Line::from(spans))
         } else {
             let base_style = if selected {

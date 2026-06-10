@@ -1,8 +1,12 @@
+use strum::IntoEnumIterator;
 use thiserror::Error;
 
 use crate::{
     features::simulation::SimulationError,
-    generated::{options::OptionCategory, simulations::SimulationBase},
+    generated::{
+        options::{CustomSetting, OptionCategory},
+        simulations::SimulationBase,
+    },
     input::OptionError,
 };
 
@@ -116,11 +120,17 @@ pub type Validator<'a, B> = dyn Fn(B) -> Option<B> + 'a;
 #[derive(Debug, Clone, Copy)]
 pub struct SimulationDescriptors {
     pub fields: &'static [&'static OptionDescriptor<SimulationBase>],
+    pub slots: usize,
     pub validate: fn(SimulationBase) -> Result<SimulationBase, SimulationError>,
     pub validate_partial: fn(SimulationBase) -> Result<SimulationBase, SimulationError>,
 }
 
 impl SimulationDescriptors {
+    #[must_use]
+    pub fn slots(&self) -> Vec<CustomSetting> {
+        CustomSetting::iter().take(self.slots).collect()
+    }
+
     pub fn partial_validator(&self) -> impl Fn(SimulationBase) -> Option<SimulationBase> + '_ {
         move |b| (self.validate_partial)(b).ok()
     }
@@ -240,6 +250,7 @@ mod tests {
     ) -> SimulationDescriptors {
         SimulationDescriptors {
             fields: &[&OPT_FILM_SIM, &OPT_MONO_TEMP],
+            slots: 0,
             validate: |_| panic!("validate is unused by seeding"),
             validate_partial,
         }

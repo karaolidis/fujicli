@@ -112,6 +112,12 @@ enum ConfirmAction {
     Import(Slug),
 }
 
+impl ConfirmAction {
+    const fn targets_device(&self) -> bool {
+        matches!(self, Self::Import(_))
+    }
+}
+
 #[derive(Debug, Default)]
 struct PendingOps {
     export: Option<ReqId>,
@@ -208,20 +214,9 @@ impl BackupTabState {
                 });
                 self.rename = None;
             }
-            KeyCode::Backspace => {
-                rename.text.delete_before();
+            _ => {
+                rename.text.handle_edit_key(key);
             }
-            KeyCode::Delete => {
-                rename.text.delete_after();
-            }
-            KeyCode::Left => rename.text.move_left(),
-            KeyCode::Right => rename.text.move_right(),
-            KeyCode::Home => rename.text.move_home(),
-            KeyCode::End => rename.text.move_end(),
-            KeyCode::Char(c) if !c.is_control() => {
-                rename.text.insert(c);
-            }
-            _ => {}
         }
     }
 
@@ -391,6 +386,16 @@ impl BackupTabState {
         }
         if self.pending.export == Some(req) {
             self.pending.export = None;
+        }
+    }
+
+    pub(super) fn cancel_device_actions(&mut self) {
+        if self
+            .confirm
+            .as_ref()
+            .is_some_and(|c| c.action.targets_device())
+        {
+            self.confirm = None;
         }
     }
 

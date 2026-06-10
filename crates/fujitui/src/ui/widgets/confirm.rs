@@ -2,10 +2,12 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Flex, Layout, Rect},
-    style::{Color, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
+
+use crate::ui::{danger, success};
 
 #[derive(Debug, Clone)]
 pub struct ConfirmState {
@@ -48,9 +50,9 @@ impl ConfirmState {
         frame.render_widget(msg, msg_area);
         let hint = Paragraph::new(Line::from(vec![
             Span::raw("["),
-            Span::styled("y", Style::default().fg(Color::Green)),
+            Span::styled("y", Style::default().fg(success())),
             Span::raw("]es / ["),
-            Span::styled("n", Style::default().fg(Color::Red)),
+            Span::styled("n", Style::default().fg(danger())),
             Span::raw("]o"),
         ]))
         .alignment(Alignment::Center);

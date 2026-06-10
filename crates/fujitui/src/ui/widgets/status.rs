@@ -11,7 +11,11 @@ use ratatui::{
     widgets::Paragraph,
 };
 
-use crate::{tui::App, ui::widgets::SEPARATOR, workers::device::DeviceHandle};
+use crate::{
+    tui::App,
+    ui::{danger, muted, warning, widgets::SEPARATOR},
+    workers::device::DeviceHandle,
+};
 
 const INFO_TTL: Duration = Duration::from_secs(5);
 const ERROR_TTL: Duration = Duration::from_secs(10);
@@ -32,9 +36,17 @@ fn spinner_frame(frames: &[&'static str], elapsed: Duration) -> &'static str {
 
 const fn status_color(severity: Option<Severity>) -> Color {
     match severity {
-        Some(Severity::Error) => Color::Red,
+        Some(Severity::Error) => danger(),
         Some(Severity::Info) => Color::Reset,
-        None => Color::DarkGray,
+        None => muted(),
+    }
+}
+
+pub const fn battery_color(percent: u32) -> Color {
+    match percent {
+        0..=15 => danger(),
+        16..=30 => warning(),
+        _ => Color::Reset,
     }
 }
 
@@ -54,9 +66,25 @@ impl Severity {
 }
 
 #[derive(Debug, Clone)]
-struct StatusMessage {
-    text: String,
-    severity: Severity,
+pub struct StatusMessage {
+    pub severity: Severity,
+    pub text: String,
+}
+
+impl StatusMessage {
+    pub fn error(text: impl Into<String>) -> Self {
+        Self {
+            severity: Severity::Error,
+            text: text.into(),
+        }
+    }
+
+    pub fn info(text: impl Into<String>) -> Self {
+        Self {
+            severity: Severity::Info,
+            text: text.into(),
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -68,17 +96,18 @@ pub struct StatusQueue {
 
 impl StatusQueue {
     pub fn push_info(&mut self, text: impl Into<String>) {
-        self.infos.push_back(StatusMessage {
-            text: text.into(),
-            severity: Severity::Info,
-        });
+        self.infos.push_back(StatusMessage::info(text));
     }
 
     pub fn push_error(&mut self, text: impl Into<String>) {
-        self.errors.push_back(StatusMessage {
-            text: text.into(),
-            severity: Severity::Error,
-        });
+        self.errors.push_back(StatusMessage::error(text));
+    }
+
+    pub fn push(&mut self, message: StatusMessage) {
+        match message.severity {
+            Severity::Info => self.infos.push_back(message),
+            Severity::Error => self.errors.push_back(message),
+        }
     }
 
     fn head(&self) -> Option<&StatusMessage> {
@@ -124,7 +153,7 @@ impl Status {
         let severity = status.as_ref().map(|(severity, _)| *severity);
         let left = if device_busy {
             let color = match severity {
-                Some(Severity::Error) => Color::Red,
+                Some(Severity::Error) => danger(),
                 _ => Color::Reset,
             };
             Span::styled(
@@ -142,7 +171,10 @@ impl Status {
                 vec![
                     Span::raw(snap.name),
                     Span::raw(SEPARATOR),
-                    Span::raw(format!("{}%", snap.battery)),
+                    Span::styled(
+                        format!("{}%", snap.battery),
+                        Style::default().fg(battery_color(snap.battery)),
+                    ),
                 ]
             },
         );
@@ -150,7 +182,7 @@ impl Status {
         if let Some((severity, text)) = &status {
             spans.push(Span::raw(SEPARATOR));
             let style = match severity {
-                Severity::Error => Style::default().fg(Color::Red),
+                Severity::Error => Style::default().fg(danger()),
                 Severity::Info => Style::default(),
             };
             spans.push(Span::styled(text.clone(), style));
@@ -161,7 +193,7 @@ impl Status {
         let right = if fs_busy {
             Span::raw(spinner_frame(&FS_SPINNER, elapsed))
         } else {
-            Span::styled(FS_GLYPH, Style::default().fg(Color::DarkGray))
+            Span::styled(FS_GLYPH, Style::default().fg(muted()))
         };
         frame.render_widget(
             Paragraph::new(Line::from(right)).alignment(Alignment::Right),

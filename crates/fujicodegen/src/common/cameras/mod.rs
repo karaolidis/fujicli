@@ -235,6 +235,7 @@ fn generate_simulation_descriptors_const(
         pub const #const_name: crate::features::simulation::SimulationDescriptors =
             crate::features::simulation::SimulationDescriptors {
                 fields: <crate::generated::simulations::#complete>::FIELDS,
+                slots: <crate::generated::simulations::#complete>::SLOTS as usize,
                 validate: |base| {
                     let draft = <crate::generated::simulations::#draft as ::std::convert::TryFrom<
                         crate::generated::simulations::SimulationBase,
