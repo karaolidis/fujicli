@@ -108,3 +108,13 @@ pub enum BumpError {
 }
 
 pub type Validator<'a, B> = dyn Fn(B) -> Option<B> + 'a;
+
+pub trait DescriptorTable {
+    type Base: Clone + PartialEq + 'static;
+
+    fn fields(&self) -> &'static [&'static OptionDescriptor<Self::Base>];
+
+    fn visible_fields(&self, canonical: &Self::Base) -> Vec<&'static OptionDescriptor<Self::Base>>;
+
+    fn validate_partial(&self, base: Self::Base) -> Option<Self::Base>;
+}
