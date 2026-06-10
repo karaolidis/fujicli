@@ -18,7 +18,7 @@ fujicodegen = { path = "../fujicodegen" }
 [dependencies]
 byteorder = "1.5.0"
 clap = { version = "4.6.1", features = ["derive", "wrap_help"] }
-log = "0.4.30"
+log = "0.4.32"
 num_enum = "0.7.6"
 rusb = "0.9.4"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -29,6 +29,6 @@ ptp-cursor = { path = "../ptp-cursor" }
 strum = { version = "0.28.0", features = ["strum_macros"] }
 strum_macros = "0.28.0"
 erased-serde = "0.4.10"
-serde_with = "3.20.0"
+serde_with = "3.21.0"
 exiftool = "0.3.1"
 thiserror = "2.0.18"
