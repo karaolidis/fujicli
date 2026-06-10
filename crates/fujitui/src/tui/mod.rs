@@ -313,6 +313,16 @@ impl App {
                 self.status
                     .push_error(format!("Push to {slot} failed: {error}"));
             }
+            DeviceEvent::RenderStarted { req } => {
+                debug!("{req}: render started");
+            }
+            DeviceEvent::RenderDone { req, jpeg } => {
+                info!("{req}: render done ({} bytes)", jpeg.len());
+            }
+            DeviceEvent::RenderFailed { req, error } => {
+                error!("{req}: render failed: {error}");
+                self.status.push_error(format!("Render failed: {error}"));
+            }
             DeviceEvent::BackupExported { req, blob } => {
                 info!("{req}: backup exported ({} bytes)", blob.len());
                 self.tabs.handle_backup_exported(&self.ctx, req, &blob);
@@ -410,6 +420,18 @@ impl App {
             }
             FsEvent::BackupLibraryOpFailed { req, error } => {
                 self.handle_backup_library_op_failed(req, error);
+            }
+            FsEvent::ImageRead { req, path, image } => {
+                info!(
+                    "{req}: image read: {} ({} bytes)",
+                    path.display(),
+                    image.len()
+                );
+            }
+            FsEvent::ImageReadFailed { req, path, error } => {
+                error!("{req}: image read failed ({}): {error}", path.display());
+                self.status
+                    .push_error(format!("Failed to read image: {error}"));
             }
             FsEvent::Error(error) => self.handle_fs_error(error),
         }
