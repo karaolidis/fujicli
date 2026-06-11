@@ -501,7 +501,12 @@ mod tests {
     fn make_ctx(connected: Option<UsbId>, entries: Vec<(Slug, BackupLibraryEntry)>) -> AppCtx {
         let (tx, _rx) = unbounded();
         let dir = tempfile::tempdir().unwrap().keep();
-        let fs = FsHandle::spawn(dir.join("sim"), dir.join("backups"), tx);
+        let fs = FsHandle::spawn(
+            dir.join("sim"),
+            dir.join("backups"),
+            dir.join("renders"),
+            tx,
+        );
         AppCtx {
             device: None,
             fs,

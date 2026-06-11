@@ -1,6 +1,7 @@
 pub mod atomic;
 pub mod backup;
 mod library;
+pub mod render;
 pub mod simulation;
 pub mod slug;
 
@@ -16,7 +17,9 @@ use std::{
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use fujicore::UsbId;
+use image::DynamicImage;
 use log::{debug, error, info, warn};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::workers::{
@@ -24,6 +27,7 @@ use crate::workers::{
     fs::{
         backup::{BackupLibrary, BackupLibraryError, BackupLibrarySnapshot},
         library::LibraryError,
+        render::{RenderCache, RenderCacheKey, decode_image},
         simulation::{
             SimulationLibrary, SimulationLibraryEdit, SimulationLibraryError,
             SimulationLibrarySnapshot,
@@ -33,6 +37,7 @@ use crate::workers::{
 };
 
 const TICK: Duration = Duration::from_millis(100);
+const RENDER_CACHE_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 #[derive(Debug, Error)]
 pub enum FsError {
@@ -95,6 +100,15 @@ pub enum FsCommand {
     ReadImage {
         req: ReqId,
         path: PathBuf,
+    },
+    LoadCachedRender {
+        req: ReqId,
+        key: RenderCacheKey,
+    },
+    StoreCachedRender {
+        req: ReqId,
+        key: RenderCacheKey,
+        bytes: Vec<u8>,
     },
 }
 
@@ -171,11 +185,23 @@ pub enum FsEvent {
         req: ReqId,
         path: PathBuf,
         image: Arc<[u8]>,
+        sha256: [u8; 32],
     },
     ImageReadFailed {
         req: ReqId,
         path: PathBuf,
         error: Box<std::io::Error>,
+    },
+
+    RenderImageReady {
+        req: ReqId,
+        image: DynamicImage,
+    },
+    CachedRenderMiss {
+        req: ReqId,
+    },
+    RenderImageFailed {
+        req: ReqId,
     },
 
     Error(Box<FsError>),
@@ -184,7 +210,12 @@ pub enum FsEvent {
 pub type FsHandle = WorkerHandle<FsCommand>;
 
 impl WorkerHandle<FsCommand> {
-    pub fn spawn(simulation_dir: PathBuf, backup_dir: PathBuf, event_tx: Sender<FsEvent>) -> Self {
+    pub fn spawn(
+        simulation_dir: PathBuf,
+        backup_dir: PathBuf,
+        cache_dir: PathBuf,
+        event_tx: Sender<FsEvent>,
+    ) -> Self {
         let (command_tx, command_rx) = crossbeam_channel::unbounded();
         let inflight = Arc::new(AtomicUsize::new(0));
         let worker_inflight = Arc::clone(&inflight);
@@ -194,6 +225,7 @@ impl WorkerHandle<FsCommand> {
                 FsWorker::run(
                     simulation_dir,
                     backup_dir,
+                    cache_dir,
                     &command_rx,
                     &event_tx,
                     &worker_inflight,
@@ -207,12 +239,14 @@ impl WorkerHandle<FsCommand> {
 struct FsWorker {
     simulation: SimulationLibrary,
     backup: BackupLibrary,
+    render_cache: Option<RenderCache>,
 }
 
 impl FsWorker {
     fn run(
         simulation_dir: PathBuf,
         backup_dir: PathBuf,
+        cache_dir: PathBuf,
         command_rx: &Receiver<FsCommand>,
         event_tx: &Sender<FsEvent>,
         inflight: &AtomicUsize,
@@ -261,7 +295,18 @@ impl FsWorker {
                 return;
             }
         };
-        let mut worker = Self { simulation, backup };
+        let render_cache = match RenderCache::open(cache_dir, RENDER_CACHE_MAX_BYTES) {
+            Ok(cache) => Some(cache),
+            Err(e) => {
+                warn!("render cache disabled: {e}");
+                None
+            }
+        };
+        let mut worker = Self {
+            simulation,
+            backup,
+            render_cache,
+        };
         worker.event_loop(command_rx, event_tx, inflight);
     }
 
@@ -320,7 +365,60 @@ impl FsWorker {
             FsCommand::RemoveBackup { req, slug } => self.handle_backup_remove(req, slug, event_tx),
             FsCommand::ReadBackupBlob { req, slug } => self.handle_backup_read(req, slug, event_tx),
             FsCommand::ReadImage { req, path } => Self::handle_read_image(req, path, event_tx),
+            FsCommand::LoadCachedRender { req, key } => {
+                self.handle_load_cached_render(req, &key, event_tx);
+            }
+            FsCommand::StoreCachedRender { req, key, bytes } => {
+                self.handle_store_cached_render(req, &key, &bytes, event_tx);
+            }
         }
+    }
+
+    fn handle_load_cached_render(
+        &mut self,
+        req: ReqId,
+        key: &RenderCacheKey,
+        event_tx: &Sender<FsEvent>,
+    ) {
+        let hit = self.render_cache.as_mut().and_then(|cache| cache.get(key));
+        let Some(bytes) = hit else {
+            debug!("{req}: render cache miss");
+            let _ = event_tx.send(FsEvent::CachedRenderMiss { req });
+            return;
+        };
+        match decode_image(&bytes) {
+            Ok(image) => {
+                debug!("{req}: render cache hit");
+                let _ = event_tx.send(FsEvent::RenderImageReady { req, image });
+            }
+            Err(e) => {
+                error!("{req}: cached render failed to decode ({e}); re-rendering");
+                let _ = event_tx.send(FsEvent::CachedRenderMiss { req });
+            }
+        }
+    }
+
+    fn handle_store_cached_render(
+        &mut self,
+        req: ReqId,
+        key: &RenderCacheKey,
+        bytes: &[u8],
+        event_tx: &Sender<FsEvent>,
+    ) {
+        let image = match decode_image(bytes) {
+            Ok(image) => image,
+            Err(e) => {
+                error!("{req}: failed to decode rendered image: {e}");
+                let _ = event_tx.send(FsEvent::RenderImageFailed { req });
+                return;
+            }
+        };
+        if let Some(cache) = self.render_cache.as_mut()
+            && let Err(e) = cache.put(key, bytes)
+        {
+            warn!("{req}: failed to cache render: {e}");
+        }
+        let _ = event_tx.send(FsEvent::RenderImageReady { req, image });
     }
 
     fn handle_read_image(req: ReqId, path: PathBuf, event_tx: &Sender<FsEvent>) {
@@ -331,10 +429,12 @@ impl FsWorker {
                     path.display(),
                     bytes.len()
                 );
+                let sha256 = Sha256::digest(&bytes).into();
                 let _ = event_tx.send(FsEvent::ImageRead {
                     req,
                     path,
                     image: Arc::from(bytes),
+                    sha256,
                 });
             }
             Err(e) => {
@@ -572,6 +672,7 @@ mod tests {
         let fs = FsHandle::spawn(
             dir.path().join("simulations"),
             dir.path().join("backups"),
+            dir.path().join("renders"),
             tx,
         );
         (fs, rx, dir)
@@ -595,10 +696,13 @@ mod tests {
                 req: got,
                 path: got_path,
                 image,
+                sha256: got_sha,
             } => {
                 assert_eq!(got, req);
                 assert_eq!(got_path, path);
                 assert_eq!(&*image, &payload[..]);
+                let expected_sha: [u8; 32] = Sha256::digest(payload).into();
+                assert_eq!(got_sha, expected_sha);
             }
             other => panic!("expected ImageRead, got {other:?}"),
         }

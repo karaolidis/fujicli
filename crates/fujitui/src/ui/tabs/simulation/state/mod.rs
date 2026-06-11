@@ -1012,7 +1012,12 @@ mod tests {
         CTX.get_or_init(|| {
             let (tx, _rx) = unbounded();
             let dir = tempfile::tempdir().unwrap().keep();
-            let fs = FsHandle::spawn(dir.join("sim"), dir.join("backups"), tx);
+            let fs = FsHandle::spawn(
+                dir.join("sim"),
+                dir.join("backups"),
+                dir.join("renders"),
+                tx,
+            );
             AppCtx {
                 device: None,
                 fs,
@@ -1615,7 +1620,12 @@ mod tests {
     fn connected_ctx(usb: UsbId) -> AppCtx {
         let (tx, _rx) = unbounded();
         let dir = tempfile::tempdir().unwrap().keep();
-        let fs = FsHandle::spawn(dir.join("sim"), dir.join("backups"), tx);
+        let fs = FsHandle::spawn(
+            dir.join("sim"),
+            dir.join("backups"),
+            dir.join("renders"),
+            tx,
+        );
         AppCtx {
             device: None,
             fs,

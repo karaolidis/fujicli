@@ -27,7 +27,11 @@ use crate::{
         tabs::{AppCtx, Buffer, Shadowed, TabBehavior},
         widgets::EditorState,
     },
-    workers::{ReqId, device::DeviceCommand, fs::FsCommand},
+    workers::{
+        ReqId,
+        device::DeviceCommand,
+        fs::{FsCommand, render::RenderCacheKey},
+    },
 };
 
 const DRAFT: bool = true;
@@ -68,12 +72,14 @@ struct WorkingPane {
     editor: EditorState<RenderBase>,
     rendered: Option<ThreadProtocol>,
     in_flight: Option<ReqId>,
+    in_flight_cache_key: Option<RenderCacheKey>,
 }
 
 #[derive(Default)]
 pub struct RenderTabState {
     descriptors: Option<&'static RenderDescriptors>,
     image_path: Option<PathBuf>,
+    image_sha256: Option<[u8; 32]>,
     working: Option<WorkingPane>,
     explorer: Option<FileExplorer>,
     image_req: Option<ReqId>,
@@ -110,7 +116,17 @@ impl RenderTabState {
             editor: EditorState::default(),
             rendered: None,
             in_flight: None,
+            in_flight_cache_key: None,
         });
+    }
+
+    fn clear_in_flight(&mut self, req: ReqId) {
+        if let Some(working) = self.working.as_mut()
+            && working.in_flight == Some(req)
+        {
+            working.in_flight = None;
+            working.in_flight_cache_key = None;
+        }
     }
 
     fn is_editing(&self) -> bool {
@@ -130,7 +146,7 @@ impl RenderTabState {
     }
 
     fn request_render(&mut self, ctx: &AppCtx) {
-        let Some(device) = ctx.device.as_ref() else {
+        let Some(sha256) = self.image_sha256 else {
             return;
         };
         let Some(working) = self.working.as_mut() else {
@@ -139,11 +155,30 @@ impl RenderTabState {
         if working.in_flight.is_some() {
             return;
         }
+        let key = RenderCacheKey::compute(&sha256, &working.buffer.working.canonical, DRAFT);
         let req = ctx.req.next();
         working.in_flight = Some(req);
+        working.in_flight_cache_key = Some(key.clone());
+        ctx.fs.send(FsCommand::LoadCachedRender { req, key });
+    }
+
+    pub fn on_cached_render_miss(&mut self, ctx: &AppCtx, req: ReqId) {
+        let base = {
+            let Some(working) = self.working.as_ref() else {
+                return;
+            };
+            if working.in_flight != Some(req) {
+                return;
+            }
+            working.buffer.working.canonical.clone()
+        };
+        let Some(device) = ctx.device.as_ref() else {
+            self.clear_in_flight(req);
+            return;
+        };
         device.send(DeviceCommand::Render {
             req,
-            base: working.buffer.working.canonical.clone(),
+            base,
             draft: DRAFT,
         });
     }
@@ -258,7 +293,21 @@ impl RenderTabState {
         }
     }
 
-    pub fn on_render_done(&mut self, ctx: &AppCtx, req: ReqId, decoded: image::DynamicImage) {
+    pub fn on_render_done(&self, ctx: &AppCtx, req: ReqId, bytes: Vec<u8>) {
+        let Some(working) = self.working.as_ref() else {
+            return;
+        };
+        if working.in_flight != Some(req) {
+            return;
+        }
+        let Some(key) = working.in_flight_cache_key.clone() else {
+            return;
+        };
+        ctx.fs
+            .send(FsCommand::StoreCachedRender { req, key, bytes });
+    }
+
+    pub fn on_render_image_ready(&mut self, ctx: &AppCtx, req: ReqId, image: image::DynamicImage) {
         let Some(working) = self.working.as_mut() else {
             return;
         };
@@ -266,16 +315,13 @@ impl RenderTabState {
             return;
         }
         working.in_flight = None;
-        let protocol = ctx.image_picker.new_resize_protocol(decoded);
+        working.in_flight_cache_key = None;
+        let protocol = ctx.image_picker.new_resize_protocol(image);
         working.rendered = Some(ThreadProtocol::new(ctx.resize_tx.clone(), Some(protocol)));
     }
 
     pub fn on_render_failed(&mut self, req: ReqId) {
-        if let Some(working) = self.working.as_mut()
-            && working.in_flight == Some(req)
-        {
-            working.in_flight = None;
-        }
+        self.clear_in_flight(req);
     }
 
     fn explorer_theme() -> Theme {
@@ -354,11 +400,19 @@ impl TabBehavior for RenderTabState {
         self.descriptors = None;
         self.working = None;
         self.image_path = None;
+        self.image_sha256 = None;
         self.image_req = None;
         self.explorer = None;
     }
 
-    fn on_image_read(&mut self, ctx: &AppCtx, req: ReqId, path: &Path, image: &Arc<[u8]>) {
+    fn on_image_read(
+        &mut self,
+        ctx: &AppCtx,
+        req: ReqId,
+        path: &Path,
+        image: &Arc<[u8]>,
+        sha256: &[u8; 32],
+    ) {
         if self.image_req != Some(req) {
             return;
         }
@@ -369,6 +423,7 @@ impl TabBehavior for RenderTabState {
         let load_req = ctx.req.next();
         self.image_req = Some(load_req);
         self.image_path = Some(path.to_path_buf());
+        self.image_sha256 = Some(*sha256);
         device.send(DeviceCommand::LoadImage {
             req: load_req,
             image: Arc::clone(image),
@@ -387,6 +442,7 @@ impl TabBehavior for RenderTabState {
         }
         self.image_req = None;
         self.seed_working(ctx, profile);
+        self.request_render(ctx);
     }
 
     fn on_image_load_failed(&mut self, _ctx: &AppCtx, req: ReqId) {
@@ -434,7 +490,12 @@ mod tests {
             .expect("a render-capable camera exists");
         let (tx, _rx) = unbounded();
         let dir = tempfile::tempdir().unwrap().keep();
-        let fs = FsHandle::spawn(dir.join("simulations"), dir.join("backups"), tx);
+        let fs = FsHandle::spawn(
+            dir.join("simulations"),
+            dir.join("backups"),
+            dir.join("renders"),
+            tx,
+        );
         AppCtx {
             device: None,
             fs,
@@ -497,7 +558,7 @@ mod tests {
         load_profile(&mut tab, &ctx);
         let req = ctx.req.next();
         tab.working.as_mut().unwrap().in_flight = Some(req);
-        tab.on_render_done(&ctx, ctx.req.next(), image::DynamicImage::new_rgb8(1, 1));
+        tab.on_render_image_ready(&ctx, ctx.req.next(), image::DynamicImage::new_rgb8(1, 1));
         assert_eq!(tab.working.as_ref().unwrap().in_flight, Some(req));
     }
 
@@ -508,7 +569,7 @@ mod tests {
         load_profile(&mut tab, &ctx);
         let req = ctx.req.next();
         tab.working.as_mut().unwrap().in_flight = Some(req);
-        tab.on_render_done(&ctx, req, image::DynamicImage::new_rgb8(1, 1));
+        tab.on_render_image_ready(&ctx, req, image::DynamicImage::new_rgb8(1, 1));
         assert_eq!(tab.working.as_ref().unwrap().in_flight, None);
     }
 
