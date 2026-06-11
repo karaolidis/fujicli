@@ -101,10 +101,10 @@ reading/writing.
 ### `CameraRenderManager`
 
 [`features/render/manager.rs`](../../crates/fujicore/src/features/render/manager.rs)
-provides default `send_image` / `render_image` (uniform across cameras). Each
+provides default `send_image` / `render` (uniform across cameras). Each
 render-capable camera must override `render`, which the codegen does: send the
 image, fetch the current `<Camera>RenderProfile`, `try_update_from(partial)`,
-write back, then `render_image`.
+write back, then `render`.
 
 For the cross-state semantics that `try_update_from` enables, see
 [fml/rules / cross-state rules](../fml/rules.md#cross-state-rules).

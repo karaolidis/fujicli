@@ -301,7 +301,7 @@ pub struct SimulationTabState {
 impl SimulationTabState {
     pub(super) fn draw(&mut self, frame: &mut Frame, area: Rect) {
         let [list_area, editor_area] =
-            Layout::horizontal([Constraint::Percentage(30), Constraint::Percentage(70)])
+            Layout::horizontal([Constraint::Percentage(25), Constraint::Percentage(75)])
                 .areas(area);
         {
             let Self {
@@ -977,6 +977,7 @@ mod tests {
         UsbId,
         generated::{cameras::C_X_S20_SIMULATION, options::CustomSettingName},
     };
+    use ratatui_image::picker::Picker;
     use time::OffsetDateTime;
 
     use super::*;
@@ -1019,6 +1020,9 @@ mod tests {
                 device_snapshot: None,
                 simulation_library_snapshot: SimulationLibrarySnapshot::empty(),
                 backup_library_snapshot: BackupLibrarySnapshot::empty(),
+                image_picker: Picker::halfblocks(),
+                resize_tx: std::sync::mpsc::channel().0,
+                overlay: false,
             }
         })
     }
@@ -1625,6 +1629,9 @@ mod tests {
             }),
             simulation_library_snapshot: SimulationLibrarySnapshot::empty(),
             backup_library_snapshot: BackupLibrarySnapshot::empty(),
+            image_picker: Picker::halfblocks(),
+            resize_tx: std::sync::mpsc::channel().0,
+            overlay: false,
         }
     }
 

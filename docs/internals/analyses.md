@@ -12,7 +12,7 @@ Dnf = Vec<Conjunction<Leaf>>       (ast/dnf.rs)
   v
 NormalizedRule { when: Dnf, ... }  (schema/alias.rs)
   |
-  +-- PresenceDag::try_from_rules -- used to derive read order + gates  (schema/presence.rs)
+  +-- PresenceDag::from_rules     -- used to derive read order + gates  (schema/presence.rs)
   +-- generate_solve              -- used to emit `solve()` + repair    (schema/repair.rs)
   +-- generate_emit_warnings_...  -- used to emit log calls             (schema/grammar.rs)
   v
@@ -143,6 +143,45 @@ leaves. Trigger matching uses multiset-subset over `Leaf`, which includes scope
 in equality, so original-scope literals in a rule conjunction are inert under
 substitution.
 
+### Expansion Exemption
+
+Substitution rewrites a rule's _trigger_ (the user-facing alias value) into its
+_expansion_ (the wire fields). The dual problem is a rule that never names the
+alias but watches a field the expansion _writes_. `solve` runs on the decomposed
+candidate, so "dynamic range can only be set when priority is off"
+(`dynamic_range present && dynamic_range_priority != off`) fires on
+`hdr800_plus` whose expansion sets `dynamic_range_priority = plus`, even though
+the user engaged no priority.
+
+`exempt_alias_expansions` closes that gap. For every rule conjunction an alias
+expansion entails it AND-s in `not(expansion)`, re-normalizing back to DNF. The
+conjunction keeps firing for every other reason; it stops firing only on the
+exact decomposed alias. `dynamic_range present && drp != off` becomes:
+
+```
+   (dynamic_range present && drp != off && dynamic_range != hdr800)
+|| (dynamic_range present && drp != off && drp != plus)
+```
+
+so `hdr800` + `plus` (i.e. `hdr800_plus`) slips through, while `hdr800` +
+`strong` or `hdr400` + `plus` still fail.
+
+Entailment is per-leaf and conservative. An `Equals(v)` premise entails
+`Present`, `Equals`/`NotEquals`, `In`/`NotIn`, and the ordered comparisons when
+both sides are numeric. An ordered comparison whose operands aren't both numeric
+is left indeterminate: the exemption never over-fires, but since that can
+silently make the alias value unreachable, codegen emits a `cargo:warning`
+naming the rule and field. Scope is part of the match, so a current-scope
+expansion can never entail an original-scope leaf, which is exactly why a
+dynamic-range cap keyed on the shot value (`dynamic_range@original`) is left to
+fire normally. A conjunction that already _contains_ the whole expansion (a rule
+the author wrote about the alias value directly, surfaced by substitution) is
+also left alone; exempting it would erase the rule.
+
+The guard literals land on the wire fields, including the anchored one, which is
+why the [presence DAG](#the-presence-dag) treats an anchor-referencing gating
+clause as validation-only rather than an error.
+
 ## The Presence DAG
 
 [`schema/presence.rs`](../../crates/fujicodegen/src/schema/presence.rs) is the
@@ -166,8 +205,12 @@ For each error rule, for each conjunction in its DNF:
    - Else (only "other" literals) - this rule has no presence anchor, so it
      doesn't contribute to the DAG. It still validates.
 4. Collect `gating_refs` - every ref mentioned in the gating clauses.
-5. Reject self-gating: if any target ref appears in `gating_refs`, bail.
-   Deciding whether to read X would require knowing X's value.
+5. Drop self-gating disjuncts: if any target ref appears in `gating_refs`, the
+   disjunct can't inform a read - deciding whether to read X would require
+   already knowing X's value - so it contributes no edge or gate and stays
+   `solve`-only. The [expansion exemption](#expansion-exemption) is the usual
+   source: its `not(expansion)` guard lands a negated literal on the anchored
+   field.
 6. For each (gating_ref, target) pair, add an edge `gating_ref ->
    target`
    (target must be read after gating ref).

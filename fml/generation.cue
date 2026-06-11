@@ -82,6 +82,16 @@ generations: {
 						]
 					},
 					{
+						message: "Color does not apply to black and white simulations."
+						when: all: [
+							{ref: "color", present: true},
+							{
+								ref: "film_simulation"
+								in: ["monochrome", "monochrome_ye", "monochrome_r", "monochrome_g", "acros", "acros_ye", "acros_r", "acros_g"]
+							},
+						]
+					},
+					{
 						message: "White balance temperature is only meaningful in Temperature mode."
 						when: all: [
 							{ref: "white_balance_temperature", present: true},
@@ -92,6 +102,20 @@ generations: {
 						message: "Dynamic Range can only be set when Dynamic Range Priority is disabled."
 						when: all: [
 							{ref: "dynamic_range", present: true},
+							{not: {ref: "dynamic_range_priority", equals: "off"}},
+						]
+					},
+					{
+						message: "Highlight Tone can only be set when Dynamic Range Priority is disabled."
+						when: all: [
+							{ref: "highlight_tone", present: true},
+							{not: {ref: "dynamic_range_priority", equals: "off"}},
+						]
+					},
+					{
+						message: "Shadow Tone can only be set when Dynamic Range Priority is disabled."
+						when: all: [
+							{ref: "shadow_tone", present: true},
 							{not: {ref: "dynamic_range_priority", equals: "off"}},
 						]
 					},

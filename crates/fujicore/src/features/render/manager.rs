@@ -40,7 +40,11 @@ pub trait CameraRenderManager: CameraBase {
         Ok(())
     }
 
-    fn render_image(&self, ptp: &mut Ptp, draft: bool) -> CoreResult<Vec<u8>> {
+    fn read_profile(&self, ptp: &mut Ptp) -> CoreResult<RenderBase>;
+
+    fn apply_profile(&self, ptp: &mut Ptp, partial: &RenderBase) -> CoreResult<()>;
+
+    fn render(&self, ptp: &mut Ptp, draft: bool) -> CoreResult<Vec<u8>> {
         debug!("Starting image render");
         ptp.set_prop(DevicePropCode::FujiRawConversionRun, &u16::from(!draft))?;
 
@@ -67,12 +71,4 @@ pub trait CameraRenderManager: CameraBase {
 
         Ok(buf)
     }
-
-    fn render(
-        &self,
-        ptp: &mut Ptp,
-        image: &[u8],
-        partial: &RenderBase,
-        draft: bool,
-    ) -> CoreResult<Vec<u8>>;
 }

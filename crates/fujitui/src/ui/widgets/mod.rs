@@ -17,7 +17,7 @@ pub use list::{Cursor, CursorMove, ListPane};
 pub use loading::Loading;
 pub use scrollbar::Scrollbar;
 pub use selection::{SelectionOutcome, SelectionState};
-pub use status::{Status, StatusMessage, StatusQueue};
+pub use status::{SPINNER_INTERVAL, Status, StatusMessage, StatusQueue};
 pub use text_input::TextInputState;
 
 pub const SEPARATOR: &str = " · ";

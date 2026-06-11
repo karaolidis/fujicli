@@ -5,14 +5,15 @@ pub mod state;
 
 pub use state::{Buffer, Shadowed};
 
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use crossterm::event::KeyEvent;
 use fujicore::{
     Capability, CoreError,
-    generated::{options::CustomSetting, simulations::SimulationBase},
+    generated::{options::CustomSetting, renders::RenderBase, simulations::SimulationBase},
 };
 use ratatui::{Frame, layout::Rect};
+use ratatui_image::{picker::Picker, thread::ResizeRequest};
 
 use crate::{
     ui::{
@@ -38,6 +39,9 @@ pub struct AppCtx {
     pub device_snapshot: Option<DeviceSnapshot>,
     pub simulation_library_snapshot: Arc<SimulationLibrarySnapshot>,
     pub backup_library_snapshot: Arc<BackupLibrarySnapshot>,
+    pub image_picker: Picker,
+    pub resize_tx: std::sync::mpsc::Sender<ResizeRequest>,
+    pub overlay: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,6 +157,14 @@ pub trait TabBehavior {
 
     fn on_backup_library_op_failed(&mut self, ctx: &AppCtx, req: ReqId) {}
 
+    fn on_image_read(&mut self, ctx: &AppCtx, req: ReqId, path: &Path, image: &Arc<[u8]>) {}
+
+    fn on_image_read_failed(&mut self, ctx: &AppCtx, req: ReqId) {}
+
+    fn on_image_loaded(&mut self, ctx: &AppCtx, req: ReqId, profile: &RenderBase) {}
+
+    fn on_image_load_failed(&mut self, ctx: &AppCtx, req: ReqId) {}
+
     fn on_key(&mut self, ctx: &AppCtx, key: KeyEvent) {}
 
     fn take_status(&mut self) -> Vec<StatusMessage> {
@@ -160,21 +172,11 @@ pub trait TabBehavior {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Tabs {
     pub simulation: SimulationTabState,
     pub rendering: RenderTabState,
     pub backup: BackupTabState,
-}
-
-impl Default for Tabs {
-    fn default() -> Self {
-        Self {
-            simulation: SimulationTabState::default(),
-            rendering: RenderTabState,
-            backup: BackupTabState::default(),
-        }
-    }
 }
 
 impl Tabs {

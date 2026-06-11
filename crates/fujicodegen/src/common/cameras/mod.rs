@@ -322,6 +322,26 @@ fn generate_render_descriptors_const(
                         &mut draft,
                         &<crate::generated::renders::#draft as ::std::default::Default>::default(),
                     )?;
+                    crate::generated::renders::#r#mod::apply_inverses(&mut draft);
+                    ::std::result::Result::Ok(
+                        <crate::generated::renders::RenderBase as ::std::convert::From<
+                            &crate::generated::renders::#draft,
+                        >>::from(&draft),
+                    )
+                },
+                validate_partial_against: |base, original| {
+                    let mut draft = <crate::generated::renders::#draft as ::std::convert::TryFrom<
+                        crate::generated::renders::RenderBase,
+                    >>::try_from(base)?;
+                    let original = <crate::generated::renders::#draft as ::std::convert::TryFrom<
+                        crate::generated::renders::RenderBase,
+                    >>::try_from(::std::clone::Clone::clone(original))?;
+                    crate::generated::renders::#r#mod::try_update_from_against(
+                        &mut draft,
+                        &<crate::generated::renders::#draft as ::std::default::Default>::default(),
+                        &original,
+                    )?;
+                    crate::generated::renders::#r#mod::apply_inverses(&mut draft);
                     ::std::result::Result::Ok(
                         <crate::generated::renders::RenderBase as ::std::convert::From<
                             &crate::generated::renders::#draft,

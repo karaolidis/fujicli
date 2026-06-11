@@ -1,4 +1,10 @@
-use crate::ast::{Conjunction, Dnf, Leaf, Rule, Severity, Transformation};
+use std::cmp::Ordering;
+
+use serde_json::Value;
+
+use crate::ast::{
+    Conjunction, Dnf, Leaf, PredAll, PredNot, Predicate, Rule, Severity, Transformation,
+};
 
 #[derive(Clone, Debug)]
 pub struct NormalizedTransformation {
@@ -56,12 +62,174 @@ pub struct NormalizedRule {
 impl NormalizedRule {
     pub fn from_rule(rule: &Rule, aliases: &[NormalizedTransformation]) -> Self {
         let initial = Dnf::from(rule.when.clone());
-        let when = aliases.iter().fold(initial, Dnf::transform);
+        let substituted = aliases.iter().fold(initial, Dnf::transform);
+        let when = Self::exempt_alias_expansions(substituted, aliases, &rule.message);
         Self {
             severity: rule.severity,
             message: rule.message.clone(),
             when,
         }
+    }
+
+    fn exempt_alias_expansions(
+        dnf: Dnf,
+        aliases: &[NormalizedTransformation],
+        message: &str,
+    ) -> Dnf {
+        let mut out: Vec<Conjunction> = Vec::new();
+        for conjunction in dnf {
+            let mut guards: Vec<&Conjunction> = Vec::new();
+            for alias in aliases {
+                let expansion = &alias.expansion;
+                if conjunction.contains_all(expansion) {
+                    continue;
+                }
+                let view = Expansion(expansion);
+                match view.entails(&conjunction) {
+                    Entailment::Proven => guards.push(expansion),
+                    Entailment::Unknown => {
+                        let fields: Vec<&str> = conjunction
+                            .iter()
+                            .filter(|conclusion| {
+                                view.entails_leaf(conclusion) == Entailment::Unknown
+                            })
+                            .map(Leaf::r#ref)
+                            .collect();
+                        println!(
+                            "cargo:warning=alias-expansion exemption for rule {message:?} is indeterminate: \
+                            a non-numeric ordered comparison on {fields:?} could not be resolved, so the decomposed \
+                            alias value may be silently rejected at runtime. Compare against discrete values \
+                            (e.g. a `lookup` encoding) or carve the alias out of the rule explicitly."
+                        );
+                    }
+                    Entailment::Denied => {}
+                }
+            }
+
+            if guards.is_empty() {
+                out.push(conjunction);
+                continue;
+            }
+
+            let mut all: Vec<Predicate> =
+                conjunction.iter().cloned().map(Predicate::from).collect();
+            for expansion in guards {
+                let expansion_pred = PredAll {
+                    all: expansion.iter().cloned().map(Predicate::from).collect(),
+                };
+                all.push(
+                    PredNot {
+                        not: Box::new(expansion_pred.into()),
+                    }
+                    .into(),
+                );
+            }
+            out.extend(Dnf::from(Predicate::from(PredAll { all })));
+        }
+        Dnf(out)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Entailment {
+    Proven,
+    Denied,
+    Unknown,
+}
+
+impl Entailment {
+    const fn from_bool(holds: bool) -> Self {
+        if holds { Self::Proven } else { Self::Denied }
+    }
+
+    fn from_option<T>(resolved: Option<T>, holds: impl Fn(T) -> bool) -> Self {
+        resolved.map_or(Self::Unknown, |value| Self::from_bool(holds(value)))
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Expansion<'a>(&'a Conjunction);
+
+impl Expansion<'_> {
+    fn entails(self, conjunction: &Conjunction) -> Entailment {
+        let mut verdict = Entailment::Proven;
+        for conclusion in conjunction {
+            match self.entails_leaf(conclusion) {
+                Entailment::Denied => return Entailment::Denied,
+                Entailment::Unknown => verdict = Entailment::Unknown,
+                Entailment::Proven => {}
+            }
+        }
+        verdict
+    }
+
+    fn entails_leaf(self, conclusion: &Leaf) -> Entailment {
+        let mut verdict = Entailment::Denied;
+        for premise in self.0 {
+            let leaf = if premise.r#ref() != conclusion.r#ref()
+                || premise.scope() != conclusion.scope()
+            {
+                Entailment::Denied
+            } else {
+                match premise {
+                    Leaf::Equals(equals) => {
+                        let value: &Value = &equals.equals;
+                        let cmp = |target: &Value| value.as_f64()?.partial_cmp(&target.as_f64()?);
+                        let between = |lo: &Value, hi: &Value| {
+                            let value = value.as_f64()?;
+                            Some(lo.as_f64()? <= value && value <= hi.as_f64()?)
+                        };
+                        match conclusion {
+                            Leaf::Present(p) => Entailment::from_bool(p.present),
+                            Leaf::Equals(l) => Entailment::from_bool(&l.equals == value),
+                            Leaf::NotEquals(l) => Entailment::from_bool(&l.equals != value),
+                            Leaf::In(l) => Entailment::from_bool(l.values.contains(value)),
+                            Leaf::NotIn(l) => Entailment::from_bool(!l.values.contains(value)),
+                            Leaf::Between(l) => {
+                                Entailment::from_option(between(&l.min, &l.max), |b| b)
+                            }
+                            Leaf::NotBetween(l) => {
+                                Entailment::from_option(between(&l.min, &l.max), |b| !b)
+                            }
+                            Leaf::LessThan(l) => {
+                                Entailment::from_option(cmp(&l.lt), |o| o == Ordering::Less)
+                            }
+                            Leaf::NotLessThan(l) => {
+                                Entailment::from_option(cmp(&l.lt), |o| o != Ordering::Less)
+                            }
+                            Leaf::LessThanOrEqual(l) => {
+                                Entailment::from_option(cmp(&l.lte), |o| o != Ordering::Greater)
+                            }
+                            Leaf::NotLessThanOrEqual(l) => {
+                                Entailment::from_option(cmp(&l.lte), |o| o == Ordering::Greater)
+                            }
+                            Leaf::GreaterThan(l) => {
+                                Entailment::from_option(cmp(&l.gt), |o| o == Ordering::Greater)
+                            }
+                            Leaf::NotGreaterThan(l) => {
+                                Entailment::from_option(cmp(&l.gt), |o| o != Ordering::Greater)
+                            }
+                            Leaf::GreaterThanOrEqual(l) => {
+                                Entailment::from_option(cmp(&l.gte), |o| o != Ordering::Less)
+                            }
+                            Leaf::NotGreaterThanOrEqual(l) => {
+                                Entailment::from_option(cmp(&l.gte), |o| o == Ordering::Less)
+                            }
+                        }
+                    }
+                    Leaf::Present(present) if !present.present => {
+                        Entailment::from_bool(matches!(conclusion, Leaf::Present(p) if !p.present))
+                    }
+                    _ => Entailment::Denied,
+                }
+            };
+            match leaf {
+                Entailment::Proven => return Entailment::Proven,
+                Entailment::Unknown => verdict = Entailment::Unknown,
+                Entailment::Denied => {}
+            }
+        }
+        verdict
     }
 }
 
@@ -69,8 +237,8 @@ impl NormalizedRule {
 mod tests {
     use super::*;
     use crate::ast::{
-        Assignment, AssignmentEffect, LeafEquals, LeafPresent, PredAll, PredNot, Predicate, Rule,
-        Scope, Severity,
+        Assignment, AssignmentEffect, LeafEquals, LeafIn, LeafLt, LeafPresent, PredAll, PredNot,
+        Predicate, Rule, Scope, Severity,
     };
     use serde_json::{Value, json};
 
@@ -123,6 +291,26 @@ mod tests {
             scope: Scope::Current,
             present,
         })
+    }
+
+    fn lne(name: &str, v: Value) -> Leaf {
+        Leaf::NotEquals(LeafEquals {
+            r#ref: name.into(),
+            scope: Scope::Current,
+            equals: v,
+        })
+    }
+
+    fn dr_plus_alias() -> Transformation {
+        alias_t(
+            LeafEquals {
+                r#ref: "dr".into(),
+                scope: Scope::Current,
+                equals: json!("hdr800_plus"),
+            }
+            .into(),
+            vec![("dr", json!("hdr800")), ("drp", json!("plus"))],
+        )
     }
 
     #[test]
@@ -528,5 +716,112 @@ mod tests {
         assert!(conj.0.contains(&le("c", json!(3))));
         assert!(conj.0.contains(&le("x", json!("v"))));
         assert_eq!(conj.0.len(), 2);
+    }
+
+    #[test]
+    fn alias_expansion_exempts_an_incidental_rule() {
+        let rules = vec![rule(
+            PredAll {
+                all: vec![
+                    lp("dr", true).into(),
+                    PredNot {
+                        not: Box::new(le("drp", json!("off")).into()),
+                    }
+                    .into(),
+                ],
+            }
+            .into(),
+        )];
+        let out = normalize(&rules, vec![dr_plus_alias()]);
+
+        assert_eq!(out[0].when.0.len(), 2);
+        let flat: Vec<&Leaf> = out[0].when.0.iter().flat_map(|c| c.iter()).collect();
+        assert!(flat.contains(&&lne("dr", json!("hdr800"))));
+        assert!(flat.contains(&&lne("drp", json!("plus"))));
+        for conj in &out[0].when.0 {
+            assert!(conj.0.contains(&lp("dr", true)));
+            assert!(conj.0.contains(&lne("drp", json!("off"))));
+        }
+    }
+
+    #[test]
+    fn rule_written_about_the_alias_value_is_not_exempted() {
+        let rules = vec![rule(
+            LeafEquals {
+                r#ref: "dr".into(),
+                scope: Scope::Current,
+                equals: json!("hdr800_plus"),
+            }
+            .into(),
+        )];
+        let out = normalize(&rules, vec![dr_plus_alias()]);
+
+        assert_eq!(out[0].when.0.len(), 1);
+        let conj = &out[0].when.0[0];
+        assert_eq!(conj.0.len(), 2);
+        assert!(conj.0.contains(&le("dr", json!("hdr800"))));
+        assert!(conj.0.contains(&le("drp", json!("plus"))));
+    }
+
+    #[test]
+    fn original_scope_rule_is_not_exempted() {
+        let rules = vec![rule(
+            PredAll {
+                all: vec![
+                    LeafEquals {
+                        r#ref: "dr".into(),
+                        scope: Scope::Original,
+                        equals: json!("hdr400"),
+                    }
+                    .into(),
+                    PredNot {
+                        not: Box::new(
+                            LeafIn {
+                                r#ref: "dr".into(),
+                                scope: Scope::Current,
+                                values: vec![json!("hdr400")],
+                            }
+                            .into(),
+                        ),
+                    }
+                    .into(),
+                ],
+            }
+            .into(),
+        )];
+        let out = normalize(&rules, vec![dr_plus_alias()]);
+
+        assert_eq!(out[0].when.0.len(), 1);
+        let flat: Vec<&Leaf> = out[0].when.0.iter().flat_map(|c| c.iter()).collect();
+        assert!(
+            !flat
+                .iter()
+                .any(|l| matches!(l, Leaf::NotEquals(e) if e.r#ref == "drp")),
+            "expansion guard must not be added: {:?}",
+            out[0].when,
+        );
+    }
+
+    #[test]
+    fn indeterminate_ordered_comparison_is_left_unexempted() {
+        let ts = vec![alias_t(
+            LeafEquals {
+                r#ref: "mode".into(),
+                scope: Scope::Current,
+                equals: json!("special"),
+            }
+            .into(),
+            vec![("iso", json!("high"))],
+        )];
+        let lt = LeafLt {
+            r#ref: "iso".into(),
+            scope: Scope::Current,
+            lt: json!("low"),
+        };
+        let rules = vec![rule(lt.clone().into())];
+        let out = normalize(&rules, ts);
+
+        assert_eq!(out[0].when.0.len(), 1);
+        assert_eq!(out[0].when.0[0].0, vec![Leaf::LessThan(lt)]);
     }
 }

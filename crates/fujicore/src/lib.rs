@@ -299,16 +299,35 @@ impl Camera {
         sim.set_simulation(&mut self.ptp, slot, simulation)
     }
 
-    pub fn render(
-        &mut self,
-        image: &[u8],
-        partial: &RenderBase,
-        draft: bool,
-    ) -> CoreResult<Vec<u8>> {
+    pub fn send_image(&mut self, image: &[u8]) -> CoreResult<()> {
         let renders = self
             .r#impl
             .as_render_manager()
             .ok_or(CoreError::Unsupported(Capability::RenderManagement))?;
-        renders.render(&mut self.ptp, image, partial, draft)
+        renders.send_image(&mut self.ptp, image)
+    }
+
+    pub fn read_profile(&mut self) -> CoreResult<RenderBase> {
+        let renders = self
+            .r#impl
+            .as_render_manager()
+            .ok_or(CoreError::Unsupported(Capability::RenderManagement))?;
+        renders.read_profile(&mut self.ptp)
+    }
+
+    pub fn apply_profile(&mut self, partial: &RenderBase) -> CoreResult<()> {
+        let renders = self
+            .r#impl
+            .as_render_manager()
+            .ok_or(CoreError::Unsupported(Capability::RenderManagement))?;
+        renders.apply_profile(&mut self.ptp, partial)
+    }
+
+    pub fn render(&mut self, draft: bool) -> CoreResult<Vec<u8>> {
+        let renders = self
+            .r#impl
+            .as_render_manager()
+            .ok_or(CoreError::Unsupported(Capability::RenderManagement))?;
+        renders.render(&mut self.ptp, draft)
     }
 }

@@ -117,4 +117,13 @@ pub trait DescriptorTable {
     fn visible_fields(&self, canonical: &Self::Base) -> Vec<&'static OptionDescriptor<Self::Base>>;
 
     fn validate_partial(&self, base: Self::Base) -> Option<Self::Base>;
+
+    fn validate_partial_against(
+        &self,
+        base: Self::Base,
+        original: &Self::Base,
+    ) -> Option<Self::Base> {
+        let _ = original;
+        self.validate_partial(base)
+    }
 }

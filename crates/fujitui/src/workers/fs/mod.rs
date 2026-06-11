@@ -92,7 +92,6 @@ pub enum FsCommand {
         req: ReqId,
         slug: Slug,
     },
-    #[allow(dead_code)]
     ReadImage {
         req: ReqId,
         path: PathBuf,

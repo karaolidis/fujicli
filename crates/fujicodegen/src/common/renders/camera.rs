@@ -83,8 +83,7 @@ fn generate_one(
     let camera_struct_path = quote! { #cameras_path::#camera_struct_ident };
     let renders_path = renders::path();
 
-    let presence_info = PresenceDag::try_from_rules(&effective_rules)
-        .with_context(|| format!("extracting read DAG for `{}`", camera.id))?;
+    let presence_info = PresenceDag::from_rules(&effective_rules);
 
     let nodes: Vec<&str> = render.fields.iter().map(Field::id).collect();
     let edges: Vec<(&str, &str)> = presence_info
@@ -177,9 +176,9 @@ fn generate_one(
         &render.fields,
         &complete_ident,
         &draft_ident,
+        &mod_ident,
         n_props,
         &presence_info.conditions,
-        &render.transformations,
         &convert_order,
     )?;
     let manager_impl = generate_camera_render_manager_impl(
@@ -251,6 +250,7 @@ fn generate_rule_module(
         generate_emit_warnings_and_infos(settings, effective_rules, scopes, &buf_ty)?;
     let solve = generate_solve(settings, effective_rules, scopes, &buf_ty, optional)?;
     let try_update_from = generate_try_update_from(&render.fields, settings, &buf_ty);
+    let apply_inverses = generate_apply_inverses(settings, &render.transformations, &buf_ty)?;
 
     Ok(quote! {
         pub mod #mod_ident {
@@ -258,6 +258,21 @@ fn generate_rule_module(
             #emit_warnings_and_infos
             #solve
             #try_update_from
+            #apply_inverses
+        }
+    })
+}
+
+fn generate_apply_inverses(
+    settings: &BTreeMap<&str, SettingInfo<'_>>,
+    transformations: &[Transformation],
+    buf_ty: &TokenStream,
+) -> anyhow::Result<TokenStream> {
+    let buf_acc = quote! { buf };
+    let inverses = generate_inverses(settings, transformations, &buf_acc)?;
+    Ok(quote! {
+        pub fn apply_inverses(buf: &mut #buf_ty) {
+            #inverses
         }
     })
 }
@@ -288,6 +303,14 @@ fn generate_try_update_from(
             partial: &#buf_ty,
         ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
             let original = buf.clone();
+            try_update_from_against(buf, partial, &original)
+        }
+
+        pub fn try_update_from_against(
+            buf: &mut #buf_ty,
+            partial: &#buf_ty,
+            original: &#buf_ty,
+        ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
             let mut partial_normalized = partial.clone();
             apply_transformations(&mut partial_normalized);
 
@@ -295,8 +318,8 @@ fn generate_try_update_from(
             #( #merge_assigns )*
             apply_transformations(&mut candidate);
 
-            solve(&mut candidate, &partial_normalized, &original)?;
-            emit_warnings_and_infos(&candidate, &original)?;
+            solve(&mut candidate, &partial_normalized, original)?;
+            emit_warnings_and_infos(&candidate, original)?;
 
             *buf = candidate;
             Ok(())
@@ -645,9 +668,9 @@ fn generate_ptp_deserialize_impl(
     fields: &[Field],
     complete_ident: &Ident,
     draft_ident: &Ident,
+    mod_ident: &Ident,
     n_props: i16,
     presence_conditions: &BTreeMap<String, Dnf>,
-    transformations: &[Transformation],
     convert_order: &[String],
 ) -> anyhow::Result<TokenStream> {
     let n_props_lit = Literal::i16_suffixed(n_props);
@@ -675,8 +698,6 @@ fn generate_ptp_deserialize_impl(
             generate_convert_one(settings, field, presence_conditions)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-
-    let inverses = generate_inverses(settings, transformations, &quote! { staged })?;
 
     Ok(quote! {
         impl ::ptp_cursor::PtpDeserialize for #complete_ident {
@@ -734,7 +755,7 @@ fn generate_ptp_deserialize_impl(
                 let mut staged = #draft_ident::default();
                 #( #conversions )*
 
-                #inverses
+                #mod_ident::apply_inverses(&mut staged);
 
                 <Self as ::std::convert::TryFrom<#draft_ident>>::try_from(staged)
                     .map_err(|err| ::std::io::Error::new(
@@ -796,14 +817,21 @@ fn generate_camera_render_manager_impl(
 ) -> TokenStream {
     quote! {
         impl crate::features::render::CameraRenderManager for #camera_struct_path {
-            fn render(
+            fn read_profile(
                 &self,
                 ptp: &mut crate::ptp::Ptp,
-                image: &[u8],
+            ) -> crate::error::CoreResult<#renders_path::RenderBase> {
+                let current: #complete_ident = ptp.get_prop(
+                    crate::ptp::DevicePropCode::FujiRawConversionProfile,
+                )?;
+                Ok(<#renders_path::RenderBase as ::std::convert::From<&#complete_ident>>::from(&current))
+            }
+
+            fn apply_profile(
+                &self,
+                ptp: &mut crate::ptp::Ptp,
                 partial: &#renders_path::RenderBase,
-                draft: bool,
-            ) -> crate::error::CoreResult<Vec<u8>> {
-                <Self as crate::features::render::CameraRenderManager>::send_image(self, ptp, image)?;
+            ) -> crate::error::CoreResult<()> {
                 let current: #complete_ident = ptp.get_prop(
                     crate::ptp::DevicePropCode::FujiRawConversionProfile,
                 )?;
@@ -817,9 +845,7 @@ fn generate_camera_render_manager_impl(
                     crate::ptp::DevicePropCode::FujiRawConversionProfile,
                     &next,
                 )?;
-                <Self as crate::features::render::CameraRenderManager>::render_image(
-                    self, ptp, draft,
-                )
+                Ok(())
             }
         }
     }

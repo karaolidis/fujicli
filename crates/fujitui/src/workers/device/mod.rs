@@ -15,6 +15,7 @@ use fujicore::{
     Camera, Capability, CoreError, UsbId,
     generated::{options::CustomSetting, renders::RenderBase, simulations::SimulationBase},
 };
+use image::{DynamicImage, ImageDecoder, ImageReader};
 use log::{debug, error, info};
 use rusb::{Device, GlobalContext};
 
@@ -38,10 +39,12 @@ pub enum DeviceCommand {
         slot: CustomSetting,
         base: SimulationBase,
     },
-    #[allow(dead_code)]
-    Render {
+    LoadImage {
         req: ReqId,
         image: Arc<[u8]>,
+    },
+    Render {
+        req: ReqId,
         base: RenderBase,
         draft: bool,
     },
@@ -88,12 +91,20 @@ pub enum DeviceEvent {
         slot: CustomSetting,
         error: Box<CoreError>,
     },
+    ImageLoaded {
+        req: ReqId,
+        profile: RenderBase,
+    },
+    ImageLoadFailed {
+        req: ReqId,
+        error: Box<CoreError>,
+    },
     RenderStarted {
         req: ReqId,
     },
     RenderDone {
         req: ReqId,
-        jpeg: Vec<u8>,
+        image: DynamicImage,
     },
     RenderFailed {
         req: ReqId,
@@ -191,12 +202,12 @@ impl DeviceWorker {
                         DeviceCommand::PushSlot { req, slot, base } => {
                             self.push_simulation_slot(req, slot, base, event_tx)
                         }
-                        DeviceCommand::Render {
-                            req,
-                            image,
-                            base,
-                            draft,
-                        } => self.render_image(req, &image, &base, draft, event_tx),
+                        DeviceCommand::LoadImage { req, image } => {
+                            self.load_image(req, &image, event_tx)
+                        }
+                        DeviceCommand::Render { req, base, draft } => {
+                            self.render(req, &base, draft, event_tx)
+                        }
                         DeviceCommand::ExportBackup { req } => self.export_backup(req, event_tx),
                         DeviceCommand::ImportBackup { req, blob } => {
                             self.import_backup(req, &blob, event_tx)
@@ -326,25 +337,56 @@ impl DeviceWorker {
         }
     }
 
-    fn render_image(
+    fn load_image(
         &mut self,
         req: ReqId,
         image: &[u8],
+        event_tx: &Sender<DeviceEvent>,
+    ) -> ControlFlow<()> {
+        match self
+            .camera
+            .send_image(image)
+            .and_then(|()| self.camera.read_profile())
+        {
+            Ok(profile) => {
+                info!("{req}: image staged; read conversion profile");
+                let _ = event_tx.send(DeviceEvent::ImageLoaded { req, profile });
+                ControlFlow::Continue(())
+            }
+            Err(e) if e.is_disconnect() => {
+                error!("{req}: camera disconnected during image load: {e}");
+                let _ = event_tx.send(DeviceEvent::Disconnected);
+                ControlFlow::Break(())
+            }
+            Err(e) => {
+                error!("{req}: image load failed: {e}");
+                let _ = event_tx.send(DeviceEvent::ImageLoadFailed {
+                    req,
+                    error: Box::new(e),
+                });
+                ControlFlow::Continue(())
+            }
+        }
+    }
+
+    fn render(
+        &mut self,
+        req: ReqId,
         base: &RenderBase,
         draft: bool,
         event_tx: &Sender<DeviceEvent>,
     ) -> ControlFlow<()> {
         let _ = event_tx.send(DeviceEvent::RenderStarted { req });
-        match self.camera.render(image, base, draft) {
-            Ok(jpeg) => {
-                info!("{req}: rendered image ({} bytes)", jpeg.len());
-                let _ = event_tx.send(DeviceEvent::RenderDone { req, jpeg });
-                ControlFlow::Continue(())
-            }
+        let jpeg = match self
+            .camera
+            .apply_profile(base)
+            .and_then(|()| self.camera.render(draft))
+        {
+            Ok(jpeg) => jpeg,
             Err(e) if e.is_disconnect() => {
                 error!("{req}: camera disconnected during render: {e}");
                 let _ = event_tx.send(DeviceEvent::Disconnected);
-                ControlFlow::Break(())
+                return ControlFlow::Break(());
             }
             Err(e) => {
                 error!("{req}: render failed: {e}");
@@ -352,9 +394,38 @@ impl DeviceWorker {
                     req,
                     error: Box::new(e),
                 });
-                ControlFlow::Continue(())
+                return ControlFlow::Continue(());
+            }
+        };
+
+        match Self::decode(&jpeg) {
+            Ok(image) => {
+                info!("{req}: rendered image ({} bytes)", jpeg.len());
+                let _ = event_tx.send(DeviceEvent::RenderDone { req, image });
+            }
+            Err(e) => {
+                error!("{req}: failed to decode rendered image: {e}");
+                let _ = event_tx.send(DeviceEvent::RenderFailed {
+                    req,
+                    error: Box::new(CoreError::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        e.to_string(),
+                    ))),
+                });
             }
         }
+
+        ControlFlow::Continue(())
+    }
+
+    fn decode(jpeg: &[u8]) -> image::ImageResult<DynamicImage> {
+        let mut decoder = ImageReader::new(std::io::Cursor::new(jpeg))
+            .with_guessed_format()?
+            .into_decoder()?;
+        let orientation = decoder.orientation()?;
+        let mut image = DynamicImage::from_decoder(decoder)?;
+        image.apply_orientation(orientation);
+        Ok(image)
     }
 
     fn export_backup(&mut self, req: ReqId, event_tx: &Sender<DeviceEvent>) -> ControlFlow<()> {

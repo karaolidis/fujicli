@@ -167,8 +167,7 @@ simulation into the render base.
   fields). Inverses run last to lift wire-level multi-field encodings back to
   user-facing ones.
 - `CameraRenderManager` - orchestrates the in-camera render pipeline: send_image
-  -> get current profile -> try_update_from(partial) -> set profile ->
-  render_image.
+  -> get current profile -> try_update_from(partial) -> set profile -> render.
 
 A hard-coded constant
 [`RENDER_HEADER_PADDING`](../../crates/fujicodegen/src/common/renders/camera.rs)
