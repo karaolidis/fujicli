@@ -11,6 +11,8 @@ pub struct RenderDescriptors {
     pub fields: &'static [&'static OptionDescriptor<RenderBase>],
     pub validate: fn(RenderBase) -> Result<RenderBase, SimulationError>,
     pub validate_partial: fn(RenderBase) -> Result<RenderBase, SimulationError>,
+    pub validate_partial_against:
+        fn(RenderBase, &RenderBase) -> Result<RenderBase, SimulationError>,
 }
 
 impl RenderDescriptors {
@@ -95,6 +97,14 @@ impl DescriptorTable for RenderDescriptors {
     fn validate_partial(&self, base: RenderBase) -> Option<RenderBase> {
         (self.validate_partial)(base).ok()
     }
+
+    fn validate_partial_against(
+        &self,
+        base: RenderBase,
+        original: &RenderBase,
+    ) -> Option<RenderBase> {
+        (self.validate_partial_against)(base, original).ok()
+    }
 }
 
 #[cfg(test)]
@@ -146,6 +156,61 @@ mod tests {
                 assert_eq!((desc.display)(&target), (desc.display)(&source));
             }
         }
+    }
+
+    #[test]
+    fn dynamic_range_cannot_exceed_the_shot_value() {
+        use crate::generated::options::DynamicRange;
+
+        let Some(descriptors) = crate::generated::cameras::SUPPORTED
+            .iter()
+            .find_map(|cam| cam.render)
+        else {
+            return;
+        };
+
+        let mut shot = descriptors.new_canonical_default();
+        shot.dynamic_range = Some(DynamicRange::Hdr100);
+        let shot = (descriptors.validate_partial)(shot).expect("shot profile settles");
+        assert_eq!(shot.dynamic_range, Some(DynamicRange::Hdr100));
+
+        let mut bumped = shot.clone();
+        bumped.dynamic_range = Some(DynamicRange::Hdr400);
+        assert_eq!(
+            (descriptors.validate_partial)(bumped.clone())
+                .expect("partial settles")
+                .dynamic_range,
+            Some(DynamicRange::Hdr400),
+        );
+
+        if let Ok(validated) = (descriptors.validate_partial_against)(bumped, &shot) {
+            assert_ne!(validated.dynamic_range, Some(DynamicRange::Hdr400));
+        }
+    }
+
+    #[test]
+    fn dynamic_range_plus_round_trips_through_partial_validation() {
+        use crate::generated::options::{DynamicRange, DynamicRangePriority};
+
+        let Some(descriptors) = crate::generated::cameras::SUPPORTED
+            .iter()
+            .find_map(|cam| cam.render)
+        else {
+            return;
+        };
+
+        let mut base = descriptors.new_canonical_default();
+        base.dynamic_range = Some(DynamicRange::Hdr800Plus);
+        let settled = (descriptors.validate_partial)(base).expect("partial settles");
+        assert_eq!(settled.dynamic_range, Some(DynamicRange::Hdr800Plus));
+        assert_eq!(settled.dynamic_range_priority, None);
+
+        let mut decomposed = descriptors.new_canonical_default();
+        decomposed.dynamic_range = Some(DynamicRange::Hdr800);
+        decomposed.dynamic_range_priority = Some(DynamicRangePriority::Plus);
+        let lifted = (descriptors.validate_partial)(decomposed).expect("partial settles");
+        assert_eq!(lifted.dynamic_range, Some(DynamicRange::Hdr800Plus));
+        assert_eq!(lifted.dynamic_range_priority, None);
     }
 
     #[test]

@@ -20,7 +20,7 @@ use crate::{
 const INFO_TTL: Duration = Duration::from_secs(5);
 const ERROR_TTL: Duration = Duration::from_secs(10);
 
-const SPINNER_INTERVAL_MS: u128 = 120;
+pub const SPINNER_INTERVAL: Duration = Duration::from_millis(120);
 const SPINNER_CELL: u16 = 2;
 
 const DEVICE_GLYPH: &str = "●";
@@ -30,7 +30,7 @@ const FS_GLYPH: &str = "▤";
 const FS_SPINNER: [&str; 4] = ["◰", "◳", "◲", "◱"];
 
 fn spinner_frame(frames: &[&'static str], elapsed: Duration) -> &'static str {
-    let idx = elapsed.as_millis() / SPINNER_INTERVAL_MS % frames.len() as u128;
+    let idx = elapsed.as_millis() / SPINNER_INTERVAL.as_millis() % frames.len() as u128;
     frames[usize::try_from(idx).unwrap_or(0)]
 }
 

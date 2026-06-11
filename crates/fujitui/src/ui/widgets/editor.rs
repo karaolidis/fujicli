@@ -191,9 +191,10 @@ impl PickerState {
     fn compute_rows<B: Clone + 'static, D: DescriptorTable<Base = B>>(
         ops: &EnumOps<B>,
         canonical: &B,
+        original: &B,
         descriptors: &D,
     ) -> Vec<PickerRow> {
-        let validator = |b: B| descriptors.validate_partial(b);
+        let validator = |b: B| descriptors.validate_partial_against(b, original);
         ops.variants
             .iter()
             .filter_map(|variant| {
@@ -432,7 +433,8 @@ impl<B: Clone + PartialEq + 'static> EditorState<B> {
             return;
         };
         let outcome = {
-            let validator = |b: B| descriptors.validate_partial(b);
+            let original = buffer.fetched.canonical.clone();
+            let validator = |b: B| descriptors.validate_partial_against(b, &original);
             let canonical = &mut buffer.working.canonical;
             match (&desc.ops, action) {
                 (OptionOps::Enum(ops), EditorAction::Bump(d)) => {
@@ -482,7 +484,12 @@ impl<B: Clone + PartialEq + 'static> EditorState<B> {
                 )))
             }
             OptionOps::Enum(ops) => {
-                let rows = PickerState::compute_rows(ops, canonical, descriptors);
+                let rows = PickerState::compute_rows(
+                    ops,
+                    canonical,
+                    &buffer.fetched.canonical,
+                    descriptors,
+                );
                 let cursor_row = (desc.display)(canonical)
                     .as_deref()
                     .and_then(|cur| rows.iter().position(|r| r.label == cur))
@@ -533,7 +540,8 @@ impl<B: Clone + PartialEq + 'static> EditorState<B> {
             unreachable!("commit_text; descriptor.ops is OptionOps::String");
         };
         let outcome = {
-            let validator = |b: B| descriptors.validate_partial(b);
+            let original = buffer.fetched.canonical.clone();
+            let validator = |b: B| descriptors.validate_partial_against(b, &original);
             (ops.set_by_text)(&mut buffer.working.canonical, text, &validator)
         };
         if matches!(outcome, SetOutcome::Set) {
@@ -555,7 +563,8 @@ impl<B: Clone + PartialEq + 'static> EditorState<B> {
             unreachable!("commit_pick; descriptor.ops is OptionOps::Enum");
         };
         let outcome = {
-            let validator = |b: B| descriptors.validate_partial(b);
+            let original = buffer.fetched.canonical.clone();
+            let validator = |b: B| descriptors.validate_partial_against(b, &original);
             (ops.set_by_id)(&mut buffer.working.canonical, id, &validator)
         };
         if matches!(outcome, SetOutcome::Set) {
@@ -1048,8 +1057,12 @@ mod tests {
             validate: |b| Ok(b),
             validate_partial: |b| Ok(b),
         };
-        let rows =
-            PickerState::compute_rows(&STUB_OPS, &SimulationBase::default(), &STUB_DESCRIPTORS);
+        let rows = PickerState::compute_rows(
+            &STUB_OPS,
+            &SimulationBase::default(),
+            &SimulationBase::default(),
+            &STUB_DESCRIPTORS,
+        );
         let ids: Vec<&str> = rows.iter().map(|r| r.id).collect();
         assert_eq!(ids, vec!["a", "c"]);
     }

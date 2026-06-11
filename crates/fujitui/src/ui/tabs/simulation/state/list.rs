@@ -9,7 +9,7 @@ use ratatui::{
 
 use crate::{
     ui::{
-        danger, muted, warning,
+        danger, muted,
         widgets::{Cursor, ListPane},
     },
     workers::fs::slug::Slug,
@@ -167,14 +167,6 @@ impl SimulationListPane {
         )))
     }
 
-    fn dirty_marker_span(selected: bool) -> Span<'static> {
-        let mut style = Style::default().fg(warning());
-        if selected {
-            style = style.add_modifier(Modifier::REVERSED);
-        }
-        Span::styled(format!("{DIRTY_MARKER} "), style)
-    }
-
     fn make_simulation_slot_item(
         slot: CustomSetting,
         entry: &SlotEntry,
@@ -212,7 +204,10 @@ impl SimulationListPane {
         }
         let mut spans = vec![Span::raw(INDENT)];
         if dirty {
-            spans.push(Self::dirty_marker_span(selected));
+            spans.push(Span::styled(
+                format!("{DIRTY_MARKER} "),
+                Style::default().add_modifier(Modifier::ITALIC),
+            ));
         }
         spans.push(Span::styled(label, text_style));
         ListItem::new(Line::from(spans))
@@ -241,7 +236,10 @@ impl SimulationListPane {
         }
         let mut spans = vec![Span::raw(INDENT)];
         if dirty {
-            spans.push(Self::dirty_marker_span(selected));
+            spans.push(Span::styled(
+                format!("{DIRTY_MARKER} "),
+                Style::default().add_modifier(Modifier::ITALIC),
+            ));
         }
         spans.push(Span::styled(label, text_style));
         ListItem::new(Line::from(spans))

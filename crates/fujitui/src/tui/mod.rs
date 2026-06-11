@@ -8,10 +8,14 @@ use crossbeam_channel::{Receiver, Sender, after, select};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use directories::ProjectDirs;
 use fujicore::CoreError;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Layout},
+};
+use ratatui_image::{
+    picker::Picker,
+    thread::{ResizeRequest, ResizeResponse},
 };
 
 use crate::{
@@ -22,7 +26,7 @@ use crate::{
             help::HelpModal,
         },
         tabs::{AppCtx, Tabs},
-        widgets::{Header, Loading, Status, StatusQueue},
+        widgets::{Header, Loading, SPINNER_INTERVAL, Status, StatusQueue},
     },
     workers::{
         ReqId, ReqIdGen,
@@ -36,11 +40,11 @@ use crate::{
             simulation::{SimulationLibraryError, SimulationLibrarySnapshot},
             slug::Slug,
         },
-        input,
+        image::ImageWorker,
+        input::InputWorker,
     },
 };
 
-const TICK: Duration = Duration::from_millis(100);
 const INPUT_CHANNEL_BOUND: usize = 16;
 
 #[derive(Parser, Debug)]
@@ -67,28 +71,48 @@ pub struct App {
     device_rx: Receiver<DeviceEvent>,
     device_tx: Sender<DeviceEvent>,
     fs_rx: Receiver<FsEvent>,
+    resize_rx: Receiver<ResizeResponse>,
 }
 
 pub fn run(dirs: &ProjectDirs) -> anyhow::Result<()> {
     let candidates = usb::enumerate()?;
     info!("found {} supported camera(s)", candidates.len());
 
+    let picker = Picker::from_query_stdio().unwrap_or_else(|e| {
+        warn!("graphics protocol query failed ({e}); falling back to halfblocks");
+        Picker::halfblocks()
+    });
+
     let (input_tx, input_rx) = crossbeam_channel::bounded(INPUT_CHANNEL_BOUND);
-    input::spawn(input_tx);
+    InputWorker::spawn(input_tx);
+
+    let (resize_tx, resize_rx) = ImageWorker::spawn();
 
     let simulation_dir = dirs.data_dir().join("simulations");
     let backup_dir = dirs.data_dir().join("backups");
     info!("simulation library directory: {}", simulation_dir.display());
     info!("backup library directory: {}", backup_dir.display());
 
-    let mut app = App::new(candidates, input_rx, simulation_dir, backup_dir);
+    let mut app = App::new(
+        candidates,
+        input_rx,
+        picker,
+        resize_tx,
+        resize_rx,
+        simulation_dir,
+        backup_dir,
+    );
     ratatui::run(|terminal| app.run(terminal))
 }
 
 impl App {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         candidates: Vec<DeviceCandidate>,
         input_rx: Receiver<KeyEvent>,
+        image_picker: Picker,
+        resize_tx: std::sync::mpsc::Sender<ResizeRequest>,
+        resize_rx: Receiver<ResizeResponse>,
         simulation_dir: std::path::PathBuf,
         backup_dir: std::path::PathBuf,
     ) -> Self {
@@ -136,6 +160,9 @@ impl App {
                 device_snapshot: None,
                 simulation_library_snapshot: SimulationLibrarySnapshot::empty(),
                 backup_library_snapshot: BackupLibrarySnapshot::empty(),
+                image_picker,
+                resize_tx,
+                overlay: false,
             },
             tabs: Tabs::default(),
             active_tab: Tab::Simulation,
@@ -147,6 +174,7 @@ impl App {
             device_rx,
             device_tx,
             fs_rx,
+            resize_rx,
         }
     }
 
@@ -159,7 +187,12 @@ impl App {
                 recv(self.input_rx)  -> msg => self.handle_key(msg?),
                 recv(self.device_rx) -> msg => self.handle_device_event(msg?),
                 recv(self.fs_rx)     -> msg => self.handle_fs_event(msg?),
-                recv(after(TICK))    -> _   => {}
+                recv(self.resize_rx) -> msg => {
+                    if let Ok(response) = msg {
+                        self.tabs.rendering.apply_resized(response);
+                    }
+                }
+                recv(after(self.next_frame_in())) -> _ => {}
             }
 
             for update in self.tabs.take_status() {
@@ -168,6 +201,12 @@ impl App {
         }
         info!("exiting event loop");
         Ok(())
+    }
+
+    fn next_frame_in(&self) -> Duration {
+        let interval = SPINNER_INTERVAL.as_millis();
+        let phase = self.started.elapsed().as_millis() % interval;
+        Duration::from_millis(u64::try_from(interval - phase).unwrap_or(0))
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
@@ -314,14 +353,28 @@ impl App {
                 self.status
                     .push_error(format!("Push to {slot} failed: {error}"));
             }
+            DeviceEvent::ImageLoaded { req, profile } => {
+                info!("{req}: image loaded; conversion profile read");
+                self.tabs
+                    .broadcast(|tab| tab.on_image_loaded(&self.ctx, req, &profile));
+            }
+            DeviceEvent::ImageLoadFailed { req, error } => {
+                error!("{req}: image load failed: {error}");
+                self.tabs
+                    .broadcast(|tab| tab.on_image_load_failed(&self.ctx, req));
+                self.status
+                    .push_error(format!("Failed to load image: {error}"));
+            }
             DeviceEvent::RenderStarted { req } => {
                 debug!("{req}: render started");
             }
-            DeviceEvent::RenderDone { req, jpeg } => {
-                info!("{req}: render done ({} bytes)", jpeg.len());
+            DeviceEvent::RenderDone { req, image } => {
+                info!("{req}: render done");
+                self.tabs.rendering.on_render_done(&self.ctx, req, image);
             }
             DeviceEvent::RenderFailed { req, error } => {
                 error!("{req}: render failed: {error}");
+                self.tabs.rendering.on_render_failed(req);
                 self.status.push_error(format!("Render failed: {error}"));
             }
             DeviceEvent::BackupExported { req, blob } => {
@@ -423,9 +476,13 @@ impl App {
                     path.display(),
                     image.len()
                 );
+                self.tabs
+                    .broadcast(|tab| tab.on_image_read(&self.ctx, req, &path, &image));
             }
             FsEvent::ImageReadFailed { req, path, error } => {
                 error!("{req}: image read failed ({}): {error}", path.display());
+                self.tabs
+                    .broadcast(|tab| tab.on_image_read_failed(&self.ctx, req));
                 self.status
                     .push_error(format!("Failed to read image: {error}"));
             }
@@ -662,6 +719,7 @@ impl App {
         if self.ctx.device_snapshot.is_none() {
             Loading::draw(frame, header_area.union(body_area));
         } else {
+            self.ctx.overlay = self.modal.is_some();
             Header::draw(self, frame, header_area);
             self.tabs.draw(&self.ctx, self.active_tab, frame, body_area);
         }

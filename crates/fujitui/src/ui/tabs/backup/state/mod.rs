@@ -439,6 +439,7 @@ mod tests {
     use crossbeam_channel::unbounded;
     use crossterm::event::{KeyEventKind, KeyEventState, KeyModifiers};
     use fujicore::{UsbId, generated::cameras::C_X_S20};
+    use ratatui_image::picker::Picker;
     use time::OffsetDateTime;
 
     use super::*;
@@ -514,6 +515,9 @@ mod tests {
             }),
             simulation_library_snapshot: SimulationLibrarySnapshot::empty(),
             backup_library_snapshot: snapshot_with(entries),
+            image_picker: Picker::halfblocks(),
+            resize_tx: std::sync::mpsc::channel().0,
+            overlay: false,
         }
     }
 
