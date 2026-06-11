@@ -90,8 +90,10 @@ pub fn run(dirs: &ProjectDirs) -> anyhow::Result<()> {
 
     let simulation_dir = dirs.data_dir().join("simulations");
     let backup_dir = dirs.data_dir().join("backups");
+    let cache_dir = dirs.cache_dir().join("renders");
     info!("simulation library directory: {}", simulation_dir.display());
     info!("backup library directory: {}", backup_dir.display());
+    info!("render cache directory: {}", cache_dir.display());
 
     let mut app = App::new(
         candidates,
@@ -101,6 +103,7 @@ pub fn run(dirs: &ProjectDirs) -> anyhow::Result<()> {
         resize_rx,
         simulation_dir,
         backup_dir,
+        cache_dir,
     );
     ratatui::run(|terminal| app.run(terminal))
 }
@@ -115,6 +118,7 @@ impl App {
         resize_rx: Receiver<ResizeResponse>,
         simulation_dir: std::path::PathBuf,
         backup_dir: std::path::PathBuf,
+        cache_dir: std::path::PathBuf,
     ) -> Self {
         let (device_tx, device_rx) = crossbeam_channel::unbounded();
         let (fs_tx, fs_rx) = crossbeam_channel::unbounded();
@@ -139,7 +143,7 @@ impl App {
             }
         };
 
-        let fs = FsHandle::spawn(simulation_dir, backup_dir, fs_tx);
+        let fs = FsHandle::spawn(simulation_dir, backup_dir, cache_dir, fs_tx);
         let req = ReqIdGen::new();
 
         let sim_load_req = req.next();
@@ -368,9 +372,9 @@ impl App {
             DeviceEvent::RenderStarted { req } => {
                 debug!("{req}: render started");
             }
-            DeviceEvent::RenderDone { req, image } => {
-                info!("{req}: render done");
-                self.tabs.rendering.on_render_done(&self.ctx, req, image);
+            DeviceEvent::RenderDone { req, bytes } => {
+                info!("{req}: render done ({} bytes)", bytes.len());
+                self.tabs.rendering.on_render_done(&self.ctx, req, bytes);
             }
             DeviceEvent::RenderFailed { req, error } => {
                 error!("{req}: render failed: {error}");
@@ -470,14 +474,19 @@ impl App {
             FsEvent::BackupLibraryOpFailed { req, error } => {
                 self.handle_backup_library_op_failed(req, error);
             }
-            FsEvent::ImageRead { req, path, image } => {
+            FsEvent::ImageRead {
+                req,
+                path,
+                image,
+                sha256,
+            } => {
                 info!(
                     "{req}: image read: {} ({} bytes)",
                     path.display(),
                     image.len()
                 );
                 self.tabs
-                    .broadcast(|tab| tab.on_image_read(&self.ctx, req, &path, &image));
+                    .broadcast(|tab| tab.on_image_read(&self.ctx, req, &path, &image, &sha256));
             }
             FsEvent::ImageReadFailed { req, path, error } => {
                 error!("{req}: image read failed ({}): {error}", path.display());
@@ -485,6 +494,20 @@ impl App {
                     .broadcast(|tab| tab.on_image_read_failed(&self.ctx, req));
                 self.status
                     .push_error(format!("Failed to read image: {error}"));
+            }
+            FsEvent::CachedRenderMiss { req } => {
+                self.tabs.rendering.on_cached_render_miss(&self.ctx, req);
+            }
+            FsEvent::RenderImageReady { req, image } => {
+                self.tabs
+                    .rendering
+                    .on_render_image_ready(&self.ctx, req, image);
+            }
+            FsEvent::RenderImageFailed { req } => {
+                error!("{req}: rendered image failed to decode");
+                self.tabs.rendering.on_render_failed(req);
+                self.status
+                    .push_error("Rendered image could not be decoded");
             }
             FsEvent::Error(error) => self.handle_fs_error(error),
         }

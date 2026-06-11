@@ -1039,6 +1039,7 @@ dependencies = [
  "rusb",
  "serde",
  "serde_json",
+ "sha2",
  "slug",
  "tempfile",
  "thiserror 2.0.18",

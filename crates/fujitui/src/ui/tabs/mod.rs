@@ -157,7 +157,15 @@ pub trait TabBehavior {
 
     fn on_backup_library_op_failed(&mut self, ctx: &AppCtx, req: ReqId) {}
 
-    fn on_image_read(&mut self, ctx: &AppCtx, req: ReqId, path: &Path, image: &Arc<[u8]>) {}
+    fn on_image_read(
+        &mut self,
+        ctx: &AppCtx,
+        req: ReqId,
+        path: &Path,
+        image: &Arc<[u8]>,
+        sha256: &[u8; 32],
+    ) {
+    }
 
     fn on_image_read_failed(&mut self, ctx: &AppCtx, req: ReqId) {}
 

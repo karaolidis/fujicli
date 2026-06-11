@@ -15,7 +15,6 @@ use fujicore::{
     Camera, Capability, CoreError, UsbId,
     generated::{options::CustomSetting, renders::RenderBase, simulations::SimulationBase},
 };
-use image::{DynamicImage, ImageDecoder, ImageReader};
 use log::{debug, error, info};
 use rusb::{Device, GlobalContext};
 
@@ -104,7 +103,7 @@ pub enum DeviceEvent {
     },
     RenderDone {
         req: ReqId,
-        image: DynamicImage,
+        bytes: Vec<u8>,
     },
     RenderFailed {
         req: ReqId,
@@ -377,16 +376,20 @@ impl DeviceWorker {
         event_tx: &Sender<DeviceEvent>,
     ) -> ControlFlow<()> {
         let _ = event_tx.send(DeviceEvent::RenderStarted { req });
-        let jpeg = match self
+        match self
             .camera
             .apply_profile(base)
             .and_then(|()| self.camera.render(draft))
         {
-            Ok(jpeg) => jpeg,
+            Ok(bytes) => {
+                info!("{req}: rendered image ({} bytes)", bytes.len());
+                let _ = event_tx.send(DeviceEvent::RenderDone { req, bytes });
+                ControlFlow::Continue(())
+            }
             Err(e) if e.is_disconnect() => {
                 error!("{req}: camera disconnected during render: {e}");
                 let _ = event_tx.send(DeviceEvent::Disconnected);
-                return ControlFlow::Break(());
+                ControlFlow::Break(())
             }
             Err(e) => {
                 error!("{req}: render failed: {e}");
@@ -394,38 +397,9 @@ impl DeviceWorker {
                     req,
                     error: Box::new(e),
                 });
-                return ControlFlow::Continue(());
-            }
-        };
-
-        match Self::decode(&jpeg) {
-            Ok(image) => {
-                info!("{req}: rendered image ({} bytes)", jpeg.len());
-                let _ = event_tx.send(DeviceEvent::RenderDone { req, image });
-            }
-            Err(e) => {
-                error!("{req}: failed to decode rendered image: {e}");
-                let _ = event_tx.send(DeviceEvent::RenderFailed {
-                    req,
-                    error: Box::new(CoreError::Io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        e.to_string(),
-                    ))),
-                });
+                ControlFlow::Continue(())
             }
         }
-
-        ControlFlow::Continue(())
-    }
-
-    fn decode(jpeg: &[u8]) -> image::ImageResult<DynamicImage> {
-        let mut decoder = ImageReader::new(std::io::Cursor::new(jpeg))
-            .with_guessed_format()?
-            .into_decoder()?;
-        let orientation = decoder.orientation()?;
-        let mut image = DynamicImage::from_decoder(decoder)?;
-        image.apply_orientation(orientation);
-        Ok(image)
     }
 
     fn export_backup(&mut self, req: ReqId, event_tx: &Sender<DeviceEvent>) -> ControlFlow<()> {
