@@ -13,12 +13,13 @@ Commands:
   help        Print this message or the help of the given subcommand(s)
 
 Options:
-  -j, --json               Format output using json
-  -v, --verbose...         Log extra debugging information (multiple instances increase verbosity)
-  -d, --device <DEVICE>    Manually specify target device using USB <BUS>.<ADDRESS>
-      --emulate <EMULATE>  Treat device as a different model using <VENDOR_ID>:<PRODUCT_ID>
-  -h, --help               Print help
-  -V, --version            Print version
+  -j, --json                   Format output using json
+  -v, --verbose...             Log extra debugging information (multiple instances increase verbosity)
+  -d, --device <DEVICE>        Manually specify target device using the ID reported by `device list`
+      --transport <TRANSPORT>  Transport used to reach the camera [default: auto] [possible values: auto, wpd, libusb]
+      --emulate <EMULATE>      Treat device as a different model using <VENDOR_ID>:<PRODUCT_ID>
+  -h, --help                   Print help
+  -V, --version                Print version
 ```
 
 Every subcommand has a short alias: `device -> d`, `simulation -> s`,
@@ -26,8 +27,16 @@ Every subcommand has a short alias: `device -> d`, `simulation -> s`,
 aliased (`list -> l`, `get -> g`, `set -> s`, `export -> e`, `import -> i`,
 `render -> r`).
 
-The `-d / --device` flag accepts a USB bus/address pair (e.g. `1.4`) and is only
-needed when more than one supported camera is plugged in.
+The `-d / --device` flag takes the opaque device ID printed by
+`fujicli device list` and is only needed when more than one supported camera is
+plugged in. Its format depends on the transport: a USB bus/address pair (e.g.
+`1.4`) for libusb, a Windows Portable Devices device ID for WPD. An unambiguous
+substring of the ID (e.g. the serial number) is also accepted.
+
+`--transport` selects how the camera is reached. `auto` (the default) tries WPD
+first on Windows and falls back to libusb, so both stock-driver and
+Zadig/WinUSB setups work; `wpd` and `libusb` force one of them.
+
 `--emulate VENDOR:PRODUCT` forces fujicli to treat the connected device as a
 different model - useful for development; see
 [camera support](support.md#emulation-mode).

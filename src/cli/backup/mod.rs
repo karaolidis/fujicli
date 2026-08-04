@@ -21,11 +21,12 @@ pub enum BackupCmd {
 
 #[allow(clippy::needless_pass_by_value)]
 fn handle_export(options: GlobalOptions, output: Output) -> anyhow::Result<()> {
+    let transport = options.transport()?;
     let GlobalOptions {
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(transport, device.as_deref(), emulate)?;
 
     let mut writer = output.get_writer()?;
     let backup = camera.export_backup()?;
@@ -36,11 +37,12 @@ fn handle_export(options: GlobalOptions, output: Output) -> anyhow::Result<()> {
 
 #[allow(clippy::needless_pass_by_value)]
 fn handle_import(options: GlobalOptions, input: Input) -> anyhow::Result<()> {
+    let transport = options.transport()?;
     let GlobalOptions {
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(transport, device.as_deref(), emulate)?;
 
     let mut reader = input.get_reader()?;
     let mut backup = Vec::new();

@@ -31,7 +31,7 @@ pub fn generate(cameras: &BTreeMap<String, Camera>) -> anyhow::Result<TokenStrea
             quote! {
                 fn as_backup_manager(
                     &self,
-                ) -> Option<&dyn crate::features::backup::CameraBackupManager<Context = Self::Context>> {
+                ) -> Option<&dyn crate::features::backup::CameraBackupManager> {
                     Some(self)
                 }
             }
@@ -46,7 +46,7 @@ pub fn generate(cameras: &BTreeMap<String, Camera>) -> anyhow::Result<TokenStrea
 
                 fn as_simulation_manager(
                     &self,
-                ) -> Option<&dyn crate::features::simulation::CameraSimulationManager<Context = Self::Context>> {
+                ) -> Option<&dyn crate::features::simulation::CameraSimulationManager> {
                     Some(self)
                 }
             }
@@ -55,7 +55,7 @@ pub fn generate(cameras: &BTreeMap<String, Camera>) -> anyhow::Result<TokenStrea
             quote! {
                 fn as_render_manager(
                     &self,
-                ) -> Option<&dyn crate::features::render::CameraRenderManager<Context = Self::Context>> {
+                ) -> Option<&dyn crate::features::render::CameraRenderManager> {
                     Some(self)
                 }
             }
@@ -72,8 +72,6 @@ pub fn generate(cameras: &BTreeMap<String, Camera>) -> anyhow::Result<TokenStrea
             };
 
             impl crate::features::base::CameraBase for #struct_name {
-                type Context = rusb::GlobalContext;
-
                 fn camera_definition(&self) -> &'static crate::SupportedCamera {
                     &#const_name
                 }

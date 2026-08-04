@@ -16,8 +16,6 @@ use crate::{
 };
 
 pub trait CameraBase {
-    type Context: rusb::UsbContext;
-
     fn camera_definition(&self) -> &'static SupportedCamera;
 
     fn chunk_size(&self) -> usize {
@@ -25,7 +23,7 @@ pub trait CameraBase {
         1024 * 1024
     }
 
-    fn as_backup_manager(&self) -> Option<&dyn CameraBackupManager<Context = Self::Context>> {
+    fn as_backup_manager(&self) -> Option<&dyn CameraBackupManager> {
         None
     }
 
@@ -33,13 +31,11 @@ pub trait CameraBase {
         None
     }
 
-    fn as_simulation_manager(
-        &self,
-    ) -> Option<&dyn CameraSimulationManager<Context = Self::Context>> {
+    fn as_simulation_manager(&self) -> Option<&dyn CameraSimulationManager> {
         None
     }
 
-    fn as_render_manager(&self) -> Option<&dyn CameraRenderManager<Context = Self::Context>> {
+    fn as_render_manager(&self) -> Option<&dyn CameraRenderManager> {
         None
     }
 
@@ -81,8 +77,6 @@ pub const UNKNOWN_CAMERA: SupportedCamera = SupportedCamera {
 };
 
 impl CameraBase for UnknownCamera {
-    type Context = rusb::GlobalContext;
-
     fn camera_definition(&self) -> &'static SupportedCamera {
         &UNKNOWN_CAMERA
     }

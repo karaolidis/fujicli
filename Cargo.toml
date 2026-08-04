@@ -41,7 +41,7 @@ clap = { version = "4.5.48", features = ["derive", "wrap_help"] }
 log = "0.4.28"
 log4rs = "1.4.0"
 num_enum = "0.7.4"
-rusb = "0.9.4"
+rusb = { version = "0.9.4", optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 strsim = "0.11.1"
@@ -53,3 +53,20 @@ erased-serde = "0.4.8"
 serde_with = "3.15.1"
 exiftool = "0.3.0"
 tempfile = "3.24.0"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", optional = true, features = [
+    "Win32_Devices_PortableDevices",
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+] }
+windows-core = { version = "0.62", optional = true }
+
+[features]
+default = ["libusb", "wpd"]
+# Direct libusb/WinUSB transport. Required on Linux and macOS.
+libusb = ["dep:rusb"]
+# Driver-free Windows Portable Devices (MTP) transport. No-op off Windows.
+wpd = ["dep:windows", "dep:windows-core"]

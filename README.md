@@ -13,12 +13,13 @@ Commands:
   help        Print this message or the help of the given subcommand(s)
 
 Options:
-  -j, --json               Format output using json
-  -v, --verbose...         Log extra debugging information (multiple instances increase verbosity)
-  -d, --device <DEVICE>    Manually specify target device using USB <BUS>.<ADDRESS>
-      --emulate <EMULATE>  Treat device as a different model using <VENDOR_ID>:<PRODUCT_ID>
-  -h, --help               Print help
-  -V, --version            Print version
+  -j, --json                   Format output using json
+  -v, --verbose...             Log extra debugging information (multiple instances increase verbosity)
+  -d, --device <DEVICE>        Manually specify target device using the ID reported by `device list`
+      --transport <TRANSPORT>  Transport used to reach the camera [default: auto] [possible values: auto, wpd, libusb]
+      --emulate <EMULATE>      Treat device as a different model using <VENDOR_ID>:<PRODUCT_ID>
+  -h, --help                   Print help
+  -V, --version                Print version
 ```
 
 ## Status

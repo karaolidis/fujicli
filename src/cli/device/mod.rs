@@ -25,9 +25,10 @@ pub enum DeviceCmd {
 
 #[allow(clippy::needless_pass_by_value)]
 fn handle_list(options: GlobalOptions) -> anyhow::Result<()> {
+    let transport = options.transport()?;
     let GlobalOptions { json, .. } = options;
 
-    let cameras: Vec<CameraInfoListItem> = usb::get_all_cameras()?
+    let cameras: Vec<CameraInfoListItem> = usb::get_all_cameras(transport)?
         .iter()
         .map(std::convert::Into::into)
         .collect();
@@ -51,6 +52,7 @@ fn handle_list(options: GlobalOptions) -> anyhow::Result<()> {
 
 #[allow(clippy::needless_pass_by_value)]
 fn handle_info(options: GlobalOptions) -> anyhow::Result<()> {
+    let transport = options.transport()?;
     let GlobalOptions {
         json,
         device,
@@ -58,7 +60,7 @@ fn handle_info(options: GlobalOptions) -> anyhow::Result<()> {
         ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(transport, device.as_deref(), emulate)?;
 
     let repr = camera.get_info()?;
 

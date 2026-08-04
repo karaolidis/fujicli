@@ -6,7 +6,9 @@ use crate::ptp::ResponseCode;
 pub enum Error {
     Response(u16),
     Malformed(String),
+    #[cfg(feature = "libusb")]
     Usb(rusb::Error),
+    Transport(String),
     Io(io::Error),
 }
 
@@ -18,7 +20,9 @@ impl fmt::Display for Error {
                     .map_or_else(|_| "Unknown".to_string(), |c| format!("{c:?}"));
                 write!(f, "{name} (0x{r:04x})")
             }
+            #[cfg(feature = "libusb")]
             Self::Usb(ref e) => write!(f, "USB error: {e}"),
+            Self::Transport(ref e) => write!(f, "Transport error: {e}"),
             Self::Io(ref e) => write!(f, "IO error: {e}"),
             Self::Malformed(ref e) => write!(f, "{e}"),
         }
@@ -28,6 +32,7 @@ impl fmt::Display for Error {
 impl ::std::error::Error for Error {
     fn cause(&self) -> Option<&dyn ::std::error::Error> {
         match *self {
+            #[cfg(feature = "libusb")]
             Self::Usb(ref e) => Some(e),
             Self::Io(ref e) => Some(e),
             _ => None,
@@ -35,6 +40,7 @@ impl ::std::error::Error for Error {
     }
 }
 
+#[cfg(feature = "libusb")]
 impl From<rusb::Error> for Error {
     fn from(e: rusb::Error) -> Self {
         Self::Usb(e)
