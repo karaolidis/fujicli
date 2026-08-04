@@ -9,8 +9,10 @@ use features::{
     simulation::Simulation,
 };
 use log::{debug, error};
-use ptp::Ptp;
-use rusb::{GlobalContext, constants::LIBUSB_CLASS_IMAGE};
+use ptp::{
+    Ptp,
+    transport::{self, Device, TransportKind},
+};
 
 use crate::{
     features::base::UNKNOWN_CAMERA,
@@ -34,7 +36,7 @@ const SESSION: u32 = 1;
 
 pub struct Camera {
     pub ptp: Ptp,
-    r#impl: Box<dyn CameraBase<Context = GlobalContext>>,
+    r#impl: Box<dyn CameraBase>,
 }
 
 pub enum CameraMode {
@@ -43,30 +45,69 @@ pub enum CameraMode {
     Unknown,
 }
 
-impl Camera {
-    pub fn probe(device: &rusb::Device<GlobalContext>) -> anyhow::Result<bool> {
-        let descriptor = device.device_descriptor()?;
+/// Enumerate every supported camera visible to `transport`.
+///
+/// With [`TransportKind::Auto`] each transport is tried in preference order and
+/// the first one that reports a supported camera wins, so Windows users on the
+/// stock MTP driver and Zadig/WinUSB users are both served.
+pub fn list_devices(transport: TransportKind) -> anyhow::Result<Vec<Device>> {
+    for kind in transport.candidates() {
+        let devices: Vec<Device> = transport::enumerate(kind)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(Camera::probe)
+            .collect();
 
-        let vendor = descriptor.vendor_id();
-        let product = descriptor.product_id();
-
-        let supported = SUPPORTED
-            .iter()
-            .any(|c| c.vendor == vendor && c.product == product);
-
-        Ok(supported)
+        if !devices.is_empty() {
+            debug!("Using {kind} transport");
+            return Ok(devices);
+        }
     }
 
-    pub fn open_with(
-        mode: CameraMode,
-        device: &rusb::Device<GlobalContext>,
-    ) -> anyhow::Result<Self> {
-        let descriptor = device.device_descriptor()?;
+    Ok(Vec::new())
+}
 
-        let (vendor, product) = match mode {
-            CameraMode::Supported | CameraMode::Unknown => {
-                (descriptor.vendor_id(), descriptor.product_id())
+/// Resolve a `-d` selector against `transport`.
+///
+/// The selector is opaque and transport-defined: `<BUS>.<ADDRESS>` for libusb,
+/// a WPD device ID (or an unambiguous substring of one) for WPD.
+pub fn find_device(transport: TransportKind, id: &str) -> anyhow::Result<Device> {
+    let needle = id.to_ascii_lowercase();
+    let mut partial: Vec<Device> = Vec::new();
+
+    for kind in transport.candidates() {
+        for device in transport::enumerate(kind).unwrap_or_default() {
+            if device.id().eq_ignore_ascii_case(id) {
+                return Ok(device);
             }
+
+            if device.id().to_ascii_lowercase().contains(&needle) {
+                partial.push(device);
+            }
+        }
+    }
+
+    if partial.len() > 1 {
+        bail!("Device selector {id} is ambiguous, use the full device ID");
+    }
+
+    partial
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("No device found matching {id}"))
+}
+
+impl Camera {
+    #[must_use]
+    pub fn probe(device: &Device) -> bool {
+        SUPPORTED
+            .iter()
+            .any(|c| c.vendor == device.vendor() && c.product == device.product())
+    }
+
+    pub fn open_with(mode: CameraMode, device: &Device) -> anyhow::Result<Self> {
+        let (vendor, product) = match mode {
+            CameraMode::Supported | CameraMode::Unknown => (device.vendor(), device.product()),
             CameraMode::Emulated { vendor, product } => (vendor, product),
         };
 
@@ -82,72 +123,27 @@ impl Camera {
             CameraMode::Unknown => UNKNOWN_CAMERA.camera_factory,
         };
 
-        let bus = device.bus_number();
-        let address = device.address();
+        debug!("Opening {device:?}");
+        let mut transport = device.open()?;
 
-        let config_descriptor = device.active_config_descriptor()?;
-        let interface_descriptor = config_descriptor
-            .interfaces()
-            .flat_map(|i| i.descriptors())
-            .find(|x| x.class_code() == LIBUSB_CLASS_IMAGE)
-            .ok_or(rusb::Error::NotFound)?;
-
-        let interface = interface_descriptor.interface_number();
-        debug!("Found interface {interface}");
-
-        let handle = device.open()?;
-        handle.claim_interface(interface)?;
-        debug!("Claimed interface");
-
-        let find_endpoint = |direction: rusb::Direction,
-                             transfer_type: rusb::TransferType|
-         -> Result<u8, rusb::Error> {
-            interface_descriptor
-                .endpoint_descriptors()
-                .find(|ep| ep.direction() == direction && ep.transfer_type() == transfer_type)
-                .map(|x| x.address())
-                .ok_or(rusb::Error::NotFound)
-        };
-
-        let bulk_in = find_endpoint(rusb::Direction::In, rusb::TransferType::Bulk)?;
-        debug!("Found Bulk In endpoint");
-
-        let bulk_out = find_endpoint(rusb::Direction::Out, rusb::TransferType::Bulk)?;
-        debug!("Found Bulk Out endpoint");
-
-        let transaction_id = 0;
         let r#impl = (factory)();
-        let chunk_size = r#impl.chunk_size();
+        transport.set_chunk_size(r#impl.chunk_size());
 
-        let mut ptp = Ptp {
-            bus,
-            address,
-            interface,
-            bulk_in,
-            bulk_out,
-            handle,
-            transaction_id,
-            chunk_size,
-        };
-
+        let mut ptp = Ptp::new(transport);
         ptp.open_session(SESSION)?;
 
         Ok(Self { ptp, r#impl })
     }
 
-    pub fn open(device: &rusb::Device<GlobalContext>) -> anyhow::Result<Self> {
+    pub fn open(device: &Device) -> anyhow::Result<Self> {
         Self::open_with(CameraMode::Supported, device)
     }
 
-    pub fn open_as(
-        device: &rusb::Device<GlobalContext>,
-        vendor: u16,
-        product: u16,
-    ) -> anyhow::Result<Self> {
+    pub fn open_as(device: &Device, vendor: u16, product: u16) -> anyhow::Result<Self> {
         Self::open_with(CameraMode::Emulated { vendor, product }, device)
     }
 
-    pub fn open_unknown(device: &rusb::Device<GlobalContext>) -> anyhow::Result<Self> {
+    pub fn open_unknown(device: &Device) -> anyhow::Result<Self> {
         Self::open_with(CameraMode::Unknown, device)
     }
 }
@@ -160,7 +156,7 @@ impl Drop for Camera {
     }
 }
 
-type CameraFactory = fn() -> Box<dyn CameraBase<Context = GlobalContext>>;
+type CameraFactory = fn() -> Box<dyn CameraBase>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct SupportedCamera {
@@ -184,7 +180,7 @@ impl Camera {
     }
 
     pub fn connected_usb_id(&self) -> String {
-        format!("{}.{}", self.ptp.bus, self.ptp.address)
+        self.ptp.id()
     }
 
     pub fn get_info(&mut self) -> anyhow::Result<Box<dyn CameraInfo>> {

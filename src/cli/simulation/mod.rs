@@ -53,6 +53,7 @@ pub enum SimulationCmd {
 
 #[allow(clippy::needless_pass_by_value)]
 fn handle_list(options: GlobalOptions) -> anyhow::Result<()> {
+    let transport = options.transport()?;
     let GlobalOptions {
         json,
         device,
@@ -60,7 +61,7 @@ fn handle_list(options: GlobalOptions) -> anyhow::Result<()> {
         ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(transport, device.as_deref(), emulate)?;
 
     let slots: Vec<SimulationListItem> = camera
         .custom_settings_slots()?
@@ -85,6 +86,7 @@ fn handle_list(options: GlobalOptions) -> anyhow::Result<()> {
 
 #[allow(clippy::needless_pass_by_value)]
 fn handle_get(options: GlobalOptions, slot: CustomSetting) -> anyhow::Result<()> {
+    let transport = options.transport()?;
     let GlobalOptions {
         json,
         device,
@@ -92,7 +94,7 @@ fn handle_get(options: GlobalOptions, slot: CustomSetting) -> anyhow::Result<()>
         ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(transport, device.as_deref(), emulate)?;
 
     let simulation = camera.get_simulation(slot)?;
 
@@ -111,11 +113,12 @@ fn handle_set(
     simulation: SimulationArgs,
     slot: CustomSetting,
 ) -> anyhow::Result<()> {
+    let transport = options.transport()?;
     let GlobalOptions {
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(transport, device.as_deref(), emulate)?;
     let partial: SimulationBase = simulation.into();
     camera.update_simulation(slot, partial)?;
     Ok(())
@@ -127,11 +130,12 @@ fn handle_export(
     slot: CustomSetting,
     output: Output,
 ) -> anyhow::Result<()> {
+    let transport = options.transport()?;
     let GlobalOptions {
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(transport, device.as_deref(), emulate)?;
 
     let mut writer = output.get_writer()?;
     let simulation = camera.get_simulation(slot)?;
@@ -143,11 +147,12 @@ fn handle_export(
 
 #[allow(clippy::needless_pass_by_value)]
 fn handle_import(options: GlobalOptions, slot: CustomSetting, input: Input) -> anyhow::Result<()> {
+    let transport = options.transport()?;
     let GlobalOptions {
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(transport, device.as_deref(), emulate)?;
 
     let mut reader = input.get_reader()?;
     let mut buffer = Vec::new();

@@ -12,15 +12,13 @@ to `None`.
 
 ```rust
 pub trait CameraBase {
-    type Context: rusb::UsbContext;
-
     fn camera_definition(&self) -> &'static SupportedCamera;
     fn chunk_size(&self) -> usize { 1024 * 1024 }
 
-    fn as_backup_manager(&self) -> Option<&dyn CameraBackupManager<...>> { None }
+    fn as_backup_manager(&self) -> Option<&dyn CameraBackupManager> { None }
     fn as_simulation_parser(&self) -> Option<&dyn CameraSimulationParser> { None }
-    fn as_simulation_manager(&self) -> Option<&dyn CameraSimulationManager<...>> { None }
-    fn as_render_manager(&self) -> Option<&dyn CameraRenderManager<...>> { None }
+    fn as_simulation_manager(&self) -> Option<&dyn CameraSimulationManager> { None }
+    fn as_render_manager(&self) -> Option<&dyn CameraRenderManager> { None }
 
     fn get_info(&self, ptp: &mut Ptp) -> anyhow::Result<Box<dyn CameraInfo>> { ... }
 }
@@ -31,14 +29,13 @@ The codegen emits overrides only for the features the camera spec declares:
 ```rust
 // src/lib/generated/cameras.rs (sketch)
 impl CameraBase for XT5 {
-    type Context = rusb::GlobalContext;
     fn camera_definition(&self) -> &'static SupportedCamera { &C_X_T5 }
     fn chunk_size(&self) -> usize { 16128 * 1024 }
 
-    fn as_backup_manager(&self) -> Option<&dyn CameraBackupManager<...>> { Some(self) }
+    fn as_backup_manager(&self) -> Option<&dyn CameraBackupManager> { Some(self) }
     fn as_simulation_parser(&self)  -> Option<&dyn CameraSimulationParser>  { Some(self) }
-    fn as_simulation_manager(&self) -> Option<&dyn CameraSimulationManager<...>> { Some(self) }
-    fn as_render_manager(&self)     -> Option<&dyn CameraRenderManager<...>>     { Some(self) }
+    fn as_simulation_manager(&self) -> Option<&dyn CameraSimulationManager> { Some(self) }
+    fn as_render_manager(&self)     -> Option<&dyn CameraRenderManager>     { Some(self) }
 }
 ```
 
@@ -121,6 +118,27 @@ option-level traits the codegen targets:
 The PTP wire codec lives in [`crates/ptp/cursor`](../../crates/ptp/cursor/)
 (`PtpSerialize`, `PtpDeserialize`, `Read`, `ExactString`). The derive macros for
 the basic shapes live in [`crates/ptp/macro`](../../crates/ptp/macro/).
+
+## Transports
+
+`Ptp` owns a `Box<dyn PtpTransport>`
+([`src/lib/ptp/transport/`](../../src/lib/ptp/transport/)). Everything above
+`PtpTransport::transact` is transport-agnostic:
+
+- **`libusb`** ([`transport/libusb.rs`](../../src/lib/ptp/transport/libusb.rs)) -
+  claims the `LIBUSB_CLASS_IMAGE` interface, builds PTP containers itself, and
+  tracks transaction IDs. Device IDs are `<BUS>.<ADDRESS>`.
+- **`wpd`** ([`transport/wpd.rs`](../../src/lib/ptp/transport/wpd.rs)) -
+  Windows-only, driver-free. Issues `WPD_COMMAND_MTP_EXT_*` commands through
+  `IPortableDevice::SendCommand`, so the inbox Microsoft MTP driver does the
+  framing, owns the PTP session (`OpenSession`/`CloseSession` are no-ops), and
+  assigns transaction IDs. Vendor opcodes (`0x900C`/`0x900D`) go through the
+  same commands as standard ones. `DeviceBusy` (`0x2019`) is retried with
+  backoff. Device IDs are WPD device ID strings.
+
+Both are cargo features (`libusb`, `wpd`), on by default; `wpd` compiles to
+nothing off Windows. `--transport auto` tries WPD first and falls back to
+libusb.
 
 ## Input Helpers
 

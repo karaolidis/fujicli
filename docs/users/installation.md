@@ -30,7 +30,9 @@ You need:
   [rustup](https://rustup.rs/).
 - [CUE](https://cuelang.org/) on `PATH` - the build script invokes `cue export`
   to materialize the schema into JSON.
-- A C toolchain and `libusb-1.0` headers, for the `rusb` dependency.
+- A C toolchain and `libusb-1.0` headers, for the `rusb` dependency. On Windows
+  you can skip these by building without the libusb transport:
+  `cargo build --release --no-default-features --features wpd`.
 
 Then:
 
@@ -62,12 +64,11 @@ PTP / USB mode in its menus, and `fujicli device list` should see it.
 
 ### Windows
 
-Windows binds the camera to its default WPD / photo-import driver, which blocks
-raw PTP. Replace the driver with WinUSB or libusbK using Zadig:
+No driver changes are required. Connect the camera in PTP / USB mode and
+`fujicli device list` will reach it through the inbox Windows Portable Devices
+(WPD / MTP) driver.
 
-1. Install Zadig from <https://zadig.akeo.ie/>.
-2. Connect the camera in PTP / USB mode.
-3. In Zadig: **Options -> List All Devices**.
-4. Select the camera (often listed as "USB PTP" or by model name).
-5. Pick **WinUSB** (recommended) or **libusbK** as the target driver.
-6. Click **Replace Driver**. You can revert from Zadig later.
+If you previously rebound the camera to WinUSB or libusbK with
+[Zadig](https://zadig.akeo.ie/), that still works: `fujicli` falls back to the
+libusb transport when no camera is visible over WPD. You can force either path
+with `--transport wpd` or `--transport libusb`.

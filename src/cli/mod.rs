@@ -8,10 +8,11 @@ use clap::{ArgAction, Args, Parser, Subcommand};
 
 use backup::BackupCmd;
 use device::DeviceCmd;
+use fujicli::ptp::TransportKind;
 use image::ImageCmd;
 use simulation::SimulationCmd;
 
-use crate::cli::common::usb::{Identity, Location};
+use crate::cli::common::usb::Identity;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None, author)]
@@ -34,14 +35,24 @@ pub struct GlobalOptions {
     #[arg(long, short = 'v', action = ArgAction::Count, global = true)]
     pub verbose: u8,
 
-    /// Manually specify target device using USB <BUS>.<ADDRESS>
+    /// Manually specify target device using the ID reported by `device list`
     #[arg(long, short = 'd', global = true)]
-    pub device: Option<Location>,
+    pub device: Option<String>,
+
+    /// Transport used to reach the camera
+    #[arg(long, global = true, default_value = "auto", value_parser = ["auto", "wpd", "libusb"])]
+    pub transport: String,
 
     #[allow(clippy::doc_markdown)]
     /// Treat device as a different model using <VENDOR_ID>:<PRODUCT_ID>
     #[arg(long, global = true)]
     pub emulate: Option<Identity>,
+}
+
+impl GlobalOptions {
+    pub fn transport(&self) -> anyhow::Result<TransportKind> {
+        self.transport.parse()
+    }
 }
 
 #[derive(Subcommand, Debug)]

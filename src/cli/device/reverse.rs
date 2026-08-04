@@ -1,7 +1,5 @@
-use anyhow::anyhow;
 use clap::Subcommand;
 use fujicli::{
-    Camera,
     features::backup::{self, manager::BackupObjectInfo},
     generated::{
         cli::SIMULATION_PROP_CODES,
@@ -50,11 +48,9 @@ macro_rules! try_call {
 
 #[allow(clippy::needless_pass_by_value)]
 fn handle_backup_export(options: GlobalOptions, output: Output) -> anyhow::Result<()> {
+    let transport = options.transport()?;
     let GlobalOptions { device, .. } = options;
-
-    let location = device.ok_or_else(|| anyhow!("Device must be specified for backup export"))?;
-    let usb = usb::get_usb_device_by_location(location)?;
-    let mut camera = Camera::open_unknown(&usb)?;
+    let mut camera = usb::get_unknown_camera(transport, device.as_deref(), "backup export")?;
 
     let mut writer = output.get_writer()?;
     try_call!(camera.ptp.send(
@@ -74,11 +70,9 @@ fn handle_backup_export(options: GlobalOptions, output: Output) -> anyhow::Resul
 
 #[allow(clippy::needless_pass_by_value)]
 fn handle_backup_import(options: GlobalOptions, input: Input) -> anyhow::Result<()> {
+    let transport = options.transport()?;
     let GlobalOptions { device, .. } = options;
-
-    let location = device.ok_or_else(|| anyhow!("Device must be specified for backup import"))?;
-    let usb = usb::get_usb_device_by_location(location)?;
-    let mut camera = Camera::open_unknown(&usb)?;
+    let mut camera = usb::get_unknown_camera(transport, device.as_deref(), "backup import")?;
 
     let mut reader = input.get_reader()?;
     let mut backup = Vec::new();
@@ -102,11 +96,9 @@ fn handle_backup_import(options: GlobalOptions, input: Input) -> anyhow::Result<
 
 #[allow(clippy::needless_pass_by_value)]
 fn handle_info(options: GlobalOptions) -> anyhow::Result<()> {
+    let transport = options.transport()?;
     let GlobalOptions { device, .. } = options;
-
-    let location = device.ok_or_else(|| anyhow!("Device must be specified for info dump"))?;
-    let usb = usb::get_usb_device_by_location(location)?;
-    let mut camera = Camera::open_unknown(&usb)?;
+    let mut camera = usb::get_unknown_camera(transport, device.as_deref(), "info dump")?;
 
     let _ = try_call!(camera.ptp.get_info());
     let _ = try_call!(camera.ptp.get_prop_raw(UsbMode::prop_code()));
@@ -119,12 +111,10 @@ fn handle_info(options: GlobalOptions) -> anyhow::Result<()> {
 #[allow(clippy::cognitive_complexity)]
 #[allow(clippy::needless_pass_by_value)]
 fn handle_simulation(options: GlobalOptions) -> anyhow::Result<()> {
+    let transport = options.transport()?;
     let GlobalOptions { device, .. } = options;
 
-    let location =
-        device.ok_or_else(|| anyhow!("Device must be specified for simulation prop dump"))?;
-    let usb = usb::get_usb_device_by_location(location)?;
-    let mut camera = Camera::open_unknown(&usb)?;
+    let mut camera = usb::get_unknown_camera(transport, device.as_deref(), "simulation prop dump")?;
 
     for slot in CustomSetting::iter() {
         if try_call!(slot.try_push(&mut camera.ptp)).is_err() {
