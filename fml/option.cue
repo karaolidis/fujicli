@@ -4,6 +4,10 @@ import "list"
 
 import "strconv"
 
+import "math"
+
+import "struct"
+
 options: [string]: #Option
 
 #Option: #DefinitionBase & {
@@ -36,7 +40,7 @@ options: [string]: #Option
 		#Rules: {
 			min?:  int
 			max?:  int
-			step?: int
+			step?: uint & >0
 
 			if min != _|_ && max != _|_ {
 				min: <=max
@@ -57,7 +61,7 @@ options: [string]: #Option
 			spec: #Scale
 
 			#Scale: {
-				scale: int
+				scale: uint & >0
 			}
 		}
 
@@ -68,7 +72,7 @@ options: [string]: #Option
 			#Lookup: {
 				values: {
 					[string]: int | [int, ...int]
-				}
+				} & struct.MinFields(1)
 
 				_validation: {
 					for k, _ in values {
@@ -78,6 +82,9 @@ options: [string]: #Option
 						if rules != _|_ {
 							if rules.min != _|_ {"\(k)": >=rules.min}
 							if rules.max != _|_ {"\(k)": <=rules.max}
+							if rules.step != _|_ {
+								"\(k)_step": 0.0 & math.Mod(i, rules.step)
+							}
 						}
 					}
 				}
@@ -93,7 +100,7 @@ options: [string]: #Option
 		#Rules: {
 			min?:  float
 			max?:  float
-			step?: float
+			step?: float & >0
 
 			if min != _|_ && max != _|_ {
 				min: <=max
@@ -114,7 +121,7 @@ options: [string]: #Option
 			spec: #Scale
 
 			#Scale: {
-				scale: int
+				scale: uint & >0
 			}
 		}
 
@@ -125,7 +132,7 @@ options: [string]: #Option
 			#Lookup: {
 				values: {
 					[string]: int | [int, ...int]
-				}
+				} & struct.MinFields(1)
 
 				_validation: {
 					for k, _ in values {
@@ -135,6 +142,9 @@ options: [string]: #Option
 						if rules != _|_ {
 							if rules.min != _|_ {"\(k)": >=rules.min}
 							if rules.max != _|_ {"\(k)": <=rules.max}
+							if rules.step != _|_ {
+								"\(k)_step": 0.0 & math.Mod(f, rules.step)
+							}
 						}
 					}
 				}
@@ -169,18 +179,16 @@ options: [string]: #Option
 		encoding: #Encoding
 
 		#Rules: {
-			variants: [...#Variant]
+			variants: [#Variant, ...#Variant]
 
 			#Variant: {
 				id:   string
 				name: string
-				aliases: [...string]
+				aliases: [string, ...string]
 			}
 
-			_validation: {
-				ids: list.UniqueItems & [for v in variants {v.id}]
-				aliases: list.UniqueItems & [for v in variants for a in v.aliases {a}]
-			}
+			_unique_ids: list.UniqueItems & [for v in variants {v.id}]
+			_unique_aliases: list.UniqueItems & [for v in variants for a in v.aliases {a}]
 		}
 
 		#Encoding: #EncodingLookup
