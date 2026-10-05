@@ -18,7 +18,7 @@ struct Entry {
 pub fn generate(
     options: &BTreeMap<String, FujiOption>,
     cameras: &BTreeMap<String, Camera>,
-) -> anyhow::Result<TokenStream> {
+) -> TokenStream {
     let simulation_options = collect_simulation_option_ids(cameras);
     let entries = build_entries(options);
 
@@ -26,11 +26,11 @@ pub fn generate(
     let from_impl = generate_from_impl(&entries, &simulation_options);
     let prop_codes_const = generate_prop_codes_const(options, &simulation_options);
 
-    Ok(quote! {
+    quote! {
         #struct_def
         #from_impl
         #prop_codes_const
-    })
+    }
 }
 
 fn collect_simulation_option_ids(cameras: &BTreeMap<String, Camera>) -> BTreeSet<String> {
@@ -83,7 +83,7 @@ fn generate_struct(entries: &[Entry]) -> TokenStream {
     });
 
     quote! {
-        #[derive(::clap::Args, Debug, Default, Clone)]
+        #[derive(::clap::Args, ::std::fmt::Debug, ::std::default::Default, ::std::clone::Clone)]
         pub struct SimulationArgs {
             #( #fields )*
         }

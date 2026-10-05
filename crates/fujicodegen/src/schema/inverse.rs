@@ -10,6 +10,7 @@ use crate::{
 };
 
 impl Transformation {
+    #[must_use]
     pub fn is_invertible(&self, all: &[Self]) -> bool {
         let Some(Predicate::Equals(when_leaf)) = self.when.as_ref() else {
             return false;

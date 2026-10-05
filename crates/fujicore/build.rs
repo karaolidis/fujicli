@@ -12,6 +12,8 @@ fn main() -> anyhow::Result<()> {
     let workspace = manifest.join("..").join("..");
     let generated = manifest.join("src").join("generated");
 
+    println!("cargo:rerun-if-changed={}", generated.display());
+
     let cue = Command::new("cue")
         .args(["export", "./fml", "--out", "json"])
         .current_dir(&workspace)

@@ -13,10 +13,6 @@ use quote::quote;
 pub fn generate(json: &str, out_dir: &Path) -> anyhow::Result<()> {
     let fml: ast::Fml = serde_json::from_str(json).context("parsing FML JSON")?;
 
-    if out_dir.exists() {
-        std::fs::remove_dir_all(out_dir)
-            .with_context(|| format!("clearing {}", out_dir.display()))?;
-    }
     std::fs::create_dir_all(out_dir).with_context(|| format!("creating {}", out_dir.display()))?;
 
     let options = common::options::generate(&fml.options).context("generating option types")?;
@@ -33,11 +29,16 @@ pub fn generate(json: &str, out_dir: &Path) -> anyhow::Result<()> {
         .context("generating render profile types")?;
     write(out_dir, "renders", renders)?;
 
-    let cli = cli::generate(&fml.options, &fml.cameras).context("generating CLI args")?;
+    let cli = cli::generate(&fml.options, &fml.cameras);
     write(out_dir, "cli", cli)?;
 
     let mod_rs = root(&fml);
     write(out_dir, "mod", mod_rs)?;
+
+    prune(
+        out_dir,
+        &["options", "cameras", "simulations", "renders", "cli", "mod"],
+    )?;
 
     Ok(())
 }
@@ -52,6 +53,7 @@ fn root(fml: &ast::Fml) -> TokenStream {
 
     quote! {
         #![doc = #banner]
+        #![allow(clippy::unreadable_literal)]
 
         pub mod cameras;
         pub mod options;
@@ -65,7 +67,38 @@ fn write(out_dir: &Path, name: &str, tokens: TokenStream) -> anyhow::Result<()> 
     let formatted =
         format(tokens).with_context(|| format!("formatting generated module `{name}`"))?;
     let path = out_dir.join(format!("{name}.rs"));
+    if fs::read_to_string(&path).is_ok_and(|existing| existing == formatted) {
+        return Ok(());
+    }
     fs::write(&path, formatted).with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+fn prune(out_dir: &Path, keep: &[&str]) -> anyhow::Result<()> {
+    let entries =
+        fs::read_dir(out_dir).with_context(|| format!("reading {}", out_dir.display()))?;
+    for entry in entries {
+        let entry = entry.with_context(|| format!("reading {}", out_dir.display()))?;
+        let path = entry.path();
+        let kept = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .is_some_and(|stem| keep.contains(&stem))
+            && path.extension().is_some_and(|ext| ext == "rs");
+        if kept {
+            continue;
+        }
+
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("inspecting {}", path.display()))?;
+        if file_type.is_dir() {
+            fs::remove_dir_all(&path)
+        } else {
+            fs::remove_file(&path)
+        }
+        .with_context(|| format!("removing {}", path.display()))?;
+    }
     Ok(())
 }
 

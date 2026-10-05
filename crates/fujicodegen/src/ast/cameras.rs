@@ -73,24 +73,27 @@ pub enum Field {
 }
 
 impl Field {
+    #[must_use]
     pub fn id(&self) -> &str {
         match self {
-            Field::Ref(r) => &r.id,
-            Field::Inline(i) => &i.id,
+            Self::Ref(r) => &r.id,
+            Self::Inline(i) => &i.id,
         }
     }
 
-    pub fn skip_read(&self) -> bool {
+    #[must_use]
+    pub const fn skip_read(&self) -> bool {
         match self {
-            Field::Ref(r) => r.skip_read,
-            Field::Inline(i) => i.skip_read,
+            Self::Ref(r) => r.skip_read,
+            Self::Inline(i) => i.skip_read,
         }
     }
 
-    pub fn skip_write(&self) -> bool {
+    #[must_use]
+    pub const fn skip_write(&self) -> bool {
         match self {
-            Field::Ref(r) => r.skip_write,
-            Field::Inline(i) => i.skip_write,
+            Self::Ref(r) => r.skip_write,
+            Self::Inline(i) => i.skip_write,
         }
     }
 }
@@ -180,11 +183,11 @@ impl<'de> Deserialize<'de> for Assignment {
 
         let raw = Raw::deserialize(deserializer)?;
         match (raw.value, raw.present) {
-            (Some(value), None) => Ok(Assignment {
+            (Some(value), None) => Ok(Self {
                 r#ref: raw.r#ref,
                 effect: AssignmentEffect::Set(value),
             }),
-            (None, Some(false)) => Ok(Assignment {
+            (None, Some(false)) => Ok(Self {
                 r#ref: raw.r#ref,
                 effect: AssignmentEffect::Clear,
             }),

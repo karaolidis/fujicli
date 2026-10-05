@@ -1,6 +1,8 @@
+pub mod error;
 pub mod manager;
 pub mod parser;
 
+pub use error::SimulationError;
 pub use manager::CameraSimulationManager;
 pub use parser::CameraSimulationParser;
 
@@ -10,6 +12,7 @@ use erased_serde::serialize_trait_object;
 use serde::Serialize;
 
 use crate::{
+    CoreResult,
     generated::{
         options::{CustomSetting, CustomSettingName},
         simulations::SimulationBase,
@@ -22,13 +25,13 @@ pub trait Simulation: fmt::Display + erased_serde::Serialize {
 
     fn name(&self) -> Option<CustomSettingName>;
 
-    fn try_update_from(&mut self, partial: SimulationBase) -> anyhow::Result<()>;
+    fn try_update_from(&mut self, partial: &SimulationBase) -> CoreResult<()>;
 
-    fn try_pull(ptp: &mut crate::ptp::Ptp) -> anyhow::Result<Self>
+    fn try_pull(ptp: &mut crate::ptp::Ptp) -> CoreResult<Self>
     where
         Self: Sized;
 
-    fn try_push(&self, ptp: &mut Ptp) -> anyhow::Result<()>;
+    fn try_push(&self, ptp: &mut Ptp) -> CoreResult<()>;
 
     fn to_base(&self) -> SimulationBase;
 }

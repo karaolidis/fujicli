@@ -41,7 +41,7 @@ impl Bounds {
     }
 }
 
-pub(crate) fn generate(
+pub fn generate(
     id: &str,
     prop_code: Option<u16>,
     rules: Option<&NumericRules<i32>>,
@@ -58,32 +58,20 @@ pub(crate) fn generate(
 
     let type_name = safe_upper_camel_case_ident(id);
 
-    let struct_def = generate_struct_def(&type_name, &repr_type)
-        .with_context(|| format!("generating struct definition for integer option `{id}`"))?;
+    let struct_def = generate_struct_def(&type_name, &repr_type);
     let inherent_impl = generate_inherent_impl(&type_name, signed, &bounds)
         .with_context(|| format!("generating inherent impl for integer option `{id}`"))?;
-    let try_from_impl = generate_try_from_impl(&type_name, bounds.step)
-        .with_context(|| format!("generating TryFrom<i32> impl for integer option `{id}`"))?;
-    let to_impl = generate_to_impl(&type_name).with_context(|| {
-        format!("generating From<{type_name}> for i32 impl for integer option `{id}`")
-    })?;
-    let display_impl = generate_display_impl(&type_name)
-        .with_context(|| format!("generating Display impl for integer option `{id}`"))?;
-    let from_str_impl = generate_from_str_impl(&type_name)
-        .with_context(|| format!("generating FromStr impl for integer option `{id}`"))?;
-    let serde_impls = generate_serde_impls(&type_name)
-        .with_context(|| format!("generating Serde impls for integer option `{id}`"))?;
-    let simulation_setting_impl = if let Some(code) = prop_code {
-        generate_simulation_setting_impl(&type_name, code).with_context(|| {
-            format!("generating SimulationSetting impl for integer option `{id}`")
-        })?
-    } else {
-        quote! {}
-    };
+    let try_from_impl = generate_try_from_impl(&type_name, &repr_type, bounds.step);
+    let to_impl = generate_to_impl(&type_name);
+    let display_impl = generate_display_impl(&type_name);
+    let from_str_impl = generate_from_str_impl(&type_name);
+    let serde_impls = generate_serde_impls(&type_name);
+    let simulation_setting_impl = prop_code.map_or_else(
+        || quote! {},
+        |code| generate_simulation_setting_impl(&type_name, code),
+    );
     let conversion_profile_impl =
-        generate_conversion_profile_impl(&type_name, &repr_type, &repr_type_32).with_context(
-            || format!("generating ConversionProfileField impl for integer option `{id}`"),
-        )?;
+        generate_conversion_profile_impl(&type_name, &repr_type, &repr_type_32);
 
     Ok(quote! {
         #struct_def
@@ -98,19 +86,19 @@ pub(crate) fn generate(
     })
 }
 
-fn generate_struct_def(type_name: &Ident, repr_type: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_struct_def(type_name: &Ident, repr_type: &Ident) -> TokenStream {
+    quote! {
         #[derive(
-            Debug,
-            Clone,
-            Copy,
-            PartialEq,
-            Eq,
-            ptp_macro::PtpSerialize,
-            ptp_macro::PtpDeserialize,
+            ::std::fmt::Debug,
+            ::std::clone::Clone,
+            ::std::marker::Copy,
+            ::std::cmp::PartialEq,
+            ::std::cmp::Eq,
+            ::ptp_macro::PtpSerialize,
+            ::ptp_macro::PtpDeserialize,
         )]
         pub struct #type_name(#repr_type);
-    })
+    }
 }
 
 fn generate_inherent_impl(
@@ -162,75 +150,88 @@ fn generate_inherent_impl(
     })
 }
 
-fn generate_try_from_impl(type_name: &Ident, step: i32) -> anyhow::Result<TokenStream> {
-    let step_check = if step != 1 {
+fn generate_try_from_impl(type_name: &Ident, repr_type: &Ident, step: i32) -> TokenStream {
+    let step_check = if step == 1 {
+        quote! {}
+    } else {
         quote! {
             if (value - Self::MIN) % Self::STEP != 0 {
-                ::anyhow::bail!(
-                    "{} value {} is not aligned to step {}",
-                    stringify!(#type_name), value, Self::STEP,
-                );
+                return Err(crate::input::OptionError::StepMisaligned {
+                    type_name: stringify!(#type_name),
+                    value: value.to_string(),
+                    step: Self::STEP.to_string(),
+                });
             }
         }
-    } else {
-        quote! {}
     };
 
-    Ok(quote! {
+    quote! {
         impl ::std::convert::TryFrom<i32> for #type_name {
-            type Error = ::anyhow::Error;
-            fn try_from(value: i32) -> ::anyhow::Result<Self> {
+            type Error = crate::input::OptionError;
+            fn try_from(value: i32) -> ::std::result::Result<Self, crate::input::OptionError> {
                 if !(Self::MIN..=Self::MAX).contains(&value) {
-                    ::anyhow::bail!(
-                        "{} value {} is out of range [{}, {}]",
-                        stringify!(#type_name), value, Self::MIN, Self::MAX,
-                    );
+                    return Err(crate::input::OptionError::OutOfRange {
+                        type_name: stringify!(#type_name),
+                        value: value.to_string(),
+                        min: Self::MIN.to_string(),
+                        max: Self::MAX.to_string(),
+                    });
                 }
                 #step_check
                 let raw = value * Self::SCALE;
-                let raw = raw.try_into()?;
+                let raw = raw.try_into().map_err(|_| {
+                    crate::input::OptionError::WireOverflow {
+                        type_name: stringify!(#type_name),
+                        raw: raw.to_string(),
+                        repr: stringify!(#repr_type),
+                    }
+                })?;
                 Ok(Self(raw))
             }
         }
-    })
+    }
 }
 
-fn generate_to_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_to_impl(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::std::convert::From<#type_name> for i32 {
-            fn from(value: #type_name) -> i32 {
-                value.0 as i32 / #type_name::SCALE
+            fn from(value: #type_name) -> Self {
+                Self::from(value.0) / #type_name::SCALE
             }
         }
-    })
+    }
 }
 
-fn generate_display_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_display_impl(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::std::fmt::Display for #type_name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 write!(f, "{}", i32::from(*self))
             }
         }
-    })
+    }
 }
 
-fn generate_from_str_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_from_str_impl(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::std::str::FromStr for #type_name {
-            type Err = ::anyhow::Error;
-            fn from_str(s: &str) -> ::anyhow::Result<Self> {
+            type Err = crate::input::OptionError;
+            fn from_str(s: &str) -> ::std::result::Result<Self, crate::input::OptionError> {
                 let logical = crate::input::CleanAlphanumeric::clean(&s)
                     .parse::<i32>()
-                    .map_err(|e| ::anyhow::anyhow!("Invalid numeric value '{}': {}", s, e))?;
+                    .map_err(|e: ::std::num::ParseIntError| crate::input::OptionError::InvalidValue {
+                        type_name: stringify!(#type_name),
+                        input: s.to_string(),
+                        reason: e.to_string(),
+                    })?;
                 Self::try_from(logical)
             }
         }
-    })
+    }
 }
 
-fn generate_serde_impls(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_serde_impls(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::serde::Serialize for #type_name {
             fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 serializer.serialize_i32(i32::from(*self))
@@ -245,26 +246,23 @@ fn generate_serde_impls(type_name: &Ident) -> anyhow::Result<TokenStream> {
                 Self::try_from(logical).map_err(::serde::de::Error::custom)
             }
         }
-    })
+    }
 }
 
-fn generate_simulation_setting_impl(
-    type_name: &Ident,
-    prop_code: u16,
-) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_simulation_setting_impl(type_name: &Ident, prop_code: u16) -> TokenStream {
+    quote! {
         impl crate::ptp::option::SimulationSetting for #type_name {
             fn prop_code() -> u16 { #prop_code }
         }
-    })
+    }
 }
 
 fn generate_conversion_profile_impl(
     type_name: &Ident,
     repr_type: &Ident,
     repr_type_32: &Ident,
-) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+) -> TokenStream {
+    quote! {
         impl crate::ptp::option::ConversionProfileField for #type_name {
             fn try_write_conversion_profile_field_ptp(
                 &self, buf: &mut Vec<u8>,
@@ -290,5 +288,5 @@ fn generate_conversion_profile_impl(
                 Ok(Self(raw))
             }
         }
-    })
+    }
 }

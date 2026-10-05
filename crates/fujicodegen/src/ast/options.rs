@@ -45,6 +45,7 @@ pub enum OptionSpec {
 }
 
 impl OptionSpec {
+    #[must_use]
     pub fn name(&self) -> &str {
         match self {
             Self::Integer { name, .. }
@@ -54,16 +55,18 @@ impl OptionSpec {
         }
     }
 
-    pub fn kind(&self) -> SpecKind {
+    #[must_use]
+    pub const fn kind(&self) -> SpecKind {
         match &self {
-            OptionSpec::Integer { .. } => SpecKind::Integer,
-            OptionSpec::Float { .. } => SpecKind::Float,
-            OptionSpec::String { .. } => SpecKind::String,
-            OptionSpec::Enum { .. } => SpecKind::Enum,
+            Self::Integer { .. } => SpecKind::Integer,
+            Self::Float { .. } => SpecKind::Float,
+            Self::String { .. } => SpecKind::String,
+            Self::Enum { .. } => SpecKind::Enum,
         }
     }
 
-    pub fn prop_code(&self) -> Option<u16> {
+    #[must_use]
+    pub const fn prop_code(&self) -> Option<u16> {
         match self {
             Self::Integer { encoding, .. } | Self::Float { encoding, .. } => encoding.prop_code(),
             Self::String { encoding, .. } => encoding.prop_code(),
@@ -118,7 +121,8 @@ pub enum NumericEncoding {
 }
 
 impl NumericEncoding {
-    pub fn prop_code(&self) -> Option<u16> {
+    #[must_use]
+    pub const fn prop_code(&self) -> Option<u16> {
         match self {
             Self::Raw { prop_code }
             | Self::Scale { prop_code, .. }
@@ -134,7 +138,8 @@ pub enum StringEncoding {
 }
 
 impl StringEncoding {
-    pub fn prop_code(&self) -> Option<u16> {
+    #[must_use]
+    pub const fn prop_code(&self) -> Option<u16> {
         match self {
             Self::Raw { prop_code } => *prop_code,
         }
@@ -151,7 +156,8 @@ pub enum EnumEncoding {
 }
 
 impl EnumEncoding {
-    pub fn prop_code(&self) -> Option<u16> {
+    #[must_use]
+    pub const fn prop_code(&self) -> Option<u16> {
         match self {
             Self::Lookup { prop_code, .. } => *prop_code,
         }
@@ -207,7 +213,7 @@ mod tests {
         assert!(matches!(spec.values["a"], LookupValue::Single(5)));
         match &spec.values["b"] {
             LookupValue::Multi(v) => assert_eq!(v, &[1, 2, 3]),
-            _ => panic!("expected Multi for [1,2,3]"),
+            LookupValue::Single(_) => panic!("expected Multi for [1,2,3]"),
         }
     }
 

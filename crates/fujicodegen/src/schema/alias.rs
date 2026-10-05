@@ -22,12 +22,14 @@ impl From<Transformation> for Option<NormalizedTransformation> {
 }
 
 impl Dnf {
+    #[must_use]
     pub fn transform(self, alias: &NormalizedTransformation) -> Self {
         Self(self.into_iter().map(|c| c.transform(alias)).collect())
     }
 }
 
 impl Conjunction {
+    #[must_use]
     pub fn transform(mut self, alias: &NormalizedTransformation) -> Self {
         for disjunct in &alias.trigger {
             if self.contains_all(disjunct) {

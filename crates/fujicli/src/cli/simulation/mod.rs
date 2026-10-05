@@ -1,3 +1,5 @@
+use anyhow::Context;
+use clap::Subcommand;
 use fujicore::{
     features::simulation::SimulationListItem,
     generated::{cli::SimulationArgs, options::CustomSetting, simulations::SimulationBase},
@@ -5,7 +7,6 @@ use fujicore::{
 
 use super::common::file::{Input, Output};
 use crate::cli::{GlobalOptions, common::usb};
-use clap::Subcommand;
 
 #[derive(Subcommand, Debug)]
 pub enum SimulationCmd {
@@ -62,18 +63,26 @@ fn handle_list(options: GlobalOptions) -> anyhow::Result<()> {
 
     let mut camera = usb::get_camera(device, emulate)?;
 
-    let slots: Vec<SimulationListItem> = camera
-        .custom_settings_slots()?
-        .into_iter()
-        .map(|slot| -> anyhow::Result<SimulationListItem> {
-            let simulation = camera.get_simulation(slot)?;
-            let name = simulation.name();
-            Ok(SimulationListItem { slot, name })
-        })
-        .collect::<anyhow::Result<Vec<SimulationListItem>>>()?;
+    let slot_list = camera
+        .custom_settings_slots()
+        .context("listing simulation slots")?;
+
+    let mut slots: Vec<SimulationListItem> = Vec::with_capacity(slot_list.len());
+    for slot in slot_list {
+        let simulation = camera
+            .get_simulation(slot)
+            .with_context(|| format!("reading simulation slot {slot}"))?;
+        slots.push(SimulationListItem {
+            slot,
+            name: simulation.name(),
+        });
+    }
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&slots)?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&slots).context("serializing slot list to JSON")?
+        );
     } else {
         for slot in slots {
             println!("- {slot}");
@@ -94,10 +103,15 @@ fn handle_get(options: GlobalOptions, slot: CustomSetting) -> anyhow::Result<()>
 
     let mut camera = usb::get_camera(device, emulate)?;
 
-    let simulation = camera.get_simulation(slot)?;
+    let simulation = camera
+        .get_simulation(slot)
+        .with_context(|| format!("reading simulation slot {slot}"))?;
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&simulation)?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&simulation).context("serializing simulation to JSON")?
+        );
     } else {
         println!("{simulation}");
     }
@@ -117,7 +131,9 @@ fn handle_set(
 
     let mut camera = usb::get_camera(device, emulate)?;
     let partial: SimulationBase = simulation.into();
-    camera.update_simulation(slot, partial)?;
+    camera
+        .update_simulation(slot, partial)
+        .with_context(|| format!("updating simulation slot {slot}"))?;
     Ok(())
 }
 
@@ -134,9 +150,15 @@ fn handle_export(
     let mut camera = usb::get_camera(device, emulate)?;
 
     let mut writer = output.get_writer()?;
-    let simulation = camera.get_simulation(slot)?;
-    let simulation = camera.serialize_simulation(&*simulation)?;
-    writer.write_all(&simulation)?;
+    let simulation = camera
+        .get_simulation(slot)
+        .with_context(|| format!("reading simulation slot {slot}"))?;
+    let simulation = camera
+        .serialize_simulation(&*simulation)
+        .context("serializing simulation")?;
+    writer
+        .write_all(&simulation)
+        .context("writing serialized simulation to output")?;
 
     Ok(())
 }
@@ -151,9 +173,15 @@ fn handle_import(options: GlobalOptions, slot: CustomSetting, input: Input) -> a
 
     let mut reader = input.get_reader()?;
     let mut buffer = Vec::new();
-    reader.read_to_end(&mut buffer)?;
-    let simulation = camera.deserialize_simulation(&buffer)?;
-    camera.set_simulation(slot, &*simulation)?;
+    reader
+        .read_to_end(&mut buffer)
+        .context("reading serialized simulation from input")?;
+    let simulation = camera
+        .deserialize_simulation(&buffer)
+        .context("deserializing simulation")?;
+    camera
+        .set_simulation(slot, &*simulation)
+        .with_context(|| format!("writing simulation to slot {slot}"))?;
 
     Ok(())
 }

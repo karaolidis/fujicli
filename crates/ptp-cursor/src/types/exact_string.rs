@@ -25,10 +25,12 @@ use derive_more::{
 pub struct ExactString(pub String);
 
 impl ExactString {
-    pub fn new(s: String) -> Self {
+    #[must_use]
+    pub const fn new(s: String) -> Self {
         Self(s)
     }
 
+    #[must_use]
     pub fn into_inner(self) -> String {
         self.0
     }

@@ -2,16 +2,16 @@ use std::io::{self, Cursor};
 
 use ptp_cursor::{PtpDeserialize, PtpSerialize, Read};
 
-use crate::ptp::Ptp;
+use crate::{CoreResult, ptp::Ptp};
 
 pub trait SimulationSetting: PtpSerialize + PtpDeserialize {
     fn prop_code() -> u16;
 
-    fn try_push(&self, ptp: &mut Ptp) -> anyhow::Result<()> {
+    fn try_push(&self, ptp: &mut Ptp) -> CoreResult<()> {
         ptp.set_prop(Self::prop_code(), self)
     }
 
-    fn try_pull(ptp: &mut Ptp) -> anyhow::Result<Self> {
+    fn try_pull(ptp: &mut Ptp) -> CoreResult<Self> {
         ptp.get_prop(Self::prop_code())
     }
 }

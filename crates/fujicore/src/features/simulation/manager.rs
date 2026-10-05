@@ -1,4 +1,5 @@
 use crate::{
+    error::CoreResult,
     features::{
         base::CameraBase,
         simulation::{Simulation, parser::CameraSimulationParser},
@@ -10,23 +11,20 @@ use crate::{
 pub trait CameraSimulationManager: CameraBase + CameraSimulationParser {
     fn custom_settings_slots(&self) -> Vec<CustomSetting>;
 
-    fn get_simulation(
-        &self,
-        ptp: &mut Ptp,
-        slot: CustomSetting,
-    ) -> anyhow::Result<Box<dyn Simulation>>;
+    fn get_simulation(&self, ptp: &mut Ptp, slot: CustomSetting)
+    -> CoreResult<Box<dyn Simulation>>;
 
     fn update_simulation(
         &self,
         ptp: &mut Ptp,
         slot: CustomSetting,
         partial: SimulationBase,
-    ) -> anyhow::Result<()>;
+    ) -> CoreResult<()>;
 
     fn set_simulation(
         &self,
         ptp: &mut Ptp,
         slot: CustomSetting,
         simulation: &dyn Simulation,
-    ) -> anyhow::Result<()>;
+    ) -> CoreResult<()>;
 }

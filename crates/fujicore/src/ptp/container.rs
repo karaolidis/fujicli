@@ -1,9 +1,13 @@
-use std::io::{self, Cursor};
+use std::{
+    fmt,
+    io::{self, Cursor},
+};
 
-use anyhow::bail;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use ptp_cursor::{PtpDeserialize, PtpSerialize, Read};
 use ptp_macro::{PtpDeserialize, PtpSerialize};
+
+use crate::{CoreError, CoreResult, ptp::PtpError};
 
 #[derive(Debug, Clone, Copy, PtpSerialize, PtpDeserialize)]
 pub struct ContainerInfo {
@@ -22,8 +26,11 @@ impl ContainerInfo {
         code: CommandCode,
         transaction_id: u32,
         payload_len: usize,
-    ) -> anyhow::Result<Self> {
-        let total_len = u32::try_from(Self::SIZE + payload_len)?;
+    ) -> CoreResult<Self> {
+        let total = Self::SIZE.checked_add(payload_len);
+        let total_len = total
+            .and_then(|n| u32::try_from(n).ok())
+            .ok_or(CoreError::PayloadTooLarge(payload_len))?;
         let code = ContainerCode::Command(code);
 
         Ok(Self {
@@ -34,6 +41,7 @@ impl ContainerInfo {
         })
     }
 
+    #[must_use]
     pub const fn payload_len(&self) -> usize {
         self.total_len as usize - Self::SIZE
     }
@@ -99,6 +107,12 @@ pub enum ResponseCode {
     SpecificationOfDestinationUnsupported = 0x2020,
 }
 
+impl fmt::Display for ResponseCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?} (0x{:04x})", u16::from(*self))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContainerCode {
     Command(CommandCode),
@@ -115,7 +129,7 @@ impl From<ContainerCode> for u16 {
 }
 
 impl TryFrom<u16> for ContainerCode {
-    type Error = anyhow::Error;
+    type Error = PtpError;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         if let Ok(cmd) = CommandCode::try_from(value) {
@@ -126,7 +140,7 @@ impl TryFrom<u16> for ContainerCode {
             return Ok(Self::Response(resp));
         }
 
-        bail!("Unknown container code '{value:x?}'");
+        Err(PtpError::UnknownContainerCode(value))
     }
 }
 
@@ -152,8 +166,7 @@ impl PtpDeserialize for ContainerCode {
 
     fn try_read_ptp<R: ptp_cursor::Read>(cur: &mut R) -> io::Result<Self> {
         let value = <u16>::try_read_ptp(cur)?;
-        Self::try_from(value)
-            .map_err(|e: anyhow::Error| io::Error::new(io::ErrorKind::InvalidData, e))
+        Self::try_from(value).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 }
 

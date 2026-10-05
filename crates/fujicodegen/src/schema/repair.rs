@@ -71,7 +71,7 @@ pub fn generate_solve(
             quote! {
                 if !ok[#i_lit] {
                     if !self.#fn_name(pin, &ok #original_arg) {
-                        ::anyhow::bail!(#msg);
+                        return Err(crate::features::simulation::SimulationError::RuleViolation(#msg));
                     }
                     ok[#i_lit] = true;
                 }
@@ -88,7 +88,11 @@ pub fn generate_solve(
             let mut counter = 0usize;
             let walk = generate_dnf_walk(settings, &r.when, &mut counter, has_original)?;
             Ok(quote! {
-                #[allow(unused_variables)]
+                #[allow(
+                    unused_variables,
+                    clippy::nonminimal_bool,
+                    clippy::trivially_copy_pass_by_ref,
+                )]
                 fn #fn_name(
                     &mut self,
                     pin: &::std::collections::HashSet<&'static str>,
@@ -115,12 +119,17 @@ pub fn generate_solve(
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     Ok(quote! {
-        #[allow(unused_assignments, unused_variables)]
+        #[allow(
+            unused_assignments,
+            unused_variables,
+            clippy::nonminimal_bool,
+            clippy::needless_late_init,
+        )]
         pub fn solve(
             &mut self,
             pin: &::std::collections::HashSet<&'static str>
             #original_param,
-        ) -> ::anyhow::Result<()> {
+        ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
             let mut ok: [bool; #n_lit] = [false; #n_lit];
             #( #seeds )*
             #( #process )*
@@ -129,7 +138,11 @@ pub fn generate_solve(
 
         #( #repair_fns )*
 
-        #[allow(unused_variables)]
+        #[allow(
+            unused_variables,
+            clippy::nonminimal_bool,
+            clippy::trivially_copy_pass_by_ref,
+        )]
         fn re_fires_other_ok(
             state: &Self,
             ok: &[bool; #n_lit],
@@ -350,6 +363,7 @@ mod tests {
             id,
             kind: crate::ast::SpecKind::Integer,
             option: None,
+            is_copy: true,
         }
     }
 

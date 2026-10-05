@@ -1,5 +1,6 @@
 mod reverse;
 
+use anyhow::Context;
 use clap::Subcommand;
 
 use crate::cli::{GlobalOptions, common::usb, device::reverse::ReverseCmd};
@@ -27,13 +28,17 @@ pub enum DeviceCmd {
 fn handle_list(options: GlobalOptions) -> anyhow::Result<()> {
     let GlobalOptions { json, .. } = options;
 
-    let cameras: Vec<CameraInfoListItem> = usb::get_all_cameras()?
+    let cameras: Vec<CameraInfoListItem> = usb::get_all_cameras()
+        .context("enumerating connected cameras")?
         .iter()
         .map(std::convert::Into::into)
         .collect();
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&cameras)?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&cameras).context("serializing camera list to JSON")?
+        );
         return Ok(());
     }
 
@@ -60,10 +65,13 @@ fn handle_info(options: GlobalOptions) -> anyhow::Result<()> {
 
     let mut camera = usb::get_camera(device, emulate)?;
 
-    let repr = camera.get_info()?;
+    let repr = camera.get_info().context("fetching camera info")?;
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&repr)?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&repr).context("serializing camera info to JSON")?
+        );
         return Ok(());
     }
 

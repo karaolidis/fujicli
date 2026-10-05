@@ -43,7 +43,7 @@ impl Resolved {
     }
 }
 
-pub(crate) fn generate(
+pub fn generate(
     id: &str,
     prop_code: Option<u16>,
     spec: &LookupSpec,
@@ -75,8 +75,7 @@ pub(crate) fn generate(
 
     let enum_def = generate_enum_def(&type_name, &repr_type, signed, &resolved)
         .with_context(|| format!("generating enum definition for float option `{id}`"))?;
-    let inherent_impl = generate_inherent_impl(&type_name, &resolved)
-        .with_context(|| format!("generating inherent impl for float option `{id}`"))?;
+    let inherent_impl = generate_inherent_impl(&type_name, &resolved);
     let try_from_wire_impl = generate_try_from_wire_impl(
         &safe_upper_camel_case_ident(id),
         signed,
@@ -84,32 +83,21 @@ pub(crate) fn generate(
         &wire_items(&resolved),
     )
     .with_context(|| format!("generating try_from_wire impl for float option `{id}`"))?;
-    let try_from_logical_impl = generate_try_from_logical_impl(&type_name)
-        .with_context(|| format!("generating TryFrom<f32> impl for float option `{id}`"))?;
-    let to_logical_impl = generate_to_logical_impl(&type_name, &resolved).with_context(|| {
-        format!("generating From<{type_name}> for f32 impl for float option `{id}`")
-    })?;
-    let display_impl = generate_display_impl(&type_name)
-        .with_context(|| format!("generating Display impl for float option `{id}`"))?;
-    let from_str_impl = generate_from_str_impl(&type_name)
-        .with_context(|| format!("generating FromStr impl for float option `{id}`"))?;
-    let serde_impls = generate_serde_impls(&type_name)
-        .with_context(|| format!("generating Serde impls for float option `{id}`"))?;
-    let (ptp_serde_impl, simulation_setting_impl) = if let Some(code) = prop_code {
-        let serde = generate_ptp_serde_impl(&type_name, &repr_type).with_context(|| {
-            format!("generating PtpSerialize/PtpDeserialize impls for float option `{id}`")
-        })?;
-        let setting = generate_simulation_setting_impl(&type_name, code).with_context(|| {
-            format!("generating SimulationSetting impl for float option `{id}`")
-        })?;
-        (serde, setting)
-    } else {
-        (quote! {}, quote! {})
-    };
+    let try_from_logical_impl = generate_try_from_logical_impl(&type_name);
+    let to_logical_impl = generate_to_logical_impl(&type_name, &resolved);
+    let display_impl = generate_display_impl(&type_name);
+    let from_str_impl = generate_from_str_impl(&type_name);
+    let serde_impls = generate_serde_impls(&type_name);
+    let (ptp_serde_impl, simulation_setting_impl) = prop_code.map_or_else(
+        || (quote! {}, quote! {}),
+        |code| {
+            let serde = generate_ptp_serde_impl(&type_name, &repr_type);
+            let setting = generate_simulation_setting_impl(&type_name, code);
+            (serde, setting)
+        },
+    );
     let conversion_profile_impl =
-        generate_conversion_profile_impl(&type_name, &repr_type, &repr_type_32).with_context(
-            || format!("generating ConversionProfileField impl for float option `{id}`"),
-        )?;
+        generate_conversion_profile_impl(&type_name, &repr_type, &repr_type_32);
 
     Ok(quote! {
         #enum_def
@@ -156,12 +144,12 @@ fn generate_enum_def(
     Ok(quote! {
         #[repr(#repr_type)]
         #[derive(
-            Debug,
-            Clone,
-            Copy,
-            PartialEq,
-            Eq,
-            strum_macros::EnumIter,
+            ::std::fmt::Debug,
+            ::std::clone::Clone,
+            ::std::marker::Copy,
+            ::std::cmp::PartialEq,
+            ::std::cmp::Eq,
+            ::strum_macros::EnumIter,
         )]
         pub enum #type_name {
             #(#defs)*
@@ -169,7 +157,7 @@ fn generate_enum_def(
     })
 }
 
-fn generate_inherent_impl(type_name: &Ident, resolved: &[Resolved]) -> anyhow::Result<TokenStream> {
+fn generate_inherent_impl(type_name: &Ident, resolved: &[Resolved]) -> TokenStream {
     let values_const: Vec<TokenStream> = resolved
         .iter()
         .map(|r| {
@@ -179,10 +167,10 @@ fn generate_inherent_impl(type_name: &Ident, resolved: &[Resolved]) -> anyhow::R
         })
         .collect();
 
-    let logical_min = resolved.first().map(|r| r.logical).unwrap_or(0.0);
-    let logical_max = resolved.last().map(|r| r.logical).unwrap_or(0.0);
+    let logical_min = resolved.first().map_or(0.0, |r| r.logical);
+    let logical_max = resolved.last().map_or(0.0, |r| r.logical);
 
-    Ok(quote! {
+    quote! {
         impl #type_name {
             const VALUES: &'static [(f32, Self)] = &[
                 #(#values_const)*
@@ -191,6 +179,7 @@ fn generate_inherent_impl(type_name: &Ident, resolved: &[Resolved]) -> anyhow::R
             pub const LOGICAL_MIN: f32 = #logical_min;
             pub const LOGICAL_MAX: f32 = #logical_max;
 
+            #[must_use]
             pub fn from_nearest_f32(value: f32) -> Self {
                 Self::VALUES
                     .iter()
@@ -199,35 +188,31 @@ fn generate_inherent_impl(type_name: &Ident, resolved: &[Resolved]) -> anyhow::R
                         let db = (b.0 - value).abs();
                         da.partial_cmp(&db).unwrap_or(::std::cmp::Ordering::Equal)
                     })
-                    .map(|(_, v)| *v)
-                    .unwrap_or(Self::VALUES[0].1)
+                    .map_or(Self::VALUES[0].1, |(_, v)| *v)
             }
         }
-    })
+    }
 }
 
-fn generate_try_from_logical_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_try_from_logical_impl(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::std::convert::TryFrom<f32> for #type_name {
-            type Error = ::anyhow::Error;
-            fn try_from(value: f32) -> ::anyhow::Result<Self> {
+            type Error = crate::input::OptionError;
+            fn try_from(value: f32) -> ::std::result::Result<Self, crate::input::OptionError> {
                 Self::VALUES
                     .iter()
                     .find(|(v, _)| (*v - value).abs() < f32::EPSILON)
                     .map(|(_, variant)| *variant)
-                    .ok_or_else(|| ::anyhow::anyhow!(
-                        "Value {} is not a valid {}",
-                        value, stringify!(#type_name),
-                    ))
+                    .ok_or_else(|| crate::input::OptionError::Unknown {
+                        type_name: stringify!(#type_name),
+                        input: value.to_string(),
+                    })
             }
         }
-    })
+    }
 }
 
-fn generate_to_logical_impl(
-    type_name: &Ident,
-    resolved: &[Resolved],
-) -> anyhow::Result<TokenStream> {
+fn generate_to_logical_impl(type_name: &Ident, resolved: &[Resolved]) -> TokenStream {
     let arms: Vec<_> = resolved
         .iter()
         .map(|r| {
@@ -237,50 +222,58 @@ fn generate_to_logical_impl(
         })
         .collect();
 
-    Ok(quote! {
+    quote! {
         impl ::std::convert::From<#type_name> for f32 {
-            fn from(value: #type_name) -> f32 {
+            fn from(value: #type_name) -> Self {
                 match value {
                     #(#arms)*
                 }
             }
         }
-    })
+    }
 }
 
-fn generate_display_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_display_impl(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::std::fmt::Display for #type_name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 let n = f32::from(*self);
                 if n == 0.0 { write!(f, "0") } else { write!(f, "{n:+}") }
             }
         }
-    })
+    }
 }
 
-fn generate_from_str_impl(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_from_str_impl(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::std::str::FromStr for #type_name {
-            type Err = ::anyhow::Error;
-            fn from_str(s: &str) -> ::anyhow::Result<Self> {
+            type Err = crate::input::OptionError;
+            fn from_str(s: &str) -> ::std::result::Result<Self, crate::input::OptionError> {
                 let value = crate::input::CleanAlphanumeric::clean(&s)
                     .parse::<f32>()
-                    .map_err(|e| ::anyhow::anyhow!("Invalid numeric value '{}': {}", s, e))?;
+                    .map_err(|e: ::std::num::ParseFloatError| {
+                        crate::input::OptionError::InvalidValue {
+                            type_name: stringify!(#type_name),
+                            input: s.to_string(),
+                            reason: e.to_string(),
+                        }
+                    })?;
                 if !(Self::LOGICAL_MIN..=Self::LOGICAL_MAX).contains(&value) {
-                    ::anyhow::bail!(
-                        "{} value {} is out of range [{}, {}]",
-                        stringify!(#type_name), value, Self::LOGICAL_MIN, Self::LOGICAL_MAX,
-                    );
+                    return Err(crate::input::OptionError::OutOfRange {
+                        type_name: stringify!(#type_name),
+                        value: value.to_string(),
+                        min: Self::LOGICAL_MIN.to_string(),
+                        max: Self::LOGICAL_MAX.to_string(),
+                    });
                 }
                 Ok(Self::from_nearest_f32(value))
             }
         }
-    })
+    }
 }
 
-fn generate_serde_impls(type_name: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_serde_impls(type_name: &Ident) -> TokenStream {
+    quote! {
         impl ::serde::Serialize for #type_name {
             fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 serializer.serialize_f32(f32::from(*self))
@@ -296,11 +289,11 @@ fn generate_serde_impls(type_name: &Ident) -> anyhow::Result<TokenStream> {
                     .map_err(::serde::de::Error::custom)
             }
         }
-    })
+    }
 }
 
-fn generate_ptp_serde_impl(type_name: &Ident, repr_type: &Ident) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_ptp_serde_impl(type_name: &Ident, repr_type: &Ident) -> TokenStream {
+    quote! {
         impl ::ptp_cursor::PtpSerialize for #type_name {
             fn try_into_ptp(&self) -> ::std::io::Result<Vec<u8>> {
                 let mut buf = Vec::new();
@@ -327,26 +320,23 @@ fn generate_ptp_serde_impl(type_name: &Ident, repr_type: &Ident) -> anyhow::Resu
                 Self::try_from_wire(raw)
             }
         }
-    })
+    }
 }
 
-fn generate_simulation_setting_impl(
-    type_name: &Ident,
-    prop_code: u16,
-) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+fn generate_simulation_setting_impl(type_name: &Ident, prop_code: u16) -> TokenStream {
+    quote! {
         impl crate::ptp::option::SimulationSetting for #type_name {
             fn prop_code() -> u16 { #prop_code }
         }
-    })
+    }
 }
 
 fn generate_conversion_profile_impl(
     type_name: &Ident,
     repr_type: &Ident,
     repr_type_32: &Ident,
-) -> anyhow::Result<TokenStream> {
-    Ok(quote! {
+) -> TokenStream {
+    quote! {
         impl crate::ptp::option::ConversionProfileField for #type_name {
             fn try_write_conversion_profile_field_ptp(
                 &self, buf: &mut Vec<u8>,
@@ -373,5 +363,5 @@ fn generate_conversion_profile_impl(
                 Self::try_from_wire(raw)
             }
         }
-    })
+    }
 }

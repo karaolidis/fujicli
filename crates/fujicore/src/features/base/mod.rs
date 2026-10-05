@@ -1,11 +1,11 @@
 pub mod info;
 
-use anyhow::anyhow;
 use info::{CameraInfo, DefaultCameraInfo};
 use log::debug;
 
 use crate::{
     SupportedCamera,
+    error::{CoreError, CoreResult},
     features::{
         backup::CameraBackupManager,
         render::CameraRenderManager,
@@ -44,7 +44,7 @@ pub trait CameraBase {
     }
 
     // NOTE: Naively assuming that all cameras can get the same info in the same way.
-    fn get_info(&self, ptp: &mut Ptp) -> anyhow::Result<Box<dyn CameraInfo>> {
+    fn get_info(&self, ptp: &mut Ptp) -> CoreResult<Box<dyn CameraInfo>> {
         let info = ptp.get_info()?;
 
         let mode = UsbMode::try_pull(ptp)?;
@@ -52,11 +52,16 @@ pub trait CameraBase {
         let battery_string: String = ptp.get_prop(DevicePropCode::FujiBatteryInfo2)?;
         debug!("Raw battery string: {battery_string}");
 
-        let battery: u32 = battery_string
-            .split(',')
-            .next()
-            .ok_or_else(|| anyhow!("Failed to parse battery percentage"))?
-            .parse()?;
+        let battery_raw = battery_string
+            .split_once(',')
+            .map_or(battery_string.as_str(), |(head, _)| head);
+
+        let battery: u32 = battery_raw.parse().map_err(|e: std::num::ParseIntError| {
+            CoreError::DeviceInfoMalformed {
+                prop: DevicePropCode::FujiBatteryInfo2,
+                reason: e.to_string(),
+            }
+        })?;
 
         let repr = DefaultCameraInfo {
             manufacturer: info.manufacturer,
