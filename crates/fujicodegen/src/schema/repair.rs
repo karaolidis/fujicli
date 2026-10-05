@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use proc_macro2::{Literal, Span, TokenStream};
 use quote::{format_ident, quote};
@@ -16,6 +16,7 @@ pub fn generate_solve(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     rules: &[NormalizedRule],
     has_original: bool,
+    optional: &BTreeSet<String>,
 ) -> anyhow::Result<TokenStream> {
     let error_rules: Vec<&NormalizedRule> = rules
         .iter()
@@ -86,7 +87,7 @@ pub fn generate_solve(
             let fn_name = format_ident!("try_repair_rule_{}", i);
             let i_lit = Literal::usize_suffixed(i);
             let mut counter = 0usize;
-            let walk = generate_dnf_walk(settings, &r.when, &mut counter, has_original)?;
+            let walk = generate_dnf_walk(settings, &r.when, &mut counter, has_original, optional)?;
             Ok(quote! {
                 #[allow(
                     unused_variables,
@@ -183,6 +184,7 @@ fn generate_dnf_walk(
     dnf: &Dnf,
     counter: &mut usize,
     has_original: bool,
+    optional: &BTreeSet<String>,
 ) -> anyhow::Result<TokenStream> {
     if dnf.is_contradiction() {
         return Ok(quote! { true });
@@ -208,7 +210,7 @@ fn generate_dnf_walk(
         .0
         .iter()
         .map(|conj| {
-            let sub = generate_conjunction_walk(settings, conj, counter, has_original)?;
+            let sub = generate_conjunction_walk(settings, conj, counter, has_original, optional)?;
             Ok(quote! {
                 {
                     let succ: bool = #sub;
@@ -237,6 +239,7 @@ fn generate_conjunction_walk(
     conj: &Conjunction,
     counter: &mut usize,
     has_original: bool,
+    optional: &BTreeSet<String>,
 ) -> anyhow::Result<TokenStream> {
     if conj.is_empty() {
         return Ok(quote! { false });
@@ -256,7 +259,7 @@ fn generate_conjunction_walk(
 
     let attempts = conj
         .iter()
-        .map(|leaf| generate_leaf_attempt(settings, leaf, &label, has_original))
+        .map(|leaf| generate_leaf_attempt(settings, leaf, &label, has_original, optional))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     Ok(quote! {
@@ -273,11 +276,12 @@ fn generate_leaf_attempt(
     leaf: &Leaf,
     parent: &Lifetime,
     has_original: bool,
+    optional: &BTreeSet<String>,
 ) -> anyhow::Result<TokenStream> {
     if leaf.scope() == Scope::Original {
         return Ok(TokenStream::new());
     }
-    let Some((info, mutation)) = leaf_flip(settings, leaf)? else {
+    let Some((info, mutation)) = leaf_flip(settings, leaf, optional)? else {
         return Ok(TokenStream::new());
     };
     let field_id = info.id;
@@ -304,6 +308,7 @@ fn generate_leaf_attempt(
 fn leaf_flip<'a>(
     settings: &'a BTreeMap<&str, SettingInfo<'a>>,
     leaf: &Leaf,
+    optional: &BTreeSet<String>,
 ) -> anyhow::Result<Option<(&'a SettingInfo<'a>, TokenStream)>> {
     let r#ref = leaf.r#ref();
     let info = settings.get(r#ref).expect("ref validated");
@@ -316,8 +321,18 @@ fn leaf_flip<'a>(
         | Leaf::LessThan(_)
         | Leaf::LessThanOrEqual(_)
         | Leaf::GreaterThan(_)
-        | Leaf::GreaterThanOrEqual(_) => quote! { self.#ident = None; },
-        Leaf::Present(p) if p.present => quote! { self.#ident = None; },
+        | Leaf::GreaterThanOrEqual(_) => {
+            if !optional.contains(r#ref) {
+                return Ok(None);
+            }
+            quote! { self.#ident = None; }
+        }
+        Leaf::Present(p) if p.present => {
+            if !optional.contains(r#ref) {
+                return Ok(None);
+            }
+            quote! { self.#ident = None; }
+        }
         Leaf::NotEquals(l) => {
             let value = generate_value_expr(info, &l.equals)?;
             quote! { self.#ident = Some(#value); }
@@ -351,12 +366,16 @@ fn inner_label(depth: usize) -> Lifetime {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use serde_json::json;
 
     use super::*;
     use crate::ast::{LeafEquals, LeafPresent, Predicate, Scope};
+
+    fn opt(ids: &[&str]) -> BTreeSet<String> {
+        ids.iter().map(|s| (*s).to_owned()).collect()
+    }
 
     fn integer_info(id: &'static str) -> SettingInfo<'static> {
         SettingInfo {
@@ -386,7 +405,9 @@ mod tests {
     #[test]
     fn empty_rule_set_emits_solve_that_does_nothing() {
         let settings = BTreeMap::new();
-        let out = generate_solve(&settings, &[], false).unwrap().to_string();
+        let out = generate_solve(&settings, &[], false, &opt(&["a", "b"]))
+            .unwrap()
+            .to_string();
         assert!(out.contains("fn solve"));
         assert!(out.contains("[bool ; 0usize]"));
     }
@@ -404,7 +425,7 @@ mod tests {
             .into(),
             "bad a",
         )];
-        let out = generate_solve(&settings, &rules, false)
+        let out = generate_solve(&settings, &rules, false, &opt(&["a", "b"]))
             .unwrap()
             .to_string();
         assert!(out.contains("try_repair_rule_0"));
@@ -440,7 +461,7 @@ mod tests {
                 .into(),
             },
         ];
-        let out = generate_solve(&settings, &rules, false)
+        let out = generate_solve(&settings, &rules, false, &opt(&["a", "b"]))
             .unwrap()
             .to_string();
         assert!(!out.contains("try_repair_rule_0"));
@@ -471,7 +492,7 @@ mod tests {
             }
             .into(),
         )];
-        let out = generate_solve(&settings, &rules, false)
+        let out = generate_solve(&settings, &rules, false, &opt(&["a", "b"]))
             .unwrap()
             .to_string();
         assert!(out.contains("pin . contains (\"a\")"));
@@ -496,7 +517,7 @@ mod tests {
             }
             .into(),
         )];
-        let out = generate_solve(&settings, &rules, false)
+        let out = generate_solve(&settings, &rules, false, &opt(&["a", "b"]))
             .unwrap()
             .to_string();
         assert!(out.contains("self . a = Some"));
@@ -526,7 +547,9 @@ mod tests {
             }
             .into(),
         )];
-        let out = generate_solve(&settings, &rules, true).unwrap().to_string();
+        let out = generate_solve(&settings, &rules, true, &opt(&["a", "b"]))
+            .unwrap()
+            .to_string();
         assert!(out.contains("original : & Self"));
         assert!(out.contains("original . a"));
         assert!(!out.contains("self . a = None"));
@@ -545,7 +568,7 @@ mod tests {
             }
             .into(),
         )];
-        let out = generate_solve(&settings, &rules, false)
+        let out = generate_solve(&settings, &rules, false, &opt(&["a", "b"]))
             .unwrap()
             .to_string();
         assert!(!out.contains("original"));
@@ -575,10 +598,28 @@ mod tests {
                 "r1",
             ),
         ];
-        let out = generate_solve(&settings, &rules, false)
+        let out = generate_solve(&settings, &rules, false, &opt(&["a", "b"]))
             .unwrap()
             .to_string();
         assert!(out.contains("current != 0usize"));
         assert!(out.contains("current != 1usize"));
+    }
+
+    #[test]
+    fn required_field_is_not_cleared_by_repair() {
+        let mut settings = BTreeMap::new();
+        settings.insert("a", integer_info("a"));
+        let rules = vec![nrule(
+            LeafEquals {
+                r#ref: "a".into(),
+                scope: Scope::Current,
+                equals: json!(1),
+            }
+            .into(),
+        )];
+        let out = generate_solve(&settings, &rules, false, &opt(&[]))
+            .unwrap()
+            .to_string();
+        assert!(!out.contains("self . a = None"));
     }
 }

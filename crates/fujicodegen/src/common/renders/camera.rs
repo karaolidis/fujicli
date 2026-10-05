@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Context;
 use proc_macro2::{Ident, Literal, TokenStream};
@@ -90,11 +90,14 @@ fn generate_one(
         .with_context(|| format!("too many render fields on camera `{}`", camera.id))?;
     let profile_code = render.profile_code;
 
+    let optional_fields: BTreeSet<String> = presence_info.conditions.keys().cloned().collect();
+
     let struct_def = generate_struct_def(&settings, &render.fields, &struct_ident);
     let inherent_impl = generate_inherent_impl(
         &settings,
         render,
         &effective_rules,
+        &optional_fields,
         &struct_ident,
         &renders_path,
         profile_code,
@@ -153,6 +156,7 @@ fn generate_inherent_impl(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     render: &Render,
     effective_rules: &[NormalizedRule],
+    optional_fields: &BTreeSet<String>,
     struct_ident: &Ident,
     renders_path: &TokenStream,
     profile_code: u32,
@@ -167,7 +171,7 @@ fn generate_inherent_impl(
         effective_rules,
         Scopes::with_original(&self_acc, &original_acc),
     )?;
-    let solve = generate_solve(settings, effective_rules, true)?;
+    let solve = generate_solve(settings, effective_rules, true, optional_fields)?;
     let try_update_from = generate_try_update_from(settings, &render.fields, renders_path);
 
     Ok(quote! {

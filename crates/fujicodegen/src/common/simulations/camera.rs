@@ -91,12 +91,14 @@ fn generate_one(
         .map(str::to_owned)
         .collect();
     let read_order = write_order.clone();
+    let optional_fields = optional_field_ids(&effective_rules);
 
     let struct_def = generate_struct_def(&settings, &simulation.settings, &struct_ident);
     let inherent_impl = generate_inherent_impl(
         &settings,
         simulation,
         &effective_rules,
+        &optional_fields,
         &struct_ident,
         &options_path,
     )?;
@@ -105,7 +107,7 @@ fn generate_one(
     let try_from_base_impl = generate_try_from_base_impl(
         &settings,
         &simulation.settings,
-        &effective_rules,
+        &optional_fields,
         &struct_ident,
     );
     let display_impl = generate_display_impl(&settings, &simulation.settings, &struct_ident);
@@ -166,6 +168,7 @@ fn generate_inherent_impl(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     simulation: &crate::ast::Simulation,
     effective_rules: &[NormalizedRule],
+    optional_fields: &BTreeSet<String>,
     struct_ident: &Ident,
     options_path: &TokenStream,
 ) -> anyhow::Result<TokenStream> {
@@ -176,7 +179,7 @@ fn generate_inherent_impl(
     let self_acc = quote! { self };
     let warnings_infos =
         generate_emit_warnings_and_infos(settings, effective_rules, Scopes::new(&self_acc))?;
-    let solve = generate_solve(settings, effective_rules, false)?;
+    let solve = generate_solve(settings, effective_rules, false, optional_fields)?;
     let try_update_from = generate_try_update_from(settings, &simulation.settings);
     let name = generate_name(settings, options_path);
 
@@ -302,25 +305,12 @@ fn generate_from_sim_for_base_impl(
 fn generate_try_from_base_impl(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     fields: &[Setting],
-    rules: &[NormalizedRule],
+    optional_fields: &BTreeSet<String>,
     struct_ident: &Ident,
 ) -> TokenStream {
-    let mut optional_fields: BTreeSet<String> = BTreeSet::new();
-    for rule in rules {
-        for conj in &rule.when {
-            for leaf in conj {
-                if let Leaf::Present(p) = leaf
-                    && !p.present
-                {
-                    optional_fields.insert(p.r#ref.clone());
-                }
-            }
-        }
-    }
-
     let struct_name = struct_ident.to_string();
     let required_checks =
-        generate_required_field_checks(settings, fields, &optional_fields, &struct_name);
+        generate_required_field_checks(settings, fields, optional_fields, &struct_name);
 
     quote! {
         impl ::std::convert::TryFrom<crate::generated::simulations::SimulationBase>
@@ -337,6 +327,22 @@ fn generate_try_from_base_impl(
             }
         }
     }
+}
+
+fn optional_field_ids(rules: &[NormalizedRule]) -> BTreeSet<String> {
+    let mut optional = BTreeSet::new();
+    for rule in rules {
+        for conj in &rule.when {
+            for leaf in conj {
+                if let Leaf::Present(p) = leaf
+                    && !p.present
+                {
+                    optional.insert(p.r#ref.clone());
+                }
+            }
+        }
+    }
+    optional
 }
 
 fn generate_required_field_checks(
