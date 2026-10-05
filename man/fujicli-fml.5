@@ -1,0 +1,761 @@
+.Dd October 5, 2026
+.Dt FUJICLI-FML 5
+.Os fujicli
+.Sh NAME
+.Nm fujicli-fml
+.Nd Fuji Modelling Language
+.Sh DESCRIPTION
+The Fuji Modelling Language (FML) describes the camera options, cameras and
+sensor generations that
+.Xr fujicli 1
+supports, and the rules that relate option values to each other.
+It is a CUE schema in the
+.Pa fml/
+directory of the source tree, package
+.Ql fml .
+.Pp
+At build time,
+.Ql cue export ./fml --out json
+turns the package into a single JSON document, which is compiled into
+.Xr fujicli 1 .
+Editing FML and rebuilding is how support for a camera or option is added.
+.Pp
+The document has three top-level maps:
+.Cm options ,
+.Cm cameras
+and
+.Cm generations .
+Each entry has an
+.Cm id ,
+which is set to its map key and need not be written, and a
+.Cm spec .
+Ids are
+.Ql snake_case
+and are used as Rust identifiers and command-line flag names.
+Entries reference each other by id.
+.Pp
+CUE checks types, references and the constraints below when the package is
+exported.
+The code generator rejects any key it does not know.
+Keys whose names begin with an underscore are hidden: they can be used within
+CUE but are not exported and the code generator never sees them.
+.Sh OPTIONS
+An option is one camera setting with a typed value.
+.Bd -literal -offset indent
+options: <id>: #Option & {
+    spec:     {...}
+    codegen?: {...}
+}
+.Ed
+.Ss spec
+.Bl -tag -width Ds
+.It Cm name : Ar string
+Human-readable name.
+Required.
+.It Cm category : Ar string
+Group under which the option's flag is listed in
+.Xr fujicli 1
+help output.
+Optional.
+.It Cm kind : Ar kind
+The value type, one of
+.Cm integer ,
+.Cm float ,
+.Cm string
+or
+.Cm enum .
+Required.
+.It Cm rules : Ar object
+Constraints on the value; see
+.Sx Value rules .
+Required for
+.Cm enum ,
+optional otherwise.
+.It Cm encoding : Ar object
+How the value is represented on the wire; see
+.Sx Encodings .
+Required.
+.It Cm default : Ar value
+The value of the generated type's
+.Ql Default .
+Optional; see
+.Sx Defaults .
+.El
+.Ss Value rules
+For
+.Cm integer
+and
+.Cm float :
+.Bl -tag -width Ds
+.It Cm min : Ar number
+Smallest value.
+.It Cm max : Ar number
+Largest value.
+At least
+.Cm min .
+.It Cm step : Ar number
+Values must be multiples of
+.Cm step .
+Greater than 0, and a positive integer for
+.Cm integer .
+Default 1.
+.El
+.Pp
+For
+.Cm string :
+.Bl -tag -width Ds
+.It Cm min_length : Ar uint
+Shortest length.
+.It Cm max_length : Ar uint
+Longest length.
+At least
+.Cm min_length .
+.El
+.Pp
+For
+.Cm enum :
+.Bl -tag -width Ds
+.It Cm variants : Ar list
+The values, in order.
+At least one.
+Each variant has:
+.Bl -tag -width Ds
+.It Cm id : Ar string
+Identifier used in predicates, assignments and lookup tables.
+Unique within the option.
+.It Cm name : Ar string
+Display name.
+.It Cm aliases : Ar list
+Strings accepted as input for this variant.
+At least one; unique across the option's variants.
+Input is trimmed, lowercased and stripped of every character other than ASCII
+letters, digits,
+.Ql \&.
+and
+.Ql - ,
+then compared with each alias, so aliases should be written in that form.
+The id is not accepted unless it is also listed as an alias.
+.El
+.El
+.Ss Encodings
+.Bl -tag -width Ds
+.It Cm kind : Qq Cm raw
+The wire value is the value itself.
+The only encoding allowed for
+.Cm string .
+.It Cm kind : Qq Cm scale
+The wire value is the value multiplied by
+.Cm spec.scale ,
+a positive integer.
+For
+.Cm integer
+and
+.Cm float .
+.It Cm kind : Qq Cm lookup
+The wire value is looked up in
+.Cm spec.values ,
+a non-empty map from value to wire value.
+The only encoding allowed for
+.Cm enum ,
+whose map must have exactly one key per variant id.
+For
+.Cm integer
+and
+.Cm float ,
+each key is the value written as a string, for example
+.Qq -1
+or
+.Qq 0.7 ,
+and must lie within
+.Cm min
+and
+.Cm max
+and be a multiple of
+.Cm step .
+A map value is an integer, or a list of integers whose first element is written
+and whose other elements are also accepted when reading.
+.El
+.Pp
+Every encoding may set
+.Cm prop_code ,
+a 16-bit PTP device property code.
+An option with a property code can be read and written on its own, which
+simulation settings require.
+An option without one exists only as a render profile field.
+.Pp
+Wire values are 16 bits wide.
+Code generation fails if an option's range or lookup values fit neither a
+signed nor an unsigned 16-bit integer, so
+.Cm raw
+and
+.Cm scale
+options need both
+.Cm min
+and
+.Cm max .
+.Ss Defaults
+If set,
+.Cm default
+must satisfy the option's rules: be within
+.Cm min
+and
+.Cm max ,
+be a multiple of
+.Cm step ,
+be one of the lookup keys for a numeric
+.Cm lookup
+option, be a variant id for an
+.Cm enum ,
+and respect
+.Cm min_length
+and
+.Cm max_length .
+A
+.Cm string
+option with a positive
+.Cm min_length
+must set it.
+.Pp
+Otherwise the default is the first variant of an
+.Cm enum ,
+the key of smallest magnitude of a numeric
+.Cm lookup ,
+the multiple of
+.Cm step
+within range nearest zero for
+.Cm raw
+and
+.Cm scale ,
+and the empty string for a
+.Cm string .
+.Ss codegen
+Optional.
+.Bl -tag -width Ds
+.It Cm skip : Cm true
+Do not offer the option as a command-line flag.
+Its type is still generated, for use by
+.Xr fujicli 1
+itself.
+.It Cm flaky : Cm true
+When writing a simulation, if the camera rejects this setting, log a warning
+and continue with the remaining settings instead of failing.
+.El
+.Sh CAMERAS
+A camera is one supported model.
+.Bd -literal -offset indent
+cameras: <id>: #Camera & {
+    spec: {...}
+}
+.Ed
+.Ss spec
+.Bl -tag -width Ds
+.It Cm name : Ar string
+The model name.
+Required.
+.It Cm generation : Ar id
+The camera's generation.
+Required.
+.It Cm usb : Ar object
+Required.
+.Bl -tag -width Ds
+.It Cm vendor_id : Ar uint16
+USB vendor ID.
+Default
+.Cm 0x04cb .
+.It Cm product_id : Ar uint16
+USB product ID.
+Required.
+.It Cm chunk_size : Ar uint
+Size in bytes of each bulk transfer.
+Greater than 0.
+Default
+.Cm 1048576 .
+.El
+.It Cm features : Ar object
+What the camera supports.
+A missing feature is unsupported.
+Optional.
+.El
+.Ss features
+.Bl -tag -width Ds
+.It Cm backup : Cm true
+The camera supports backing up and restoring its settings.
+.It Cm simulation : Ar object
+The camera stores film simulations in custom setting slots.
+.Bl -tag -width Ds
+.It Cm slots : Ar uint
+Number of custom setting slots, starting at C1.
+Required.
+.It Cm settings : Ar list
+The settings that make up a simulation, in order.
+Each is
+.Bro Cm id , ref Brc ,
+where
+.Cm ref
+names an option and
+.Cm id ,
+which defaults to
+.Cm ref ,
+names the setting in predicates and assignments.
+Ids are unique.
+Required.
+.It Cm rules : Ar list
+See
+.Sx RULES .
+.It Cm transformations : Ar list
+See
+.Sx TRANSFORMATIONS .
+.El
+.It Cm render : Ar object
+The camera converts RAF files using a conversion profile.
+.Bl -tag -width Ds
+.It Cm profile_code : Ar uint32
+Identifies the profile format.
+Required.
+.It Cm fields : Ar list
+The profile's 32-bit fields, in wire order.
+A field with a
+.Cm ref
+takes its type and encoding from that option, and
+.Cm id
+defaults to
+.Cm ref .
+A field without one is an integer with no encoding, for headers and padding,
+and must have an
+.Cm id .
+Ids are unique.
+.Cm skip_read : true
+marks a field as absent from profiles read from the camera or a file;
+.Cm skip_write : true
+marks it as never written.
+Required.
+.It Cm rules : Ar list
+See
+.Sx RULES .
+.It Cm transformations : Ar list
+See
+.Sx TRANSFORMATIONS .
+.El
+.El
+.Pp
+Rules and transformations refer to settings and fields by id, and may only
+refer to those of their own block.
+.Sh GENERATIONS
+A generation groups cameras with the same sensor and processor family.
+.Bd -literal -offset indent
+generations: <id>: #Generation & {
+    spec: name: string
+}
+.Ed
+.Pp
+.Cm name
+is the generation's display name, and is the only exported key.
+.Pp
+A generation can also hold templates for its cameras in hidden fields, by
+convention
+.Cm _simulation
+with
+.Cm settings
+and
+.Cm rules .
+Within a camera's
+.Cm spec ,
+.Cm _generation
+is bound to the
+.Cm spec
+of the camera's generation; a camera declares
+.Ql _generation: _
+in its own
+.Cm spec
+to refer to it.
+Templates are copied explicitly, and can be extended with
+.Ql list.Concat .
+A generation may build on another's templates the same way.
+.Pp
+Codegen sees only the result, and uses a camera's generation to order the list
+of supported cameras.
+.Sh PREDICATES
+A predicate is a test on a block's values.
+It is a leaf, a combination of predicates, or a boolean literal.
+.Ss Leaves
+A leaf has
+.Cm ref ,
+the id of a setting or field, an optional
+.Cm scope ,
+and exactly one test:
+.Bl -tag -width Ds
+.It Cm present : Ar bool
+The field has a value, or with
+.Cm false ,
+has none.
+.It Cm equals : Ar value
+The field equals the value.
+.It Cm in : Ar list
+The field equals one of the values.
+.It Cm min : Ar number , Cm max : Ar number
+The field is between the bounds, inclusive.
+.It Cm lt , lte , gt , gte : Ar number
+The field is less than, at most, greater than, or at least the value.
+.El
+.Pp
+Every test but
+.Cm present
+is false when the field has no value.
+.Cm present ,
+.Cm equals
+and
+.Cm in
+apply to any field; the others only to
+.Cm integer
+and
+.Cm float .
+Values must have the field's type, and
+.Cm enum
+values must be variant ids.
+Float equality allows for rounding error.
+.Ss Combinations
+.Bl -tag -width Ds
+.It Cm all : Ar list
+All of the predicates hold.
+An empty list is true.
+.It Cm any : Ar list
+At least one of the predicates holds.
+An empty list is false.
+.It Cm not : Ar predicate
+The predicate does not hold.
+.It Cm true , false
+Always and never.
+.El
+.Ss Scope
+.Cm scope
+selects which values a leaf tests:
+.Bl -tag -width Ds
+.It Cm current
+The values being validated or written.
+The default.
+.It Cm original
+The render profile as read from the image, before the user's changes.
+Only allowed in render rules.
+Original values are never changed: they are ignored when deciding how to
+repair a rule or whether to read a field.
+.El
+.Sh RULES
+A rule names a combination of values that is invalid or noteworthy.
+.Bl -tag -width Ds
+.It Cm severity : Ar severity
+.Cm error ,
+.Cm warning
+or
+.Cm info .
+Default
+.Cm error .
+.It Cm message : Ar string
+Shown when the rule fires.
+Required.
+.It Cm when : Ar predicate
+The rule fires when this holds.
+Required.
+.El
+.Pp
+Before any rule is checked,
+.Cm when
+is rewritten through the block's aliases; see
+.Sx Aliases .
+.Ss Errors
+Values may not be written while an error rule fires.
+When the user changes settings, the new values are merged into the current
+ones, transformations are applied, and each error rule that fires is then
+repaired, in order.
+.Pp
+Repair rewrites
+.Cm when
+as an
+.Cm any
+of conjunctions, each an
+.Cm all
+of leaves, and makes each conjunction that holds false by changing one field.
+For a leaf that requires a value, it clears the field, but only if the field
+is optional.
+For a negated
+.Cm equals ,
+.Cm in
+or
+.Cm min Ns / Ns Cm max ,
+it sets the field to the value named, the first value listed, or
+.Cm min .
+It never changes a field the user set, including fields that a transformation
+set from the user's input, and never an original value.
+A change is undone if it makes a rule that was satisfied fire.
+If no change works, the update fails with the rule's
+.Cm message .
+.Pp
+Order matters.
+Rules are repaired one at a time, and repairing one rule can leave a later rule
+without a repair.
+.Ss Read gating
+An error rule conjunction of the form
+.Bd -literal -offset indent
+{all: [{ref: "x", present: true}, C...]}
+.Ed
+.Pp
+says that
+.Ql x
+has no meaning while the conditions
+.Ar C
+hold.
+It also gates reading:
+.Ql x
+is read from the camera, or from a render profile, only if not all of
+.Ar C
+hold, and the fields that
+.Ar C
+test are read first.
+If several conjunctions gate
+.Ql x ,
+all their gates must allow the read.
+A conjunction that instead requires
+.Ql x
+absent, with
+.Cm present : false
+and no
+.Cm present : true
+leaf, gates
+.Ql x
+the other way: it is read only if all of
+.Ar C
+hold.
+Original-scope leaves do not gate.
+.Pp
+Gated fields are optional in the camera's generated simulation or render
+profile type.
+All other fields are required: they are always read and must have a value.
+.Pp
+A gate may not test the field it gates, since deciding whether to read
+.Ql x
+would require its value; codegen fails on such a rule.
+Write a test on
+.Ql x
+alone, without
+.Cm present : true ,
+instead.
+Codegen also fails if gates form a cycle.
+Apart from gating, fields are processed in declaration order.
+.Ss Warnings and information
+After a successful repair, each
+.Cm warning
+or
+.Cm info
+rule that holds is logged at that level with its
+.Cm message .
+Such rules never block, repair or gate.
+.Sh TRANSFORMATIONS
+A transformation sets fields when a predicate holds.
+.Bl -tag -width Ds
+.It Cm when : Ar predicate
+The condition.
+Optional; without it the transformation always applies.
+Current scope only.
+.It Cm apply : Ar list
+Assignments, each either
+.Bro Cm ref , value Brc ,
+which sets the field to a value of its type, or
+.Bro Cm ref , present : false Brc ,
+which clears it.
+Required.
+.El
+.Pp
+Transformations apply in order, both to the user's input and to the merged
+values, before rules are checked.
+Each
+.Cm when
+sees the effect of earlier transformations.
+They map values the user sees onto the values the camera stores, for example a
+single option value that the camera represents as two fields, or constant
+header fields.
+.Ss Aliases
+Every transformation with a
+.Cm when
+and a non-empty
+.Cm apply
+is also an alias in rules.
+Where a rule conjunction contains all leaves of one of the alias's
+conjunctions, they are replaced by the leaves its
+.Cm apply
+produces.
+A rule written against the user's value is thus checked against the stored
+fields.
+Aliases are substituted in order.
+.Pp
+Conversely, a rule conjunction that does not mention the alias value, but is
+satisfied by the alias's expansion alone, does not fire on that exact
+expansion.
+In the example below, the rule that
+.Ql dynamic_range
+may only be set while
+.Ql dynamic_range_priority
+is
+.Cm off
+would otherwise reject
+.Cm hdr800_plus ,
+which is stored as
+.Cm hdr800
+with priority
+.Cm plus ;
+it still rejects
+.Cm hdr800
+with priority
+.Cm strong .
+If codegen cannot decide whether an expansion satisfies a conjunction, because
+an ordered comparison involves a non-numeric value, it prints a cargo warning
+naming the rule, and the alias value may be rejected at run time.
+.Pp
+When a render profile is read, aliases are undone, in reverse order, so that
+the user sees the alias value.
+This requires a
+.Cm when
+that is a single current-scope
+.Cm equals ,
+an
+.Cm apply
+that only sets values, and no other transformation that sets the same fields
+to the same values.
+Codegen prints a cargo warning for each render transformation that cannot be
+undone.
+Simulation transformations are not undone.
+.Sh COMMAND LINE
+Each option without
+.Cm codegen.skip
+becomes a flag named after its id, with underscores replaced by hyphens, for
+example
+.Fl -film-simulation
+for
+.Ql film_simulation .
+Its
+.Cm category
+is the flag's heading in help output.
+Simulation commands take a flag for every such option; render commands take one
+for every such option used as a render field.
+A flag's value is parsed as the option's type: an alias for an
+.Cm enum ,
+a number or string otherwise, and checked against the option's rules.
+.Sh FILES
+.Bl -tag -width Ds
+.It Pa fml/option.cue
+.Ql #Option
+and all options.
+.It Pa fml/camera.cue
+.Ql #Camera
+and all cameras.
+.It Pa fml/generation.cue
+.Ql #Generation
+and all generations.
+.It Pa fml/grammar.cue
+Predicates, assignments, rules and transformations.
+.It Pa fml/main.cue
+The definition root.
+.El
+.Sh EXAMPLES
+Validate the schema and inspect the exported document:
+.Bd -literal -offset indent
+$ cue vet ./fml
+$ cue export ./fml --out json | jq '.options.highlight_tone'
+.Ed
+.Pp
+A float option, stored in tenths:
+.Bd -literal -offset indent
+highlight_tone: #Option & {
+    spec: {
+        name:     "Highlight Tone"
+        category: "Tone"
+        kind:     "float"
+        rules: {min: -2.0, max: 4.0, step: 0.5}
+        encoding: {
+            prop_code: 0xD19D
+            kind:      "scale"
+            spec: scale: 10
+        }
+    }
+}
+.Ed
+.Pp
+An enum option that the camera may refuse to set:
+.Bd -literal -offset indent
+lens_modulation_optimizer: #Option & {
+    codegen: flaky: true
+    spec: {
+        name:     "Lens Modulation Optimizer"
+        category: "Lens"
+        kind:     "enum"
+        rules: variants: [
+            {id: "on", name: "On", aliases: ["on", "true"]},
+            {id: "off", name: "Off", aliases: ["off", "false"]},
+        ]
+        encoding: {
+            prop_code: 0xD1A3
+            kind:      "lookup"
+            spec: values: {on: 0x01, off: 0x02}
+        }
+    }
+}
+.Ed
+.Pp
+A camera that takes its simulation from its generation:
+.Bd -literal -offset indent
+x_s20: #Camera & {
+    spec: {
+        name:        "FUJIFILM X-S20"
+        generation:  "x_trans_iv"
+        _generation: _
+
+        usb: product_id: 0x02f7
+
+        features: {
+            backup: true
+            simulation: {
+                slots:    4
+                settings: _generation._simulation.settings
+                rules:    _generation._simulation.rules
+            }
+        }
+    }
+}
+.Ed
+.Pp
+A rule against a white balance temperature outside Temperature mode.
+To repair it, fujicli clears the temperature or, if the user set the temperature, selects
+Temperature mode.
+The temperature is read only in Temperature mode.
+.Bd -literal -offset indent
+{
+    message: "White balance temperature is only meaningful in Temperature mode."
+    when: all: [
+        {ref: "white_balance_temperature", present: true},
+        {not: {ref: "white_balance", equals: "temperature"}},
+    ]
+}
+.Ed
+.Pp
+A render alias for a value that the camera stores as two fields:
+.Bd -literal -offset indent
+{
+    when: {ref: "dynamic_range", equals: "hdr800_plus"}
+    apply: [
+        {ref: "dynamic_range", value: "hdr800"},
+        {ref: "dynamic_range_priority", value: "plus"},
+    ]
+}
+.Ed
+.Pp
+A render rule on the value the image was shot with:
+.Bd -literal -offset indent
+{
+    message: "Teleconverter can only be enabled if it was enabled when the image was shot."
+    when: all: [
+        {ref: "teleconverter", scope: "original", equals: "off"},
+        {ref: "teleconverter", equals: "on"},
+    ]
+}
+.Ed
+.Sh SEE ALSO
+.Xr fujicli 1 ,
+.Xr fujicli 7

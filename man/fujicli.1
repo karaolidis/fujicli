@@ -1,0 +1,414 @@
+.Dd October 5, 2026
+.Dt FUJICLI 1
+.Os fujicli
+.Sh NAME
+.Nm fujicli
+.Nd manage Fujifilm cameras over USB
+.Sh SYNOPSIS
+.Nm
+.Op Fl jv
+.Op Fl d Ar bus . Ns Ar address
+.Op Fl -emulate Ar vendor : Ns Ar product
+.Cm device
+.Cm list | info
+.Nm
+.Op Ar global-options
+.Cm simulation
+.Cm list
+.Nm
+.Op Ar global-options
+.Cm simulation
+.Cm get | export | import
+.Ar slot
+.Op Ar file
+.Nm
+.Op Ar global-options
+.Cm simulation set
+.Op Ar option-flags
+.Ar slot
+.Nm
+.Op Ar global-options
+.Cm backup
+.Cm export | import
+.Ar file
+.Nm
+.Op Ar global-options
+.Cm image render
+.Op Fl -slot Ar slot | Fl -simulation-file Ar file | Fl -like Ar image
+.Op Fl -draft
+.Op Ar option-flags
+.Ar input output
+.Nm
+.Op Ar global-options
+.Cm image extract
+.Ar input output
+.Nm
+.Fl V | h
+.Sh DESCRIPTION
+.Nm
+talks to Fujifilm cameras over USB using PTP.
+It reads camera information, reads and writes the film simulations stored in
+the camera's custom setting slots, exports and restores the camera's settings
+backup, and renders RAF files to JPEG on the camera's own image processor.
+.Pp
+Which models are known, and which of the features above each model supports,
+is defined in FML; see
+.Xr fujicli-fml 5
+and
+.Xr fujicli 7 .
+A command that needs a feature the camera does not have fails with
+.Qq camera does not support ... .
+.Ss Device selection
+Commands that talk to a camera use the first supported camera found on the USB
+bus, or the device at
+.Fl -device
+if given.
+A device given with
+.Fl -device
+must be a supported model unless
+.Fl -emulate
+is also given.
+.Ss Standard streams
+Wherever a command takes an input or output file, an argument of
+.Ql -
+means standard input or standard output.
+.Ss Slots
+A
+.Ar slot
+names a custom setting slot, as
+.Cm C1
+to
+.Cm C7
+or
+.Cm 1
+to
+.Cm 7 .
+Case is ignored.
+The number of slots depends on the model.
+.Sh OPTIONS
+The following options are global and may appear before or after any command.
+.Bl -tag -width Ds
+.It Fl j , Fl -json
+Print results as JSON instead of text.
+Applies to
+.Cm device list ,
+.Cm device info ,
+.Cm simulation list
+and
+.Cm simulation get .
+.It Fl v , Fl -verbose
+Log more to standard error.
+Repeat to increase verbosity: once for info, twice for debug, three times for
+trace.
+By default only warnings and errors are logged.
+.It Fl d Ar bus . Ns Ar address , Fl -device Ar bus . Ns Ar address
+Use the USB device at
+.Ar bus
+and
+.Ar address ,
+given in decimal, for example
+.Ql 3.14 .
+.Cm device list
+prints these.
+.It Fl -emulate Ar vendor : Ns Ar product
+Treat the camera as the model with the given USB vendor and product IDs, in
+hexadecimal, for example
+.Ql 04cb:02fc .
+The camera's own IDs are ignored.
+Intended for trying an unlisted model with the definition of a similar one;
+see
+.Sx CAVEATS .
+.It Fl V , Fl -version
+Print the version and exit.
+.It Fl h , Fl -help
+Print usage and exit.
+Given after a command, print that command's usage, including its option flags.
+.El
+.Sh COMMANDS
+Each command and subcommand has a one-letter alias, given in parentheses.
+.Ss device (d)
+.Bl -tag -width Ds
+.It Cm device list Pq Cm l
+List connected supported cameras, with their name, USB ID and bus address.
+Ignores
+.Fl -device
+and
+.Fl -emulate .
+.It Cm device info Pq Cm i
+Print the camera's manufacturer, model, firmware version, serial number, USB
+mode and battery level.
+.It Cm device reverse Pq Cm r
+Developer tools for adding support for a new model.
+Hidden from
+.Fl -help .
+Each subcommand requires
+.Fl -device ,
+works whether or not the device is a known model, and logs the raw PTP
+traffic; use
+.Fl vv
+to see it.
+Only use these with a full backup of the camera.
+.Bl -tag -width Ds
+.It Cm backup export Ar output , Cm backup import Ar input
+Export or import a backup the way known models do.
+.It Cm info
+Dump the device information, USB mode and battery level.
+.It Cm simulation
+Dump every simulation setting of every slot.
+.El
+.El
+.Ss simulation (s)
+.Bl -tag -width Ds
+.It Cm simulation list Pq Cm l
+List the camera's slots and the name of the simulation in each.
+.It Cm simulation get Po Cm g Pc Ar slot
+Print every setting of the simulation in
+.Ar slot .
+.It Cm simulation set Po Cm s Pc Oo Ar option-flags Oc Ar slot
+Change settings of the simulation in
+.Ar slot .
+The given flags are merged with the slot's current settings.
+The result is then checked against the camera's rules.
+Some rules repair the simulation, and may change settings other than those
+given; others reject it, and the command fails with the rule's message.
+Nothing is written to the camera if the simulation is rejected.
+See
+.Sx Option flags .
+.It Cm simulation export Po Cm e Pc Ar slot output
+Write the simulation in
+.Ar slot
+to
+.Ar output
+as JSON.
+.It Cm simulation import Po Cm i Pc Ar slot input
+Read a simulation written by
+.Cm simulation export
+from
+.Ar input
+and write it to
+.Ar slot ,
+replacing every setting.
+The file must come from the same model.
+.El
+.Ss backup (b)
+.Bl -tag -width Ds
+.It Cm backup export Po Cm e Pc Ar output
+Write the camera's settings backup to
+.Ar output .
+.It Cm backup import Po Cm i Pc Ar input
+Restore a settings backup from
+.Ar input .
+.El
+.Ss image (i)
+.Bl -tag -width Ds
+.It Xo
+.Cm image render Pq Cm r
+.Op Fl -slot Ar slot | Fl -simulation-file Ar file | Fl -like Ar image
+.Op Fl -draft
+.Op Ar option-flags
+.Ar input output
+.Xc
+Render the RAF file
+.Ar input
+on the camera and write the resulting image to
+.Ar output .
+.Pp
+By default the image is rendered with the settings it was shot with.
+Settings from at most one of the following sources are applied over it:
+.Bl -tag -width Ds
+.It Fl -slot Ar slot
+The simulation in a slot of the camera.
+.It Fl -simulation-file Ar file
+A simulation written by
+.Cm simulation export .
+.It Fl -like Ar image
+The simulation embedded in the MakerNotes of a JPEG taken with a Fujifilm
+camera, read with
+.Xr exiftool 1 .
+.Ar image
+may be
+.Ql - .
+.El
+.Pp
+Settings in a simulation that do not apply to rendering are ignored.
+Any option flags are then applied over the result.
+The merged profile is checked and repaired against the camera's rules, as for
+.Cm simulation set .
+.Pp
+.Fl -draft
+renders a lower-quality preview, which is faster.
+.It Cm image extract Po Cm e Pc Ar input output
+Read the simulation embedded in the MakerNotes of the JPEG
+.Ar input ,
+using
+.Xr exiftool 1 ,
+and write it to
+.Ar output
+as JSON.
+Does not use a camera.
+.El
+.Ss Option flags
+.Cm simulation set
+and
+.Cm image render
+take one flag per camera setting.
+The flags are generated from FML, so the set depends on the build, and
+.Fl -help
+groups them by category.
+A flag for a setting the camera does not have is an error.
+.Pp
+.Bl -tag -width Ds -compact
+.It Detail
+.Fl -clarity ,
+.Fl -color ,
+.Fl -noise-reduction ,
+.Fl -sharpness ,
+.Fl -smooth-skin-effect
+.It Film Simulation
+.Fl -color-chrome-effect ,
+.Fl -color-chrome-fx-blue ,
+.Fl -film-simulation ,
+.Fl -grain-effect ,
+.Fl -monochromatic-color-temperature ,
+.Fl -monochromatic-color-tint
+.It Image
+.Fl -color-space ,
+.Fl -file-type ,
+.Fl -image-quality ,
+.Fl -image-size
+.It Tone
+.Fl -dynamic-range ,
+.Fl -dynamic-range-priority ,
+.Fl -exposure-offset ,
+.Fl -highlight-tone ,
+.Fl -shadow-tone
+.It Lens
+.Fl -lens-modulation-optimizer ,
+.Fl -teleconverter
+.It White Balance
+.Fl -white-balance ,
+.Fl -white-balance-shift-blue ,
+.Fl -white-balance-shift-red ,
+.Fl -white-balance-temperature
+.El
+.Pp
+.Cm simulation set
+also takes
+.Fl -custom-setting-name ,
+the slot's name, of at most 25 characters.
+.Pp
+Values are parsed as follows:
+.Bl -tag -width Ds
+.It Named values
+A name or one of its aliases, for example
+.Ql "Classic Chrome"
+or
+.Ql classicchrome
+for
+.Fl -film-simulation .
+Case is ignored, as is every character other than letters, digits,
+.Ql \&.
+and
+.Ql - .
+An unknown name is rejected, with a suggestion if one is close.
+.It Numbers
+A decimal number within the setting's range, and on its step, for example
+.Fl -highlight-tone Ar 1.5 .
+Out-of-range and off-step values are rejected with the range or step.
+.Fl -exposure-offset
+is rounded to the nearest step instead.
+Negative values may be given as a separate argument, as in
+.Fl -color Ar -2 .
+.El
+.Pp
+The names, aliases, ranges and steps are defined in FML; see
+.Xr fujicli-fml 5 .
+.Sh ENVIRONMENT
+.Nm
+reads no environment variables of its own.
+.Bl -tag -width Ds
+.It Ev PATH
+Searched for
+.Xr exiftool 1 ,
+which
+.Cm image extract
+and
+.Cm image render Fl -like
+run.
+.El
+.Sh FILES
+.Bl -tag -width Ds
+.It Backup files
+Written by
+.Cm backup export
+and read by
+.Cm backup import .
+Should only be restored to the model that wrote them.
+.It Simulation files
+Written by
+.Cm simulation export
+and
+.Cm image extract ,
+and read by
+.Cm simulation import
+and
+.Cm image render Fl -simulation-file .
+JSON objects with one key per setting; the keys and values depend on the model.
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Sh EXAMPLES
+Find the camera and show its details:
+.Bd -literal -offset indent
+$ fujicli device list
+$ fujicli device info
+.Ed
+.Pp
+Back up the camera before changing anything:
+.Bd -literal -offset indent
+$ fujicli backup export x-t5.bak
+.Ed
+.Pp
+Show slot C1, then change its film simulation and tone:
+.Bd -literal -offset indent
+$ fujicli simulation get c1
+$ fujicli simulation set c1 --film-simulation "Classic Chrome" \e
+    --highlight-tone -1 --shadow-tone 1.5 --grain-effect "Weak Small"
+.Ed
+.Pp
+Copy slot 2 to slot 5:
+.Bd -literal -offset indent
+$ fujicli simulation export 2 - | fujicli simulation import 5 -
+.Ed
+.Pp
+Render a RAW file with the simulation in slot 3, one stop brighter:
+.Bd -literal -offset indent
+$ fujicli image render --slot 3 --exposure-offset 1 DSCF0001.RAF out.jpg
+.Ed
+.Pp
+Use a specific camera when several are connected:
+.Bd -literal -offset indent
+$ fujicli -d 3.14 simulation list --json
+.Ed
+.Sh SEE ALSO
+.Xr exiftool 1 ,
+.Xr fujicli-fml 5 ,
+.Xr fujicli 7
+.Sh CAVEATS
+Only the X-T5 has been tested extensively.
+The models
+.Nm
+knows, and the features enabled for each, are listed in
+.Sx SUPPORTED CAMERAS
+in
+.Xr fujicli 7 .
+Writing settings or backups to a camera, emulating another model, and the
+.Cm device reverse
+commands may leave the camera in a bad state.
+Use at your own risk.
+.Pp
+Opening the camera requires write access to its USB device node.
+On Linux this may need a
+.Xr udev 7
+rule for Fujifilm's vendor ID,
+.Ql 04cb .

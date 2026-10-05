@@ -1,0 +1,497 @@
+.Dd October 5, 2026
+.Dt FUJICLI 7
+.Os fujicli
+.Sh NAME
+.Nm fujicli
+.Nd manage Fujifilm cameras over USB
+.Sh DESCRIPTION
+.Nm
+talks to Fujifilm cameras over USB using the Picture Transfer Protocol (PTP).
+It lists and identifies cameras, reads and writes the film simulations stored
+in the custom-setting slots, exports and imports full settings backups, and
+renders RAW files with the camera's own image processor.
+.Pp
+The command-line interface is described in
+.Xr fujicli 1 .
+.Pp
+Each camera is described in FML, a schema written in CUE under
+.Pa fml/
+in the source tree.
+The schema lists the camera's USB identifiers, which features it supports, the
+settings each feature touches, and the rules that constrain them.
+The Rust code for every camera is generated from it at build time.
+FML is described in
+.Xr fujicli-fml 5 .
+.Pp
+The source tree is a Cargo workspace of five crates:
+.Bl -tag -width "fujicodegen"
+.It Sy fujicli
+The command-line front end.
+.It Sy fujicore
+The library: USB and PTP transport, the feature traits, and the code generated
+from FML.
+.It Sy fujicodegen
+Turns the exported FML into Rust.
+Runs at build time only.
+.It Sy ptp-cursor
+The PTP wire codec:
+.Vt PtpSerialize ,
+.Vt PtpDeserialize
+and PTP strings.
+.It Sy ptp-macro
+Derive macros for
+.Vt PtpSerialize
+and
+.Vt PtpDeserialize .
+.El
+.Sh SUPPORTED CAMERAS
+Every camera in the schema is recognised over USB, and
+.Ql fujicli device info
+should work on all of them.
+The other features are enabled per camera:
+.Bl -column "FUJIFILM X-S20" "X-Trans IV" "Backup" "Simulation" "Render" -offset indent
+.It Sy Model Ta Sy Generation Ta Sy Backup Ta Sy Simulation Ta Sy Render
+.It X-T5 Ta X-Trans V Ta yes Ta 7 slots Ta yes
+.It X-S20 Ta X-Trans IV Ta yes Ta 4 slots Ta no
+.El
+.Pp
+Both are tested.
+The X-T5 is the only camera tested extensively, and the only one that renders.
+.Pp
+The remaining cameras are recognised but untested, and support
+.Ql device info
+only:
+.Bl -tag -width "X-Trans III"
+.It X-Trans
+X-E1, X-M1.
+.It X-Trans II
+X70, X-E2, X-T1, X-T10.
+.It X-Trans III
+X100F, X-E3, X-H1, X-Pro2, X-T2, X-T20.
+.It X-Trans IV
+X100V, X-E4, X-Pro3, X-S10, X-T3, X-T4.
+.It X-Trans V
+X100VI, X-H2, X-H2S.
+.El
+.Pp
+To report that a feature works on a camera, open an issue with the model, the
+firmware version, the USB identifier printed by
+.Ql fujicli device list ,
+and the output of the command run with
+.Fl vvv .
+For rendering, attach a small sample and its rendered output.
+.Ss Emulation
+.Fl -emulate Ar vendor : Ns Ar product
+makes
+.Nm
+treat the connected camera as the model with that USB identifier.
+It selects which generated implementation is used and nothing else.
+It does not add support for a camera missing from the schema.
+.Pp
+Emulation exists for development and reverse engineering.
+The emulated model's property codes, value ranges and slot count may not match
+the real camera, so reads can return garbage and writes can store values the
+camera does not expect.
+Rendering under emulation is unpredictable, and its output should not be
+trusted.
+Take a backup first.
+.Sh HOW IT WORKS
+.Ss Transport
+The camera appears as a PTP device on USB.
+.Nm
+claims its interface, opens a PTP session, and exchanges command, data and
+response containers over the bulk endpoints.
+Large transfers are split into chunks of the camera's
+.Va chunk_size .
+Most of what follows uses Fujifilm's vendor extensions to PTP: vendor device
+properties, and vendor operations for sending objects.
+.Ss Simulations
+A film simulation is the set of image settings stored in one custom-setting
+slot, C1 to C7 on the X-T5.
+Each setting is a separate device property.
+.Pp
+To read a slot,
+.Nm
+writes the slot number to the custom-setting property, then reads each setting
+property in turn.
+The settings are read in a dependency order.
+Some settings are only meaningful when others have particular values: white
+balance temperature only when white balance is set to temperature, for
+example.
+Such a setting is gated: it is read only after the settings it depends on, and
+only if they allow it.
+Otherwise it is left absent.
+Both the order and the gates are derived from the schema's rules.
+.Pp
+To update a slot,
+.Nm
+reads the slot, merges the requested changes over it, repairs the result
+against the rules, and writes back every setting in the same order.
+Absent settings are not written.
+A setting whose option is marked flaky is skipped, with a warning, if the
+camera rejects it.
+.Pp
+Rules have a severity.
+An
+.Sy error
+rule that the merged settings violate is repaired when possible: a setting the
+request did not change is cleared or set to a value that satisfies the rule.
+Settings named in the request are never changed by repair.
+If no repair works, the update fails with the rule's message and nothing is
+written.
+.Sy warning
+and
+.Sy info
+rules are only logged.
+.Pp
+Exported simulations are JSON and are tied to the camera model.
+.Ss Backups
+A backup is the camera's complete settings dump, transferred as a PTP object.
+.Nm
+stores it as an opaque blob and sends it back unchanged on import.
+.Ss Rendering
+Rendering runs the camera's RAW converter on a RAF file, as Fujifilm X RAW
+Studio does:
+.Bl -enum
+.It
+The RAF is sent to the camera.
+.It
+The camera's conversion profile for that image is read.
+It holds the settings the image was shot with, encoded as a fixed list of
+32-bit fields.
+.It
+The user's partial profile is merged over it.
+The partial is built from a simulation, if one was given, overlaid with any
+individual settings.
+A simulation can come from a slot, an exported file, or another image's maker
+notes.
+.It
+The result is repaired against the camera's render rules.
+Render rules can also refer to the profile as shot.
+The camera cannot raise the dynamic range above the value it was shot at, or
+enable a teleconverter crop that was off at the time, and rules of this kind
+use the
+.Sy original
+scope to express that.
+Values as shot are never changed by repair.
+.It
+The repaired profile is written back.
+.It
+The conversion is started, and the result is fetched from the camera and
+deleted there.
+.El
+.Pp
+Reading a simulation from an image uses
+.Xr exiftool 1
+to extract the maker notes, so it must be installed.
+.Sh ADDING A CAMERA
+A camera is an entry in
+.Pa fml/camera.cue .
+An entry with a name, a generation and a USB product identifier is enough for
+.Ql device list
+and
+.Ql device info .
+Each further feature is enabled by declaring it in the entry's
+.Va features
+block, after it has been verified on a real camera.
+The syntax is in
+.Xr fujicli-fml 5 .
+.Bl -enum
+.It
+Take a backup of the camera, with
+.Ql fujicli device reverse backup export
+if the camera does not declare backups yet.
+.It
+Add the entry.
+Its key is the camera's identifier, and must be a valid Rust identifier once
+converted.
+Set
+.Va usb.chunk_size
+if the camera accepts transfers larger than 1 MiB.
+.It
+Build with
+.Ql cargo build .
+The build exports the schema with CUE, which reports any error in the entry.
+.It
+Probe each feature as described in
+.Sx REVERSE ENGINEERING ,
+and declare the ones that work:
+.Bl -tag -width "simulation"
+.It Va backup
+Set to
+.Sy true
+once a backup round-trips.
+The exchange has been the same on every camera seen so far.
+.It Va simulation
+The number of slots, the settings, and the rules.
+Most cameras use their generation's settings and rules.
+A setting the generation lacks is added to the list, and a new option is
+declared in
+.Pa fml/option.cue
+first.
+Check that
+.Ql fujicli simulation get
+and
+.Ql fujicli simulation set
+round-trip on every slot.
+.It Va render
+The profile code, the profile's fields in wire order, the transformations
+between user-facing values and wire values, and the render rules.
+.El
+.It
+Pin the values the camera accepts with rules on the camera, even where an
+option's global definition already allows them.
+A value later added to an option for a newer camera must not silently become
+valid on an older one.
+.It
+Update
+.Sx SUPPORTED CAMERAS
+in this page.
+Mark only features you have verified yourself.
+.El
+.Sh REVERSE ENGINEERING
+The hidden
+.Ql fujicli device reverse
+commands probe a camera regardless of what its schema entry declares.
+Run them with
+.Fl vvv
+to log raw PTP traffic.
+They can leave a camera in a bad state: take a full backup first.
+.Bl -tag -width Ds
+.It Ql fujicli device reverse info
+Dumps the raw reply to
+.Dv GetDeviceInfo .
+If it succeeds, the camera speaks PTP and
+.Ql device info
+will work.
+.It Ql fujicli device reverse backup export Ar file
+.It Ql fujicli device reverse backup import Ar file
+Exports and imports a backup.
+A successful round trip means
+.Va backup
+can be declared.
+.It Ql fujicli device reverse simulation
+Reads every known simulation property on every slot.
+Errors on individual properties are expected and show which settings the
+camera lacks.
+It reads only, and does not check which values the camera accepts.
+.El
+.Ss Render profiles
+The conversion profile format is undocumented.
+It is recovered by capturing the USB traffic between the camera and Fujifilm X
+RAW Studio.
+.Pp
+The profile is serialised as a 16-bit field count, the profile code as a
+string, 0x1EE bytes of padding, and one 32-bit value per field.
+The padding is hard-coded in
+.Pa crates/fujicodegen/src/common/renders/camera.rs
+until a second camera is reversed.
+.Pp
+The setup is a Windows virtual machine running X RAW Studio, with the camera
+passed through to it over USB, and Wireshark on the host.
+.Ql support/monitor-rendering.sh
+needs a
+.Xr tshark 1
+patched to expose
+.Va frame.raw
+for USB traffic.
+.Bl -enum
+.It
+Load the
+.Sy usbmon
+kernel module.
+.It
+Start the script with
+.Ev INTERFACE
+set to the
+.Sy usbmon
+interface of the camera's bus, before connecting the camera:
+.Bd -literal -offset indent
+$ INTERFACE=usbmon1 ./support/monitor-rendering.sh
+.Ed
+.It
+Start the virtual machine, connect the camera and pass it through.
+.It
+Open X RAW Studio and change settings.
+The live preview is enough; the image does not need to be saved.
+.It
+The script prints each conversion profile the host sends.
+Compare successive profiles to map each field to a setting.
+.El
+.Pp
+Each field becomes an entry in the camera's
+.Va render.fields ,
+in wire order.
+A field with no matching option gets an inline identifier.
+When one user-facing value is stored as several wire values, as HDR800+ is
+stored as HDR800 plus a priority flag, declare a transformation.
+Transformations with a single equality condition and a unique result are
+inverted when reading, so the user sees the original value.
+.Pp
+X RAW Studio sometimes reads fewer fields than it writes.
+Treat what it writes as authoritative.
+.Sh ARCHITECTURE
+.Ss Build
+.Pa crates/fujicore/build.rs
+runs
+.Ql cue export ./fml --out json
+and passes the result to
+.Fn fujicodegen::generate ,
+which writes
+.Pa crates/fujicore/src/generated/ :
+.Bl -tag -width "simulations.rs"
+.It Pa options.rs
+One type per option, with its wire encoding, parsing, and serialisation.
+.It Pa cameras.rs
+One type per camera, the features it implements, and the registry used to
+match USB identifiers.
+.It Pa simulations.rs
+Simulation types and rules.
+.It Pa renders.rs
+Render profile types, rules, and the profile codec.
+.It Pa cli.rs
+The command-line arguments for simulation and render settings.
+.El
+.Pp
+The directory is not tracked by git.
+Unchanged files are left alone and stale files are removed.
+Edits to them are lost on the next build.
+.Pp
+Within
+.Sy fujicodegen ,
+.Pa ast/
+holds the parsed schema,
+.Pa schema/
+the analyses, and
+.Pa common/
+and
+.Pa cli/
+the emitters.
+.Ss Generated types
+Every option becomes a Rust type implementing
+.Vt Default ,
+.Vt Eq ,
+.Vt Ord
+and
+.Vt Hash .
+.Pp
+For each camera with simulations, and again for each with rendering, there are
+two types.
+The draft type,
+.Vt XT5SimulationDraft
+or
+.Vt XT5RenderProfileDraft ,
+has every field optional and is used while merging and repairing.
+The strict type,
+.Vt XT5Simulation
+or
+.Vt XT5RenderProfile ,
+is what is read from and written to the camera.
+Only its gated fields are optional.
+.Vt SimulationBase
+and
+.Vt RenderBase
+are the union of all cameras' fields, and carry requests from the command line.
+.Pp
+Each camera's rules become a module,
+.Ql x_t5 ,
+with:
+.Bl -tag -width "apply_transformations"
+.It Fn apply_transformations
+Rewrites user-facing values into wire values.
+.It Fn solve
+Checks the error rules and repairs violations.
+.It Fn emit_warnings_and_infos
+Logs the warning and info rules that hold.
+.It Fn try_update_from
+Merges a partial draft into the current one, and runs the three above.
+.El
+.Pp
+The runtime only sees traits.
+.Vt CameraBase
+has one accessor per feature, returning nothing by default.
+The generated camera types override those they declare.
+.Ss Analyses
+The analyses in
+.Pa crates/fujicodegen/src/schema/
+turn rules into code.
+.Bl -tag -width Ds
+.It Normalisation
+Every rule condition is rewritten in disjunctive normal form: an
+.Sy or
+of
+.Sy and Ns s
+of comparisons, with negation pushed into the comparisons.
+The later passes all work on this form.
+.It Alias substitution
+Rules are written against user-facing values, but checked after
+transformations have run.
+Each transformation's condition is replaced in the rules by what it produces,
+so a rule about HDR800+ applies to HDR800 with the priority flag set.
+.It Expansion exemption
+The dual of substitution.
+A rule that never mentions an alias value can still match what the alias
+produces: a rule forbidding a dynamic range while priority is on would reject
+HDR800+.
+Such rules are given an exception for the exact output of the transformation.
+.It Presence
+A rule of the form
+.Do
+.Va X
+is set and
+.Va Y
+is not suitable
+.Dc
+means
+.Va X
+should only be read when
+.Va Y
+allows it.
+From such rules the pass builds a graph of the settings, ordered so that
+.Va Y
+comes before
+.Va X ,
+and the gate for each setting.
+Settings are read and written in the topological order closest to their
+declaration order.
+A cycle is a build error.
+.It Repair
+For each violated error rule, try changing one setting the request did not
+name: clear it, if it is gated, or set it to the value the rule requires.
+A change is kept only if no rule that held before now fails.
+Values as shot are never changed.
+.It Inverses
+Transformations with a single equality condition and a result no other
+transformation produces are inverted on read, in reverse order.
+Others are skipped with a build warning.
+Reading and writing a profile is therefore equivalent, but not necessarily
+identical byte for byte.
+.El
+.Sh SEE ALSO
+.Xr exiftool 1 ,
+.Xr fujicli 1 ,
+.Xr tshark 1 ,
+.Xr fujicli-fml 5
+.Sh ACKNOWLEDGEMENTS
+.Nm
+builds on the reverse engineering done by:
+.Bl -bullet -compact
+.It
+.Lk https://github.com/fujihack/fujihack fujihack
+.It
+.Lk https://github.com/petabyt/fudge fudge
+.It
+.Lk https://github.com/petabyt/libpict libpict
+.It
+.Lk https://github.com/petabyt/fp fp
+.It
+.Lk https://github.com/gphoto/libgphoto2 libgphoto2
+.El
+.Sh CAVEATS
+Use at your own risk.
+The author is not responsible for damage to cameras or equipment, or for lost
+data.
+.Pp
+Only the X-T5 is tested extensively.
+Other cameras may use the same commands, but this is not guaranteed.
+Take a backup before writing to a camera.

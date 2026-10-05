@@ -40,10 +40,13 @@
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
+              installShellFiles
               cue
             ];
 
             postInstall = ''
+              installManPage man/*.1 man/*.5 man/*.7
+
               wrapProgram $out/bin/fujicli \
                 --prefix PATH : "${pkgs.lib.makeBinPath [ pkgs.exiftool ]}"
             '';

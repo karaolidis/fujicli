@@ -21,42 +21,68 @@ Options:
   -V, --version            Print version
 ```
 
-## Status
+Only the X-T5 is extensively tested. Other models may work, but
+**compatibility is not guaranteed**. Use this software at your own risk.
 
-Extensively tested only with the **Fujifilm X-T5**. The underlying PTP commands
-likely work on other Fujifilm models, but **compatibility is not guaranteed**.
+## Installation
 
-**Use this software at your own risk.** The author is not responsible for any
-damage, lost data, or other adverse outcomes - physical or psychological - to
-your camera or equipment.
+Linux x86_64 binaries are attached to each
+[release](https://git.karaolidis.com/karaolidis/fujicli/releases).
 
-This project is under heavy development. Contributions are welcome. See
-[docs/users/support.md](docs/users/support.md) for the camera support matrix.
+With Nix:
+
+```sh
+nix run git+https://git.karaolidis.com/karaolidis/fujicli
+```
+
+or add the flake's `overlays.default` and install the `fujicli` package, which
+includes the manual pages.
+
+From source, you need Rust (edition 2024), [CUE](https://cuelang.org/) on
+`PATH`, and the `libusb-1.0` headers:
+
+```sh
+cargo build --release
+```
+
+`image render --like` and `image extract` also need `exiftool` on `PATH`.
+
+### USB Access
+
+On Linux, if listing devices fails with a permission error, allow access to
+Fujifilm's vendor ID:
+
+```udev
+# /etc/udev/rules.d/70-fujifilm.rules
+SUBSYSTEM=="usb", ATTRS{idVendor}=="04cb", MODE="0666"
+```
+
+On Windows, replace the camera's driver with WinUSB using
+[Zadig](https://zadig.akeo.ie/). macOS needs no setup.
 
 ## Documentation
 
-The full wiki lives in [`docs/`](docs/README.md).
+| Page              | Covers                                                 |
+| ----------------- | ------------------------------------------------------ |
+| `fujicli(1)`      | Commands and options.                                  |
+| `fujicli-fml(5)`  | The Fuji Modelling Language used to describe cameras.  |
+| `fujicli(7)`      | Supported cameras, how it works, adding a camera.      |
 
-## GitHub Mirror
+The pages are in `man/`. Read them without installing with
+`man -l man/fujicli.1`.
 
-The canonical source for `fujicli` lives on a
-[self-hosted Gitea instance](https://git.karaolidis.com/karaolidis/fujicli). A
-[GitHub mirror](https://github.com/karaolidis/fujicli) exists for visibility and
-community collaboration:
+## Contributing
 
-- Stars, issues, and pull requests on GitHub are welcome.
-- Changes may be reviewed and merged on the primary Gitea repo first.
-- GitHub may lag slightly behind the canonical repo during heavy development.
+The canonical repository is on
+[Gitea](https://git.karaolidis.com/karaolidis/fujicli), with a
+[GitHub mirror](https://github.com/karaolidis/fujicli). See
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and testing.
 
-If you're looking for the absolute latest commits, the self-hosted repo is the
-source of truth.
+## Acknowledgements
 
-## Resources
-
-This project builds upon the following reverse-engineering efforts:
-
-- [fujihack](https://github.com/fujihack/fujihack)
-- [fudge](https://github.com/petabyt/fudge)
-- [libpict](https://github.com/petabyt/libpict)
-- [fp](https://github.com/petabyt/fp)
-- [libgphoto2](https://github.com/gphoto/libgphoto2)
+fujicli builds on reverse-engineering work by
+[fujihack](https://github.com/fujihack/fujihack),
+[fudge](https://github.com/petabyt/fudge),
+[libpict](https://github.com/petabyt/libpict),
+[fp](https://github.com/petabyt/fp), and
+[libgphoto2](https://github.com/gphoto/libgphoto2).
