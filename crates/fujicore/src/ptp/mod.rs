@@ -85,10 +85,15 @@ impl Ptp {
                         }
 
                         match container.code {
-                            ContainerCode::Command(_)
-                            | ContainerCode::Response(ResponseCode::Ok) => {}
+                            ContainerCode::Response(ResponseCode::Ok) => {}
                             ContainerCode::Response(resp) => {
                                 response = Err(PtpError::Response(resp).into());
+                            }
+                            ContainerCode::Command(cmd) => {
+                                response = Err(PtpError::Malformed(format!(
+                                    "response container carried command code {cmd:?}"
+                                ))
+                                .into());
                             }
                         }
 
@@ -153,6 +158,15 @@ impl Ptp {
 
         let mut cur = Cursor::new(buf);
         let container_info = ContainerInfo::try_read_ptp(&mut cur).map_err(PtpError::from)?;
+
+        if (container_info.total_len as usize) < ContainerInfo::SIZE {
+            return Err(PtpError::Malformed(format!(
+                "container total length {} is below the {}-byte header",
+                container_info.total_len,
+                ContainerInfo::SIZE
+            ))
+            .into());
+        }
 
         let payload_len = container_info.payload_len();
         if payload_len == 0 {

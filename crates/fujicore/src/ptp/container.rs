@@ -43,7 +43,7 @@ impl ContainerInfo {
 
     #[must_use]
     pub const fn payload_len(&self) -> usize {
-        self.total_len as usize - Self::SIZE
+        (self.total_len as usize).saturating_sub(Self::SIZE)
     }
 }
 
