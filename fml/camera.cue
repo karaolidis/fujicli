@@ -408,6 +408,16 @@ cameras: {
 							]
 						},
 						{
+							message: "Color does not apply to black and white simulations."
+							when: all: [
+								{ref: "color", present: true},
+								{
+									ref: "film_simulation"
+									in: ["monochrome", "monochrome_ye", "monochrome_r", "monochrome_g", "acros", "acros_ye", "acros_r", "acros_g"]
+								},
+							]
+						},
+						{
 							message: "White balance temperature is only meaningful in Temperature mode."
 							when: all: [
 								{ref: "white_balance_temperature", present: true},
@@ -423,6 +433,27 @@ cameras: {
 									{ref: "white_balance_shift_blue", present: true},
 									{ref: "white_balance_temperature", present: true},
 								]},
+							]
+						},
+						{
+							message: "Dynamic Range can only be set when Dynamic Range Priority is disabled."
+							when: all: [
+								{ref: "dynamic_range", present: true},
+								{not: {ref: "dynamic_range_priority", equals: "off"}},
+							]
+						},
+						{
+							message: "Highlight Tone can only be set when Dynamic Range Priority is disabled."
+							when: all: [
+								{ref: "highlight_tone", present: true},
+								{not: {ref: "dynamic_range_priority", equals: "off"}},
+							]
+						},
+						{
+							message: "Shadow Tone can only be set when Dynamic Range Priority is disabled."
+							when: all: [
+								{ref: "shadow_tone", present: true},
+								{not: {ref: "dynamic_range_priority", equals: "off"}},
 							]
 						},
 						{
@@ -444,6 +475,13 @@ cameras: {
 									{ref: "dynamic_range", scope: "original", equals: "hdr800"},
 									{not: {ref: "dynamic_range", in: ["hdr100", "hdr200", "hdr400", "hdr800"]}},
 								]},
+							]
+						},
+						{
+							message: "Teleconverter can only be enabled if it was enabled when the image was shot."
+							when: all: [
+								{ref: "teleconverter", scope: "original", equals: "off"},
+								{ref: "teleconverter", equals: "on"},
 							]
 						},
 					]
