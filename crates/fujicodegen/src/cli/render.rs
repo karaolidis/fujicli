@@ -78,7 +78,7 @@ fn build_entries(
 ) -> Vec<Entry> {
     options
         .values()
-        .filter(|opt| !opt.codegen.skip_args)
+        .filter(|opt| !opt.codegen.skip)
         .filter(|opt| render_options.contains(&opt.id) && !render_inline_ids.contains(&opt.id))
         .map(|opt| {
             let ident = format_ident!("{}", opt.id);

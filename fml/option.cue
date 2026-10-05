@@ -13,10 +13,11 @@ options: [string]: #Option
 	#Spec: #SpecInteger | #SpecFloat | #SpecString | #SpecEnum
 
 	#SpecBase: {
-		name:     string
-		kind:     #SpecKind
-		rules?:   _
-		encoding: _
+		name:      string
+		kind:      #SpecKind
+		category?: string
+		rules?:    _
+		encoding:  _
 
 		#SpecKind: "integer" | "float" | "string" | "enum"
 	}
@@ -199,7 +200,7 @@ options: [string]: #Option
 	}
 
 	#Codegen: {
-		skip_args?: true
+		skip?: true
 	}
 }
 
@@ -239,7 +240,7 @@ options: {
 				}
 			}
 		}
-		codegen: skip_args: true
+		codegen: skip: true
 	}
 
 	usb_mode: #Option & {
@@ -257,7 +258,7 @@ options: {
 				}
 			}
 		}
-		codegen: skip_args: true
+		codegen: skip: true
 	}
 
 	custom_setting_name: #Option & {
@@ -274,8 +275,9 @@ options: {
 
 	image_size: #Option & {
 		spec: {
-			name: "Image Size"
-			kind: "enum"
+			name:     "Image Size"
+			category: "Image"
+			kind:     "enum"
 			rules: variants: [
 				{id: "7728x5152", name: "7728x5152", aliases: ["7728x5152"]},
 				{id: "7728x4344", name: "7728x4344", aliases: ["7728x4344"]},
@@ -320,8 +322,9 @@ options: {
 
 	image_quality: #Option & {
 		spec: {
-			name: "Image Quality"
-			kind: "enum"
+			name:     "Image Quality"
+			category: "Image"
+			kind:     "enum"
 			rules: variants: [
 				{id: "fine_raw", name: "Fine + RAW", aliases: ["fineraw"]},
 				{id: "fine", name: "Fine", aliases: ["fine"]},
@@ -345,8 +348,9 @@ options: {
 
 	film_simulation: #Option & {
 		spec: {
-			name: "Film Simulation"
-			kind: "enum"
+			name:     "Film Simulation"
+			category: "Film Simulation"
+			kind:     "enum"
 			rules: variants: [
 				{id: "provia", name: "Provia", aliases: ["provia"]},
 				{id: "velvia", name: "Velvia", aliases: ["velvia"]},
@@ -400,8 +404,9 @@ options: {
 
 	monochromatic_color_temperature: #Option & {
 		spec: {
-			name: "Monochromatic Color Temperature"
-			kind: "integer"
+			name:     "Monochromatic Color Temperature"
+			category: "Film Simulation"
+			kind:     "integer"
 			rules: {min: -18, max: 18, step: 1}
 			encoding: {
 				prop_code: 0xD193
@@ -413,8 +418,9 @@ options: {
 
 	monochromatic_color_tint: #Option & {
 		spec: {
-			name: "Monochromatic Color Tint"
-			kind: "integer"
+			name:     "Monochromatic Color Tint"
+			category: "Film Simulation"
+			kind:     "integer"
 			rules: {min: -18, max: 18, step: 1}
 			encoding: {
 				prop_code: 0xD194
@@ -426,8 +432,9 @@ options: {
 
 	grain_effect: #Option & {
 		spec: {
-			name: "Grain Effect"
-			kind: "enum"
+			name:     "Grain Effect"
+			category: "Film Simulation"
+			kind:     "enum"
 			rules: variants: [
 				{id: "strong_large", name: "Strong Large", aliases: ["stronglarge", "largestrong"]},
 				{id: "weak_large", name: "Weak Large", aliases: ["weaklarge", "largeweak"]},
@@ -451,8 +458,9 @@ options: {
 
 	color_chrome_effect: #Option & {
 		spec: {
-			name: "Color Chrome Effect"
-			kind: "enum"
+			name:     "Color Chrome Effect"
+			category: "Film Simulation"
+			kind:     "enum"
 			rules: variants: [
 				{id: "strong", name: "Strong", aliases: ["strong"]},
 				{id: "weak", name: "Weak", aliases: ["weak"]},
@@ -468,8 +476,9 @@ options: {
 
 	color_chrome_fx_blue: #Option & {
 		spec: {
-			name: "Color Chrome FX Blue"
-			kind: "enum"
+			name:     "Color Chrome FX Blue"
+			category: "Film Simulation"
+			kind:     "enum"
 			rules: variants: [
 				{id: "strong", name: "Strong", aliases: ["strong"]},
 				{id: "weak", name: "Weak", aliases: ["weak"]},
@@ -485,8 +494,9 @@ options: {
 
 	white_balance: #Option & {
 		spec: {
-			name: "White Balance"
-			kind: "enum"
+			name:     "White Balance"
+			category: "White Balance"
+			kind:     "enum"
 			rules: variants: [
 				{id: "as_shot", name: "As Shot", aliases: ["asshot", "original"]},
 				{id: "white_priority", name: "White Priority", aliases: ["whitepriority", "white"]},
@@ -530,8 +540,9 @@ options: {
 
 	white_balance_shift_red: #Option & {
 		spec: {
-			name: "White Balance Shift Red"
-			kind: "integer"
+			name:     "White Balance Shift Red"
+			category: "White Balance"
+			kind:     "integer"
 			rules: {min: -9, max: 9, step: 1}
 			encoding: {
 				prop_code: 0xD19A
@@ -543,8 +554,9 @@ options: {
 
 	white_balance_shift_blue: #Option & {
 		spec: {
-			name: "White Balance Shift Blue"
-			kind: "integer"
+			name:     "White Balance Shift Blue"
+			category: "White Balance"
+			kind:     "integer"
 			rules: {min: -9, max: 9, step: 1}
 			encoding: {
 				prop_code: 0xD19B
@@ -556,8 +568,9 @@ options: {
 
 	white_balance_temperature: #Option & {
 		spec: {
-			name: "White Balance Temperature"
-			kind: "integer"
+			name:     "White Balance Temperature"
+			category: "White Balance"
+			kind:     "integer"
 			rules: {min: 2500, max: 10000, step: 10}
 			encoding: {
 				prop_code: 0xD19C
@@ -569,8 +582,9 @@ options: {
 
 	highlight_tone: #Option & {
 		spec: {
-			name: "Highlight Tone"
-			kind: "float"
+			name:     "Highlight Tone"
+			category: "Tone"
+			kind:     "float"
 			rules: {min: -2.0, max: 4.0, step: 0.5}
 			encoding: {
 				prop_code: 0xD19D
@@ -582,8 +596,9 @@ options: {
 
 	shadow_tone: #Option & {
 		spec: {
-			name: "Shadow Tone"
-			kind: "float"
+			name:     "Shadow Tone"
+			category: "Tone"
+			kind:     "float"
 			rules: {min: -2.0, max: 4.0, step: 0.5}
 			encoding: {
 				prop_code: 0xD19E
@@ -595,8 +610,9 @@ options: {
 
 	color: #Option & {
 		spec: {
-			name: "Color"
-			kind: "integer"
+			name:     "Color"
+			category: "Detail"
+			kind:     "integer"
 			rules: {min: -4, max: 4, step: 1}
 			encoding: {
 				prop_code: 0xD19F
@@ -608,8 +624,9 @@ options: {
 
 	sharpness: #Option & {
 		spec: {
-			name: "Sharpness"
-			kind: "integer"
+			name:     "Sharpness"
+			category: "Detail"
+			kind:     "integer"
 			rules: {min: -4, max: 4, step: 1}
 			encoding: {
 				prop_code: 0xD1A0
@@ -621,8 +638,9 @@ options: {
 
 	noise_reduction: #Option & {
 		spec: {
-			name: "High ISO Noise Reduction"
-			kind: "integer"
+			name:     "High ISO Noise Reduction"
+			category: "Detail"
+			kind:     "integer"
 			rules: {min: -4, max: 4, step: 1}
 			encoding: {
 				prop_code: 0xD1A1
@@ -644,8 +662,9 @@ options: {
 
 	clarity: #Option & {
 		spec: {
-			name: "Clarity"
-			kind: "integer"
+			name:     "Clarity"
+			category: "Detail"
+			kind:     "integer"
 			rules: {min: -5, max: 5, step: 1}
 			encoding: {
 				prop_code: 0xD1A2
@@ -657,8 +676,9 @@ options: {
 
 	lens_modulation_optimizer: #Option & {
 		spec: {
-			name: "Lens Modulation Optimizer"
-			kind: "enum"
+			name:     "Lens Modulation Optimizer"
+			category: "Lens"
+			kind:     "enum"
 			rules: {
 				variants: [
 					{id: "on", name: "On", aliases: ["on", "true"]},
@@ -675,8 +695,9 @@ options: {
 
 	color_space: #Option & {
 		spec: {
-			name: "Color Space"
-			kind: "enum"
+			name:     "Color Space"
+			category: "Image"
+			kind:     "enum"
 			rules: variants: [
 				{id: "srgb", name: "sRGB", aliases: ["s", "srgb"]},
 				{id: "adobe_rgb", name: "Adobe RGB", aliases: ["adobe", "adobergb"]},
@@ -691,8 +712,9 @@ options: {
 
 	dynamic_range: #Option & {
 		spec: {
-			name: "Dynamic Range"
-			kind: "enum"
+			name:     "Dynamic Range"
+			category: "Tone"
+			kind:     "enum"
 			rules: variants: [
 				{id: "auto", name: "Auto", aliases: ["auto"]},
 				{id: "hdr100", name: "HDR100", aliases: ["100", "hdr100", "dr100"]},
@@ -718,8 +740,9 @@ options: {
 
 	dynamic_range_priority: #Option & {
 		spec: {
-			name: "Dynamic Range Priority"
-			kind: "enum"
+			name:     "Dynamic Range Priority"
+			category: "Tone"
+			kind:     "enum"
 			rules: variants: [
 				{id: "auto", name: "Auto", aliases: ["auto"]},
 				{id: "plus", name: "Plus", aliases: ["plus"]},
@@ -743,8 +766,9 @@ options: {
 
 	smooth_skin_effect: #Option & {
 		spec: {
-			name: "Smooth Skin Effect"
-			kind: "enum"
+			name:     "Smooth Skin Effect"
+			category: "Detail"
+			kind:     "enum"
 			rules: variants: [
 				{id: "strong", name: "Strong", aliases: ["strong"]},
 				{id: "weak", name: "Weak", aliases: ["weak"]},
@@ -764,8 +788,9 @@ options: {
 
 	exposure_offset: #Option & {
 		spec: {
-			name: "Exposure Offset"
-			kind: "float"
+			name:     "Exposure Offset"
+			category: "Tone"
+			kind:     "float"
 			rules: {min: -3.0, max: 3.0}
 			encoding: {
 				kind: "lookup"
@@ -796,8 +821,9 @@ options: {
 
 	file_type: #Option & {
 		spec: {
-			name: "File Type"
-			kind: "enum"
+			name:     "File Type"
+			category: "Image"
+			kind:     "enum"
 			rules: variants: [
 				{id: "jpeg", name: "JPEG", aliases: ["jpeg", "jpg"]},
 				{id: "heif", name: "HEIF", aliases: ["heif"]},
@@ -818,8 +844,9 @@ options: {
 
 	teleconverter: #Option & {
 		spec: {
-			name: "Teleconverter"
-			kind: "enum"
+			name:     "Teleconverter"
+			category: "Lens"
+			kind:     "enum"
 			rules: variants: [
 				{id: "on", name: "On", aliases: ["on", "true"]},
 				{id: "off", name: "Off", aliases: ["off", "false"]},
