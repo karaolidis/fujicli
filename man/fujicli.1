@@ -306,17 +306,20 @@ the slot's name, of at most 25 characters.
 Values are parsed as follows:
 .Bl -tag -width Ds
 .It Named values
-A name or one of its aliases, for example
-.Ql "Classic Chrome"
-or
-.Ql classicchrome
+The value's name, or one of its aliases, matched exactly except for case.
+Names are written with hyphens, for example
+.Ql classic-chrome
 for
-.Fl -film-simulation .
-Case is ignored, as is every character other than letters, digits,
-.Ql \&.
-and
-.Ql - .
-An unknown name is rejected, with a suggestion if one is close.
+.Fl -film-simulation
+or
+.Ql hdr800-plus
+for
+.Fl -dynamic-range ,
+whose aliases include
+.Ql 800+ .
+The
+.Fl -help
+of a command lists every name with its description.
 .It Numbers
 A decimal number within the setting's range, and on its step, for example
 .Fl -highlight-tone Ar 1.5 .
@@ -359,7 +362,6 @@ and read by
 .Cm simulation import
 and
 .Cm image render Fl -simulation-file .
-JSON objects with one key per setting; the keys and values depend on the model.
 .El
 .Sh EXIT STATUS
 .Ex -std
@@ -378,8 +380,8 @@ $ fujicli backup export x-t5.bak
 Show slot C1, then change its film simulation and tone:
 .Bd -literal -offset indent
 $ fujicli simulation get c1
-$ fujicli simulation set c1 --film-simulation "Classic Chrome" \e
-    --highlight-tone -1 --shadow-tone 1.5 --grain-effect "Weak Small"
+$ fujicli simulation set c1 --film-simulation classic-chrome \e
+    --highlight-tone -1 --shadow-tone 1.5 --grain-effect weak-small
 .Ed
 .Pp
 Copy slot 2 to slot 5:

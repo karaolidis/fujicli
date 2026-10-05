@@ -18,6 +18,7 @@ pub enum SimulationCmd {
     #[command(alias = "g")]
     Get {
         /// Simulation slot number
+        #[arg(ignore_case = true)]
         slot: CustomSetting,
     },
 
@@ -25,6 +26,7 @@ pub enum SimulationCmd {
     #[command(alias = "s")]
     Set {
         /// Simulation slot number
+        #[arg(ignore_case = true)]
         slot: CustomSetting,
 
         #[command(flatten)]
@@ -35,6 +37,7 @@ pub enum SimulationCmd {
     #[command(alias = "e")]
     Export {
         /// Simulation slot number
+        #[arg(ignore_case = true)]
         slot: CustomSetting,
 
         /// Output file (use '-' to write to stdout)
@@ -45,6 +48,7 @@ pub enum SimulationCmd {
     #[command(alias = "i")]
     Import {
         /// Simulation slot number
+        #[arg(ignore_case = true)]
         slot: CustomSetting,
 
         /// Input file (use '-' to read from stdin)

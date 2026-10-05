@@ -8,6 +8,8 @@ import "math"
 
 import "struct"
 
+import "strings"
+
 options: [string]: #Option
 
 #Option: #DefinitionBase & {
@@ -234,11 +236,14 @@ options: [string]: #Option
 			#Variant: {
 				id:   string
 				name: string
-				aliases: [string, ...string]
+				aliases: [...string] | *[]
 			}
 
 			_unique_ids: list.UniqueItems & [for v in variants {v.id}]
-			_unique_aliases: list.UniqueItems & [for v in variants for a in v.aliases {a}]
+			_unique_inputs: list.UniqueItems & list.Concat([
+				[for v in variants {strings.Replace(v.id, "-", "_", -1)}],
+				[for v in variants for a in v.aliases {strings.ToLower(strings.Replace(a, "-", "_", -1))}],
+			])
 		}
 
 		#Encoding: #EncodingLookup
@@ -258,7 +263,7 @@ options: [string]: #Option
 	}
 
 	#Codegen: {
-		skip?: true
+		skip?:  true
 		flaky?: true
 	}
 }
@@ -277,13 +282,13 @@ options: {
 			name: "Custom Setting Slot"
 			kind: "enum"
 			rules: variants: [
-				{id: "c1", name: "C1", aliases: ["c1", "1"]},
-				{id: "c2", name: "C2", aliases: ["c2", "2"]},
-				{id: "c3", name: "C3", aliases: ["c3", "3"]},
-				{id: "c4", name: "C4", aliases: ["c4", "4"]},
-				{id: "c5", name: "C5", aliases: ["c5", "5"]},
-				{id: "c6", name: "C6", aliases: ["c6", "6"]},
-				{id: "c7", name: "C7", aliases: ["c7", "7"]},
+				{id: "c1", name: "C1", aliases: ["1"]},
+				{id: "c2", name: "C2", aliases: ["2"]},
+				{id: "c3", name: "C3", aliases: ["3"]},
+				{id: "c4", name: "C4", aliases: ["4"]},
+				{id: "c5", name: "C5", aliases: ["5"]},
+				{id: "c6", name: "C6", aliases: ["6"]},
+				{id: "c7", name: "C7", aliases: ["7"]},
 			]
 			encoding: {
 				prop_code: 0xD18C
@@ -307,7 +312,7 @@ options: {
 			name: "USB Mode"
 			kind: "enum"
 			rules: variants: [
-				{id: "raw_conversion", name: "Raw Conversion", aliases: ["raw", "rawconversion"]},
+				{id: "raw_conversion", name: "Raw Conversion", aliases: ["raw"]},
 			]
 			encoding: {
 				prop_code: 0xD16E
@@ -338,21 +343,21 @@ options: {
 			category: "Image"
 			kind:     "enum"
 			rules: variants: [
-				{id: "7728x5152", name: "7728x5152", aliases: ["7728x5152"]},
-				{id: "7728x4344", name: "7728x4344", aliases: ["7728x4344"]},
-				{id: "5152x5152", name: "5152x5152", aliases: ["5152x5152"]},
-				{id: "6864x5152", name: "6864x5152", aliases: ["6864x5152"]},
-				{id: "6432x5152", name: "6432x5152", aliases: ["6432x5152"]},
-				{id: "5472x3648", name: "5472x3648", aliases: ["5472x3648"]},
-				{id: "5472x3080", name: "5472x3080", aliases: ["5472x3080"]},
-				{id: "3648x3648", name: "3648x3648", aliases: ["3648x3648"]},
-				{id: "4864x3648", name: "4864x3648", aliases: ["4864x3648"]},
-				{id: "4560x3648", name: "4560x3648", aliases: ["4560x3648"]},
-				{id: "3888x2592", name: "3888x2592", aliases: ["3888x2592"]},
-				{id: "3888x2184", name: "3888x2184", aliases: ["3888x2184"]},
-				{id: "2592x2592", name: "2592x2592", aliases: ["2592x2592"]},
-				{id: "3456x2592", name: "3456x2592", aliases: ["3456x2592"]},
-				{id: "3264x2592", name: "3264x2592", aliases: ["3264x2592"]},
+				{id: "7728x5152", name: "7728x5152"},
+				{id: "7728x4344", name: "7728x4344"},
+				{id: "5152x5152", name: "5152x5152"},
+				{id: "6864x5152", name: "6864x5152"},
+				{id: "6432x5152", name: "6432x5152"},
+				{id: "5472x3648", name: "5472x3648"},
+				{id: "5472x3080", name: "5472x3080"},
+				{id: "3648x3648", name: "3648x3648"},
+				{id: "4864x3648", name: "4864x3648"},
+				{id: "4560x3648", name: "4560x3648"},
+				{id: "3888x2592", name: "3888x2592"},
+				{id: "3888x2184", name: "3888x2184"},
+				{id: "2592x2592", name: "2592x2592"},
+				{id: "3456x2592", name: "3456x2592"},
+				{id: "3264x2592", name: "3264x2592"},
 			]
 			encoding: {
 				prop_code: 0xD18E
@@ -385,11 +390,11 @@ options: {
 			category: "Image"
 			kind:     "enum"
 			rules: variants: [
-				{id: "fine_raw", name: "Fine + RAW", aliases: ["fineraw"]},
-				{id: "fine", name: "Fine", aliases: ["fine"]},
-				{id: "normal_raw", name: "Normal + RAW", aliases: ["normalraw"]},
-				{id: "normal", name: "Normal", aliases: ["normal"]},
-				{id: "raw", name: "RAW", aliases: ["raw"]},
+				{id: "fine_raw", name: "Fine + RAW"},
+				{id: "fine", name: "Fine"},
+				{id: "normal_raw", name: "Normal + RAW"},
+				{id: "normal", name: "Normal"},
+				{id: "raw", name: "RAW"},
 			]
 			encoding: {
 				prop_code: 0xD18F
@@ -411,26 +416,26 @@ options: {
 			category: "Film Simulation"
 			kind:     "enum"
 			rules: variants: [
-				{id: "provia", name: "Provia", aliases: ["provia"]},
-				{id: "velvia", name: "Velvia", aliases: ["velvia"]},
-				{id: "astia", name: "Astia", aliases: ["astia"]},
-				{id: "pro_neg_hi", name: "PRO Neg. Hi", aliases: ["proneghi", "proneghigh"]},
-				{id: "pro_neg_std", name: "PRO Neg. Std", aliases: ["pronegstd", "pronegstandard"]},
-				{id: "monochrome", name: "Monochrome", aliases: ["mono", "monochrome"]},
-				{id: "monochrome_ye", name: "Monochrome + Ye", aliases: ["monoy", "monoye", "monoyellow", "monochromey", "monochromeye", "monochromeyellow"]},
-				{id: "monochrome_r", name: "Monochrome + R", aliases: ["monor", "monored", "monochromer", "monochromered"]},
-				{id: "monochrome_g", name: "Monochrome + G", aliases: ["monog", "monogreen", "monochromeg", "monochromegreen"]},
-				{id: "sepia", name: "Sepia", aliases: ["sepia"]},
-				{id: "classic_chrome", name: "Classic Chrome", aliases: ["classicchrome"]},
-				{id: "acros", name: "Acros", aliases: ["acros"]},
-				{id: "acros_ye", name: "Acros + Ye", aliases: ["acrosy", "acrosye", "acrosyellow"]},
-				{id: "acros_r", name: "Acros + R", aliases: ["acrosr", "acrosred"]},
-				{id: "acros_g", name: "Acros + G", aliases: ["acrosg", "acrosgreen"]},
-				{id: "eterna", name: "Eterna", aliases: ["eterna"]},
-				{id: "classic_negative", name: "Classic Negative", aliases: ["classicneg", "classicnegative"]},
-				{id: "eterna_bleach_bypass", name: "Eterna Bleach Bypass", aliases: ["eternabb", "eternableach", "eternableachbypass"]},
-				{id: "nostalgic_negative", name: "Nostalgic Negative", aliases: ["nostalgicneg", "nostalgicnegative"]},
-				{id: "reala_ace", name: "Reala Ace", aliases: ["realaace", "reala"]},
+				{id: "provia", name: "Provia"},
+				{id: "velvia", name: "Velvia"},
+				{id: "astia", name: "Astia"},
+				{id: "pro_neg_hi", name: "PRO Neg. Hi", aliases: ["pro_neg_high"]},
+				{id: "pro_neg_std", name: "PRO Neg. Std", aliases: ["pro_neg_standard"]},
+				{id: "monochrome", name: "Monochrome", aliases: ["mono"]},
+				{id: "monochrome_ye", name: "Monochrome + Ye", aliases: ["mono_ye", "mono_yellow", "monochrome_yellow"]},
+				{id: "monochrome_r", name: "Monochrome + R", aliases: ["mono_r", "mono_red", "monochrome_red"]},
+				{id: "monochrome_g", name: "Monochrome + G", aliases: ["mono_g", "mono_green", "monochrome_green"]},
+				{id: "sepia", name: "Sepia"},
+				{id: "classic_chrome", name: "Classic Chrome"},
+				{id: "acros", name: "Acros"},
+				{id: "acros_ye", name: "Acros + Ye", aliases: ["acros_yellow"]},
+				{id: "acros_r", name: "Acros + R", aliases: ["acros_red"]},
+				{id: "acros_g", name: "Acros + G", aliases: ["acros_green"]},
+				{id: "eterna", name: "Eterna"},
+				{id: "classic_negative", name: "Classic Negative", aliases: ["classic_neg"]},
+				{id: "eterna_bleach_bypass", name: "Eterna Bleach Bypass", aliases: ["eterna_bb", "eterna_bleach"]},
+				{id: "nostalgic_negative", name: "Nostalgic Negative", aliases: ["nostalgic_neg"]},
+				{id: "reala_ace", name: "Reala Ace", aliases: ["reala"]},
 			]
 			encoding: {
 				prop_code: 0xD192
@@ -495,11 +500,11 @@ options: {
 			category: "Film Simulation"
 			kind:     "enum"
 			rules: variants: [
-				{id: "strong_large", name: "Strong Large", aliases: ["stronglarge", "largestrong"]},
-				{id: "weak_large", name: "Weak Large", aliases: ["weaklarge", "largeweak"]},
-				{id: "strong_small", name: "Strong Small", aliases: ["strongsmall", "smallstrong"]},
-				{id: "weak_small", name: "Weak Small", aliases: ["weaksmall", "smallweak"]},
-				{id: "off", name: "Off", aliases: ["off"]},
+				{id: "strong_large", name: "Strong Large", aliases: ["large_strong"]},
+				{id: "weak_large", name: "Weak Large", aliases: ["large_weak"]},
+				{id: "strong_small", name: "Strong Small", aliases: ["small_strong"]},
+				{id: "weak_small", name: "Weak Small", aliases: ["small_weak"]},
+				{id: "off", name: "Off"},
 			]
 			encoding: {
 				prop_code: 0xD195
@@ -521,9 +526,9 @@ options: {
 			category: "Film Simulation"
 			kind:     "enum"
 			rules: variants: [
-				{id: "strong", name: "Strong", aliases: ["strong"]},
-				{id: "weak", name: "Weak", aliases: ["weak"]},
-				{id: "off", name: "Off", aliases: ["off"]},
+				{id: "strong", name: "Strong"},
+				{id: "weak", name: "Weak"},
+				{id: "off", name: "Off"},
 			]
 			encoding: {
 				prop_code: 0xD196
@@ -539,9 +544,9 @@ options: {
 			category: "Film Simulation"
 			kind:     "enum"
 			rules: variants: [
-				{id: "strong", name: "Strong", aliases: ["strong"]},
-				{id: "weak", name: "Weak", aliases: ["weak"]},
-				{id: "off", name: "Off", aliases: ["off"]},
+				{id: "strong", name: "Strong"},
+				{id: "weak", name: "Weak"},
+				{id: "off", name: "Off"},
 			]
 			encoding: {
 				prop_code: 0xD197
@@ -557,21 +562,21 @@ options: {
 			category: "White Balance"
 			kind:     "enum"
 			rules: variants: [
-				{id: "as_shot", name: "As Shot", aliases: ["asshot", "original"]},
-				{id: "white_priority", name: "White Priority", aliases: ["whitepriority", "white"]},
-				{id: "auto", name: "Auto", aliases: ["auto"]},
-				{id: "ambience_priority", name: "Ambience Priority", aliases: ["ambiencepriority", "ambience", "ambient"]},
-				{id: "custom1", name: "Custom 1", aliases: ["custom1", "c1"]},
-				{id: "custom2", name: "Custom 2", aliases: ["custom2", "c2"]},
-				{id: "custom3", name: "Custom 3", aliases: ["custom3", "c3"]},
-				{id: "temperature", name: "Temperature", aliases: ["temperature", "temp", "k", "kelvin"]},
-				{id: "daylight", name: "Daylight", aliases: ["daylight", "sunny"]},
-				{id: "shade", name: "Shade", aliases: ["shade", "cloudy"]},
-				{id: "fluorescent1", name: "Fluorescent 1", aliases: ["fluorescent1"]},
-				{id: "fluorescent2", name: "Fluorescent 2", aliases: ["fluorescent2"]},
-				{id: "fluorescent3", name: "Fluorescent 3", aliases: ["fluorescent3"]},
-				{id: "incandescent", name: "Incandescent", aliases: ["incandescent", "tungsten"]},
-				{id: "underwater", name: "Underwater", aliases: ["underwater"]},
+				{id: "as_shot", name: "As Shot", aliases: ["original"]},
+				{id: "white_priority", name: "White Priority", aliases: ["white"]},
+				{id: "auto", name: "Auto"},
+				{id: "ambience_priority", name: "Ambience Priority", aliases: ["ambience", "ambient"]},
+				{id: "custom1", name: "Custom 1", aliases: ["c1"]},
+				{id: "custom2", name: "Custom 2", aliases: ["c2"]},
+				{id: "custom3", name: "Custom 3", aliases: ["c3"]},
+				{id: "temperature", name: "Temperature", aliases: ["temp", "k", "kelvin"]},
+				{id: "daylight", name: "Daylight", aliases: ["sunny"]},
+				{id: "shade", name: "Shade", aliases: ["cloudy"]},
+				{id: "fluorescent1", name: "Fluorescent 1"},
+				{id: "fluorescent2", name: "Fluorescent 2"},
+				{id: "fluorescent3", name: "Fluorescent 3"},
+				{id: "incandescent", name: "Incandescent", aliases: ["tungsten"]},
+				{id: "underwater", name: "Underwater"},
 			]
 			encoding: {
 				prop_code: 0xD199
@@ -744,8 +749,8 @@ options: {
 			kind:     "enum"
 			rules: {
 				variants: [
-					{id: "on", name: "On", aliases: ["on", "true"]},
-					{id: "off", name: "Off", aliases: ["off", "false"]},
+					{id: "on", name: "On", aliases: ["true"]},
+					{id: "off", name: "Off", aliases: ["false"]},
 				]
 			}
 			encoding: {
@@ -762,8 +767,8 @@ options: {
 			category: "Image"
 			kind:     "enum"
 			rules: variants: [
-				{id: "srgb", name: "sRGB", aliases: ["s", "srgb"]},
-				{id: "adobe_rgb", name: "Adobe RGB", aliases: ["adobe", "adobergb"]},
+				{id: "srgb", name: "sRGB", aliases: ["s"]},
+				{id: "adobe_rgb", name: "Adobe RGB", aliases: ["adobe"]},
 			]
 			encoding: {
 				prop_code: 0xD1A4
@@ -779,12 +784,12 @@ options: {
 			category: "Tone"
 			kind:     "enum"
 			rules: variants: [
-				{id: "auto", name: "Auto", aliases: ["auto"]},
-				{id: "hdr100", name: "HDR100", aliases: ["100", "hdr100", "dr100"]},
-				{id: "hdr200", name: "HDR200", aliases: ["200", "hdr200", "dr200"]},
-				{id: "hdr400", name: "HDR400", aliases: ["400", "hdr400", "dr400"]},
-				{id: "hdr800", name: "HDR800", aliases: ["800", "hdr800", "dr800"]},
-				{id: "hdr800_plus", name: "HDR800+", aliases: ["800+", "hdr800+", "hdr800plus", "dr800+", "dr800plus"]},
+				{id: "auto", name: "Auto"},
+				{id: "hdr100", name: "HDR100", aliases: ["100", "dr100"]},
+				{id: "hdr200", name: "HDR200", aliases: ["200", "dr200"]},
+				{id: "hdr400", name: "HDR400", aliases: ["400", "dr400"]},
+				{id: "hdr800", name: "HDR800", aliases: ["800", "dr800"]},
+				{id: "hdr800_plus", name: "HDR800+", aliases: ["800+", "dr800+", "hdr800+", "dr800_plus"]},
 			]
 			encoding: {
 				prop_code: 0xD190
@@ -807,11 +812,11 @@ options: {
 			category: "Tone"
 			kind:     "enum"
 			rules: variants: [
-				{id: "auto", name: "Auto", aliases: ["auto"]},
-				{id: "plus", name: "Plus", aliases: ["plus"]},
-				{id: "strong", name: "Strong", aliases: ["strong"]},
-				{id: "weak", name: "Weak", aliases: ["weak"]},
-				{id: "off", name: "Off", aliases: ["off"]},
+				{id: "auto", name: "Auto"},
+				{id: "plus", name: "Plus"},
+				{id: "strong", name: "Strong"},
+				{id: "weak", name: "Weak"},
+				{id: "off", name: "Off"},
 			]
 			encoding: {
 				prop_code: 0xD191
@@ -833,9 +838,9 @@ options: {
 			category: "Detail"
 			kind:     "enum"
 			rules: variants: [
-				{id: "strong", name: "Strong", aliases: ["strong"]},
-				{id: "weak", name: "Weak", aliases: ["weak"]},
-				{id: "off", name: "Off", aliases: ["off"]},
+				{id: "strong", name: "Strong"},
+				{id: "weak", name: "Weak"},
+				{id: "off", name: "Off"},
 			]
 			encoding: {
 				prop_code: 0xD198
@@ -888,10 +893,10 @@ options: {
 			category: "Image"
 			kind:     "enum"
 			rules: variants: [
-				{id: "jpeg", name: "JPEG", aliases: ["jpeg", "jpg"]},
-				{id: "heif", name: "HEIF", aliases: ["heif"]},
-				{id: "tiff8", name: "TIFF 8-bit", aliases: ["tiff8"]},
-				{id: "tiff16", name: "TIFF 16-bit", aliases: ["tiff16"]},
+				{id: "jpeg", name: "JPEG", aliases: ["jpg"]},
+				{id: "heif", name: "HEIF"},
+				{id: "tiff8", name: "TIFF 8-bit"},
+				{id: "tiff16", name: "TIFF 16-bit"},
 			]
 			encoding: {
 				kind: "lookup"
@@ -911,8 +916,8 @@ options: {
 			category: "Lens"
 			kind:     "enum"
 			rules: variants: [
-				{id: "on", name: "On", aliases: ["on", "true"]},
-				{id: "off", name: "Off", aliases: ["off", "false"]},
+				{id: "on", name: "On", aliases: ["true"]},
+				{id: "off", name: "Off", aliases: ["false"]},
 			]
 			encoding: {
 				kind: "lookup"

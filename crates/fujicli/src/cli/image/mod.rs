@@ -18,7 +18,12 @@ pub enum ImageCmd {
     #[command(alias = "r")]
     Render {
         /// Simulation slot number
-        #[arg(long, conflicts_with = "simulation_file", conflicts_with = "like")]
+        #[arg(
+            long,
+            ignore_case = true,
+            conflicts_with = "simulation_file",
+            conflicts_with = "like"
+        )]
         slot: Option<CustomSetting>,
 
         /// Path to exported simulation file

@@ -286,7 +286,7 @@ fn generate_from_str_impl(type_name: &Ident) -> TokenStream {
         impl ::std::str::FromStr for #type_name {
             type Err = crate::input::OptionError;
             fn from_str(s: &str) -> ::std::result::Result<Self, crate::input::OptionError> {
-                let value = crate::input::CleanAlphanumeric::clean(&s)
+                let value = s
                     .parse::<f32>()
                     .map_err(|e: ::std::num::ParseFloatError| {
                         crate::input::OptionError::InvalidValue {

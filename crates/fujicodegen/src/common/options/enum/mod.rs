@@ -68,7 +68,7 @@ pub fn generate(
         generate_try_from_wire_impl(&type_name, signed, &repr_type, &wire_items(&resolved))
             .with_context(|| format!("generating try_from_wire impl for enum option `{id}`"))?;
     let display_impl = generate_display_impl(&type_name, &resolved);
-    let from_str_impl = generate_from_str_impl(&type_name, &resolved);
+    let value_enum_impl = generate_value_enum_impl(&type_name, &resolved);
     let (ptp_serde_impl, simulation_setting_impl) = prop_code.as_ref().map_or_else(
         || (quote! {}, quote! {}),
         |prop_code| {
@@ -81,14 +81,13 @@ pub fn generate(
     let conversion_profile_impl =
         generate_conversion_profile_impl(&type_name, &repr_type, &repr_type_32);
 
-    let default_impl =
-        generate_default_impl(&upper_camel_case_ident!("{}", id), &resolved, default);
+    let default_impl = generate_default_impl(&type_name, &resolved, default);
 
     Ok(quote! {
         #enum_def
         #try_from_wire_impl
         #display_impl
-        #from_str_impl
+        #value_enum_impl
         #ptp_serde_impl
         #simulation_setting_impl
         #conversion_profile_impl
@@ -143,8 +142,12 @@ fn generate_enum_def(
         .iter()
         .map(|r| {
             let v = upper_camel_case_ident!("{}", r.variant.id);
+            let id = &r.variant.id;
             let canonical = wire_literal(r.canonical, signed)?;
-            Ok(quote! { #v = #canonical, })
+            Ok(quote! {
+                #[serde(rename = #id)]
+                #v = #canonical,
+            })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -160,8 +163,8 @@ fn generate_enum_def(
             ::std::cmp::Ord,
             ::std::hash::Hash,
             ::strum_macros::EnumIter,
-            ::serde_with::SerializeDisplay,
-            ::serde_with::DeserializeFromStr,
+            ::serde::Serialize,
+            ::serde::Deserialize,
         )]
         pub enum #type_name {
             #(#defs)*
@@ -190,36 +193,37 @@ fn generate_display_impl(type_name: &Ident, resolved: &[Resolved<'_>]) -> TokenS
     }
 }
 
-fn generate_from_str_impl(type_name: &Ident, resolved: &[Resolved<'_>]) -> TokenStream {
-    let arms = resolved
-        .iter()
-        .map(|r| {
-            let v = upper_camel_case_ident!("{}", r.variant.id);
-            let aliases = &r.variant.aliases;
-            quote! {
-                #(#aliases)|* => return Ok(Self::#v),
-            }
-        })
-        .collect::<Vec<_>>();
+fn generate_value_enum_impl(type_name: &Ident, resolved: &[Resolved<'_>]) -> TokenStream {
+    let variants = resolved.iter().map(|r| {
+        let v = upper_camel_case_ident!("{}", r.variant.id);
+        quote! { Self::#v }
+    });
+
+    let arms = resolved.iter().map(|r| {
+        let v = upper_camel_case_ident!("{}", r.variant.id);
+        let name = r.variant.id.replace('_', "-");
+        let help = &r.variant.name;
+        let aliases: Vec<String> = r
+            .variant
+            .aliases
+            .iter()
+            .map(|a| a.replace('_', "-"))
+            .collect();
+        let aliases = (!aliases.is_empty()).then(|| quote! { .aliases([#(#aliases),*]) });
+        quote! {
+            Self::#v => ::clap::builder::PossibleValue::new(#name)#aliases.help(#help),
+        }
+    });
 
     quote! {
-        impl ::std::str::FromStr for #type_name {
-            type Err = crate::input::OptionError;
-            fn from_str(s: &str) -> ::std::result::Result<Self, crate::input::OptionError> {
-                match crate::input::CleanAlphanumeric::clean(&s).as_str() {
+        impl ::clap::ValueEnum for #type_name {
+            fn value_variants<'a>() -> &'a [Self] {
+                &[#(#variants),*]
+            }
+
+            fn to_possible_value(&self) -> ::std::option::Option<::clap::builder::PossibleValue> {
+                ::std::option::Option::Some(match self {
                     #(#arms)*
-                    _ => {}
-                }
-                if let Some(best) = <Self as crate::input::Choices>::closest(s) {
-                    return Err(crate::input::OptionError::UnknownWithSuggestion {
-                        type_name: stringify!(#type_name),
-                        input: s.to_string(),
-                        suggestion: best,
-                    });
-                }
-                Err(crate::input::OptionError::Unknown {
-                    type_name: stringify!(#type_name),
-                    input: s.to_string(),
                 })
             }
         }

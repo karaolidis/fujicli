@@ -24,13 +24,6 @@ pub enum OptionError {
         reason: String,
     },
 
-    #[error("unknown {type_name} '{input}'. Did you mean '{suggestion}'?")]
-    UnknownWithSuggestion {
-        type_name: &'static str,
-        input: String,
-        suggestion: String,
-    },
-
     #[error("unknown {type_name} '{input}'")]
     Unknown {
         type_name: &'static str,

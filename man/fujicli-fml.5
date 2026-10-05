@@ -126,16 +126,21 @@ Unique within the option.
 .It Cm name : Ar string
 Display name.
 .It Cm aliases : Ar list
-Strings accepted as input for this variant.
-At least one; unique across the option's variants.
-Input is trimmed, lowercased and stripped of every character other than ASCII
-letters, digits,
-.Ql \&.
-and
-.Ql - ,
-then compared with each alias, so aliases should be written in that form.
-The id is not accepted unless it is also listed as an alias.
+Further names accepted on the command line for this variant.
+Optional.
 .El
+.Pp
+On the command line a variant is written as its
+.Cm id
+or one of its aliases, with underscores replaced by hyphens, for example
+.Ql classic-chrome
+or
+.Ql mono-yellow ,
+and matched exactly except for case.
+These names must be unique across the option's variants, ignoring case.
+Exported simulations refer to variants by
+.Cm id ,
+so renaming an id breaks files exported before the change.
 .El
 .Ss Encodings
 .Bl -tag -width Ds
@@ -635,7 +640,7 @@ Its
 is the flag's heading in help output.
 Simulation commands take a flag for every such option used as a simulation
 setting, and render commands one for every such option used as a render field.
-A flag's value is parsed as the option's type: an alias for an
+A flag's value is parsed as the option's type: a variant name or alias for an
 .Cm enum ,
 a number or string otherwise, and checked against the option's rules.
 .Sh FILES
@@ -687,8 +692,8 @@ lens_modulation_optimizer: #Option & {
         category: "Lens"
         kind:     "enum"
         rules: variants: [
-            {id: "on", name: "On", aliases: ["on", "true"]},
-            {id: "off", name: "Off", aliases: ["off", "false"]},
+            {id: "on", name: "On", aliases: ["true"]},
+            {id: "off", name: "Off", aliases: ["false"]},
         ]
         encoding: {
             prop_code: 0xD1A3

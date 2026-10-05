@@ -120,6 +120,7 @@ pub struct EnumRules {
 pub struct EnumVariant {
     pub id: String,
     pub name: String,
+    #[serde(default)]
     pub aliases: Vec<String>,
 }
 

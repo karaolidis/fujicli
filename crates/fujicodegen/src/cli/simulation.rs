@@ -78,8 +78,8 @@ fn generate_struct(entries: &[Entry]) -> TokenStream {
         let ty = &entry.type_path;
 
         let attrs = entry.category.as_deref().map_or_else(
-            || quote! { #[clap(long, allow_hyphen_values(true))] },
-            |heading| quote! { #[clap(long, allow_hyphen_values(true), help_heading = #heading)] },
+            || quote! { #[clap(long, allow_hyphen_values(true), ignore_case(true))] },
+            |heading| quote! { #[clap(long, allow_hyphen_values(true), ignore_case(true), help_heading = #heading)] },
         );
 
         quote! {
