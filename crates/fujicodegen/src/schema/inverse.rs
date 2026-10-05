@@ -98,7 +98,7 @@ fn generate_one_inverse(
     };
     let when_apply = generate_assignment(settings, &when_assignment, accessor)?;
 
-    let mut clears = TokenStream::new();
+    let mut clears = quote! {};
     for a in &t.apply {
         if a.r#ref == when_leaf.r#ref {
             continue;

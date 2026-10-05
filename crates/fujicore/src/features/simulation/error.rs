@@ -10,6 +10,12 @@ pub enum SimulationError {
         field: &'static str,
     },
 
+    #[error("{simulation}: setting `{field}` is not part of this simulation")]
+    ForeignField {
+        simulation: &'static str,
+        field: &'static str,
+    },
+
     #[error("simulation type mismatch: expected {expected}")]
     TypeMismatch { expected: &'static str },
 

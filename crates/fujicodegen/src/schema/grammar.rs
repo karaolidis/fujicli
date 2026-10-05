@@ -335,26 +335,21 @@ pub fn generate_transformation(
 pub fn generate_apply_transformations(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     transformations: &[Transformation],
+    accessor: &TokenStream,
+    buf_ty: &TokenStream,
 ) -> anyhow::Result<TokenStream> {
-    let accessor = quote! { self };
+    if transformations.is_empty() {
+        return Ok(quote! {
+            #[allow(clippy::needless_pass_by_ref_mut)]
+            pub const fn apply_transformations(_buf: &mut #buf_ty) {}
+        });
+    }
     let parts = transformations
         .iter()
-        .map(|t| generate_transformation(settings, t, &accessor))
+        .map(|t| generate_transformation(settings, t, accessor))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let head = if transformations.is_empty() {
-        quote! {
-            #[allow(
-                clippy::missing_const_for_fn,
-                clippy::needless_pass_by_ref_mut,
-                clippy::unused_self,
-            )]
-        }
-    } else {
-        quote! {}
-    };
     Ok(quote! {
-        #head
-        fn apply_transformations(&mut self) {
+        pub fn apply_transformations(#accessor: &mut #buf_ty) {
             #( #parts )*
         }
     })
@@ -364,34 +359,43 @@ pub fn generate_emit_warnings_and_infos(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     rules: &[NormalizedRule],
     scopes: Scopes<'_>,
+    buf_ty: &TokenStream,
 ) -> anyhow::Result<TokenStream> {
+    let accessor = scopes.current;
+    let original_param = match scopes.original {
+        Some(_) => quote! { , original: &#buf_ty },
+        None => quote! {},
+    };
+
     let warning_rules: Vec<_> = rules
         .iter()
         .filter(|r| !matches!(r.severity, Severity::Error))
         .collect();
+    if warning_rules.is_empty() {
+        let empty_original_param = match scopes.original {
+            Some(_) => quote! { , _original: &#buf_ty },
+            None => quote! {},
+        };
+        return Ok(quote! {
+            #[allow(clippy::unnecessary_wraps)]
+            pub const fn emit_warnings_and_infos(
+                _buf: &#buf_ty
+                #empty_original_param,
+            ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
+                Ok(())
+            }
+        });
+    }
     let parts = warning_rules
         .iter()
         .map(|r| generate_normalized_rule(settings, r, scopes))
         .collect::<anyhow::Result<Vec<_>>>()?;
-    let original_param = match scopes.original {
-        Some(_) => quote! { , original: &Self },
-        None => quote! {},
-    };
-    let head = if warning_rules.is_empty() {
-        quote! {
-            #[allow(
-                clippy::missing_const_for_fn,
-                clippy::unnecessary_wraps,
-                clippy::unused_self,
-            )]
-        }
-    } else {
-        quote! {}
-    };
     Ok(quote! {
-        #head
         #[allow(unused_variables)]
-        fn emit_warnings_and_infos(&self #original_param) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
+        pub fn emit_warnings_and_infos(
+            #accessor: &#buf_ty
+            #original_param,
+        ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
             #( #parts )*
             Ok(())
         }
