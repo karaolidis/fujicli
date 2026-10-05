@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Context;
-use fujicore::Camera;
+use fujicore::{Camera, UsbId};
 use log::trace;
 use thiserror::Error;
 
@@ -23,26 +23,6 @@ pub enum ParseLocationError {
 
     #[error("invalid address '{value}': {source}")]
     Address {
-        value: String,
-        #[source]
-        source: ParseIntError,
-    },
-}
-
-#[derive(Debug, Error)]
-pub enum ParseIdentityError {
-    #[error("invalid model format '{0}', expected <VENDOR_ID>:<PRODUCT_ID>")]
-    Format(String),
-
-    #[error("invalid vendor id '{value}': {source}")]
-    Vendor {
-        value: String,
-        #[source]
-        source: ParseIntError,
-    },
-
-    #[error("invalid product id '{value}': {source}")]
-    Product {
         value: String,
         #[source]
         source: ParseIntError,
@@ -85,42 +65,6 @@ impl Display for Location {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Identity {
-    pub vendor: u16,
-    pub product: u16,
-}
-
-impl FromStr for Identity {
-    type Err = ParseIdentityError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (vendor, product) = s
-            .split_once(':')
-            .ok_or_else(|| ParseIdentityError::Format(s.to_owned()))?;
-
-        let vendor =
-            u16::from_str_radix(vendor, 16).map_err(|source| ParseIdentityError::Vendor {
-                value: vendor.to_owned(),
-                source,
-            })?;
-
-        let product =
-            u16::from_str_radix(product, 16).map_err(|source| ParseIdentityError::Product {
-                value: product.to_owned(),
-                source,
-            })?;
-
-        Ok(Self { vendor, product })
-    }
-}
-
-impl Display for Identity {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:04x}:{:04x}", self.vendor, self.product)
-    }
-}
-
 pub fn get_usb_device_by_location(
     location: Location,
 ) -> anyhow::Result<rusb::Device<rusb::GlobalContext>> {
@@ -156,15 +100,15 @@ pub fn get_all_cameras() -> anyhow::Result<Vec<Camera>> {
     Ok(cameras)
 }
 
-pub fn get_camera(device: Option<Location>, emulate: Option<Identity>) -> anyhow::Result<Camera> {
+pub fn get_camera(device: Option<Location>, emulate: Option<UsbId>) -> anyhow::Result<Camera> {
     if let Some(location) = device {
         let device = get_usb_device_by_location(location)?;
 
         emulate.as_ref().map_or_else(
             || Camera::open(&device).context("opening camera"),
-            |identity| {
-                Camera::open_as(&device, identity.vendor, identity.product)
-                    .with_context(|| format!("opening camera as emulated {identity}"))
+            |usb_id| {
+                Camera::open_as(&device, *usb_id)
+                    .with_context(|| format!("opening camera as emulated {usb_id}"))
             },
         )
     } else {
@@ -177,9 +121,9 @@ pub fn get_camera(device: Option<Location>, emulate: Option<Identity>) -> anyhow
 
             return emulate.as_ref().map_or_else(
                 || Camera::open(&device).context("opening camera"),
-                |identity| {
-                    Camera::open_as(&device, identity.vendor, identity.product)
-                        .with_context(|| format!("opening camera as emulated {identity}"))
+                |usb_id| {
+                    Camera::open_as(&device, *usb_id)
+                        .with_context(|| format!("opening camera as emulated {usb_id}"))
                 },
             );
         }

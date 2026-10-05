@@ -5,13 +5,14 @@ pub mod image;
 pub mod simulation;
 
 use clap::{ArgAction, Args, Parser, Subcommand};
+use fujicore::UsbId;
 
 use backup::BackupCmd;
 use device::DeviceCmd;
 use image::ImageCmd;
 use simulation::SimulationCmd;
 
-use crate::cli::common::usb::{Identity, Location};
+use crate::cli::common::usb::Location;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None, author)]
@@ -41,7 +42,7 @@ pub struct GlobalOptions {
     #[allow(clippy::doc_markdown)]
     /// Treat device as a different model using <VENDOR_ID>:<PRODUCT_ID>
     #[arg(long, global = true)]
-    pub emulate: Option<Identity>,
+    pub emulate: Option<UsbId>,
 }
 
 #[derive(Subcommand, Debug)]
