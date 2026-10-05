@@ -737,14 +737,21 @@ fn generate_camera_render_manager_impl(
 ) -> TokenStream {
     quote! {
         impl crate::features::render::CameraRenderManager for #camera_struct_path {
-            fn render(
+            fn read_profile(
                 &self,
                 ptp: &mut crate::ptp::Ptp,
-                image: &[u8],
+            ) -> crate::error::CoreResult<#renders_path::RenderBase> {
+                let current: #complete_ident = ptp.get_prop(
+                    crate::ptp::DevicePropCode::FujiRawConversionProfile,
+                )?;
+                Ok(<#renders_path::RenderBase as ::std::convert::From<&#complete_ident>>::from(&current))
+            }
+
+            fn apply_profile(
+                &self,
+                ptp: &mut crate::ptp::Ptp,
                 partial: &#renders_path::RenderBase,
-                draft: bool,
-            ) -> crate::error::CoreResult<Vec<u8>> {
-                <Self as crate::features::render::CameraRenderManager>::send_image(self, ptp, image)?;
+            ) -> crate::error::CoreResult<()> {
                 let current: #complete_ident = ptp.get_prop(
                     crate::ptp::DevicePropCode::FujiRawConversionProfile,
                 )?;
@@ -758,9 +765,7 @@ fn generate_camera_render_manager_impl(
                     crate::ptp::DevicePropCode::FujiRawConversionProfile,
                     &next,
                 )?;
-                <Self as crate::features::render::CameraRenderManager>::render_image(
-                    self, ptp, draft,
-                )
+                Ok(())
             }
         }
     }

@@ -113,9 +113,13 @@ fn handle_render(
     }
     base.merge(&render.into());
 
-    let rendered = camera
-        .render(&image, &base, draft)
-        .context("rendering image on camera")?;
+    camera
+        .send_image(&image)
+        .context("sending image to camera")?;
+    camera
+        .apply_profile(&base)
+        .context("applying conversion profile")?;
+    let rendered = camera.render(draft).context("rendering image on camera")?;
 
     let mut writer = output.get_writer()?;
     writer
