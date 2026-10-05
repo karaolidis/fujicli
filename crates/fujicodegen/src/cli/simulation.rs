@@ -10,7 +10,6 @@ use crate::{
 };
 
 struct Entry {
-    id: String,
     ident: proc_macro2::Ident,
     type_path: TokenStream,
     category: Option<String>,
@@ -21,7 +20,7 @@ pub fn generate(
     cameras: &BTreeMap<String, Camera>,
 ) -> TokenStream {
     let simulation_options = collect_simulation_option_ids(cameras);
-    let entries = build_entries(options);
+    let entries = build_entries(options, &simulation_options);
 
     let struct_def = generate_struct(&entries);
     let from_impl = generate_from_impl(&entries, &simulation_options);
@@ -52,17 +51,19 @@ fn collect_simulation_option_ids(cameras: &BTreeMap<String, Camera>) -> BTreeSet
     out
 }
 
-fn build_entries(options: &BTreeMap<String, FujiOption>) -> Vec<Entry> {
+fn build_entries(
+    options: &BTreeMap<String, FujiOption>,
+    simulation_options: &BTreeSet<String>,
+) -> Vec<Entry> {
     options
         .values()
-        .filter(|opt| !opt.codegen.skip)
+        .filter(|opt| !opt.codegen.skip && simulation_options.contains(&opt.id))
         .map(|opt| {
             let ident = snake_case_ident!("{}", opt.id);
             let type_ident = upper_camel_case_ident!("{}", opt.id);
             let options_path = options::path();
             let type_path = quote! { #options_path::#type_ident };
             Entry {
-                id: opt.id.clone(),
                 ident,
                 type_path,
                 category: opt.spec.category().map(str::to_owned),
@@ -97,19 +98,12 @@ fn generate_struct(entries: &[Entry]) -> TokenStream {
 
 fn generate_from_impl(entries: &[Entry], simulation_options: &BTreeSet<String>) -> TokenStream {
     let simulations_path = simulations::path();
-    let mut fields: Vec<TokenStream> = Vec::new();
-    let mut covered = 0usize;
-
-    for entry in entries {
-        if !simulation_options.contains(&entry.id) {
-            continue;
-        }
+    let fields = entries.iter().map(|entry| {
         let ident = &entry.ident;
-        fields.push(quote! { #ident: args.#ident, });
-        covered += 1;
-    }
+        quote! { #ident: args.#ident, }
+    });
 
-    let tail = if covered == simulation_options.len() {
+    let tail = if entries.len() == simulation_options.len() {
         quote! {}
     } else {
         quote! { ..::std::default::Default::default() }
