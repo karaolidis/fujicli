@@ -3,7 +3,7 @@ use quote::quote;
 
 use crate::{
     ast::{StringEncoding, StringRules},
-    util::ident::safe_upper_camel_case_ident,
+    upper_camel_case_ident,
 };
 
 struct Bounds {
@@ -24,7 +24,7 @@ pub fn generate(id: &str, rules: Option<&StringRules>, encoding: &StringEncoding
     let StringEncoding::Raw { prop_code } = encoding;
 
     let bounds = Bounds::resolve(rules);
-    let type_name = safe_upper_camel_case_ident(id);
+    let type_name = upper_camel_case_ident!("{}", id);
 
     let struct_def = generate_struct_def(&type_name);
     let inherent_impl = generate_inherent_impl(&type_name, &bounds);

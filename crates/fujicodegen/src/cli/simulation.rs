@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::quote;
 
 use crate::{
     ast::{Camera, FujiOption},
     common::{options, simulations},
-    util::ident::safe_upper_camel_case_ident,
+    snake_case_ident, upper_camel_case_ident,
 };
 
 struct Entry {
@@ -56,8 +56,8 @@ fn build_entries(options: &BTreeMap<String, FujiOption>) -> Vec<Entry> {
         .values()
         .filter(|opt| !opt.codegen.skip)
         .map(|opt| {
-            let ident = format_ident!("{}", opt.id);
-            let type_ident = safe_upper_camel_case_ident(&opt.id);
+            let ident = snake_case_ident!("{}", opt.id);
+            let type_ident = upper_camel_case_ident!("{}", opt.id);
             let options_path = options::path();
             let type_path = quote! { #options_path::#type_ident };
             Entry {

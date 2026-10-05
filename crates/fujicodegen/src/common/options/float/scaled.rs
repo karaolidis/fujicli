@@ -5,7 +5,7 @@ use quote::quote;
 use super::super::common::{resolve_numeric_repr_signed, resolve_repr_type, resolve_repr_type_32};
 use crate::{
     ast::{NumericEncoding, NumericRules},
-    util::ident::safe_upper_camel_case_ident,
+    upper_camel_case_ident,
 };
 
 struct Bounds {
@@ -60,7 +60,7 @@ pub fn generate(
     let repr_type = resolve_repr_type(signed);
     let repr_type_32 = resolve_repr_type_32(signed);
 
-    let type_name = safe_upper_camel_case_ident(id);
+    let type_name = upper_camel_case_ident!("{}", id);
 
     let struct_def = generate_struct_def(&type_name, &repr_type);
     let inherent_impl = generate_inherent_impl(&type_name, signed, &bounds)

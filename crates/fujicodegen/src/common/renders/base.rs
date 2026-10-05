@@ -1,12 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::quote;
 
 use crate::{
     ast::{Camera, FujiOption, SpecKind},
     common::simulations,
     schema::grammar::build_settings,
+    snake_case_ident,
 };
 
 struct UnionEntry {
@@ -47,9 +48,7 @@ fn build_union(
                 let settings = build_settings(options, &render.fields);
                 render.fields.iter().for_each(|field| {
                     let id = field.id().to_string();
-                    let info = settings
-                        .get(id.as_str())
-                        .expect("ctx was just built from these fields");
+                    let info = &settings[id.as_str()];
                     by_id.entry(id.clone()).or_insert_with(|| UnionEntry {
                         id,
                         type_path: info.type_path(),
@@ -72,7 +71,7 @@ fn collect_simulation_field_ids(cameras: &BTreeMap<String, Camera>) -> BTreeSet<
 
 fn generate_struct_def(union: &[UnionEntry]) -> TokenStream {
     let fields = union.iter().map(|entry| {
-        let ident = format_ident!("{}", entry.id);
+        let ident = snake_case_ident!("{}", entry.id);
         let ty = &entry.type_path;
         quote! {
             #[serde(skip_serializing_if = "Option::is_none")]
@@ -97,7 +96,7 @@ fn generate_struct_def(union: &[UnionEntry]) -> TokenStream {
 
 fn generate_merge_impl(union: &[UnionEntry]) -> TokenStream {
     let assigns = union.iter().map(|entry| {
-        let ident = format_ident!("{}", entry.id);
+        let ident = snake_case_ident!("{}", entry.id);
         let access = if entry.is_copy {
             quote! { overlay.#ident }
         } else {
@@ -129,7 +128,7 @@ fn generate_apply_simulation_impl(
         .iter()
         .filter(|entry| simulation_field_ids.contains(&entry.id))
         .map(|entry| {
-            let ident = format_ident!("{}", entry.id);
+            let ident = snake_case_ident!("{}", entry.id);
             let access = if entry.is_copy {
                 quote! { simulation.#ident }
             } else {

@@ -8,7 +8,8 @@ use super::super::common::{
 };
 use crate::{
     ast::{LookupSpec, LookupValue},
-    util::ident::{numeric_variant_ident, safe_upper_camel_case_ident},
+    upper_camel_case_ident,
+    util::ident::numeric_variant_ident,
 };
 
 struct Resolved {
@@ -19,27 +20,22 @@ struct Resolved {
 }
 
 impl Resolved {
-    fn from_spec_entry(key: &str, value: &LookupValue) -> anyhow::Result<Self> {
-        let logical = key
-            .parse()
-            .with_context(|| format!("integer-lookup key `{key}` is not an integer"))?;
-
+    fn from_spec_entry(key: &str, value: &LookupValue) -> Self {
+        let logical = key.parse().expect("integer-lookup key validated by CUE");
         let (canonical, alternates) = match value {
             LookupValue::Single(n) => (*n, Vec::new()),
             LookupValue::Multi(list) => {
-                let (&canonical, rest) = list
-                    .split_first()
-                    .with_context(|| format!("empty multi-value lookup for key `{key}`"))?;
+                let (&canonical, rest) = list.split_first().expect("multi-value non-empty by CUE");
                 (canonical, rest.to_vec())
             }
         };
 
-        Ok(Self {
+        Self {
             ident: numeric_variant_ident(key),
             logical,
             canonical,
             alternates,
-        })
+        }
     }
 }
 
@@ -52,8 +48,7 @@ pub fn generate(
         .values
         .iter()
         .map(|(key, value)| Resolved::from_spec_entry(key, value))
-        .collect::<anyhow::Result<Vec<_>>>()
-        .with_context(|| format!("resolving lookup entries for integer option `{id}`"))?;
+        .collect();
     resolved.sort_by_key(|r| r.logical);
 
     let wire_values: Vec<_> = resolved
@@ -67,13 +62,13 @@ pub fn generate(
     let repr_type = resolve_repr_type(signed);
     let repr_type_32 = resolve_repr_type_32(signed);
 
-    let type_name = safe_upper_camel_case_ident(id);
+    let type_name = upper_camel_case_ident!("{}", id);
 
     let enum_def = generate_enum_def(&type_name, &repr_type, signed, &resolved)
         .with_context(|| format!("generating enum definition for integer option `{id}`"))?;
     let inherent_impl = generate_inherent_impl(&type_name, &resolved);
     let try_from_wire_impl = generate_try_from_wire_impl(
-        &safe_upper_camel_case_ident(id),
+        &upper_camel_case_ident!("{}", id),
         signed,
         &repr_type,
         &wire_items(&resolved),

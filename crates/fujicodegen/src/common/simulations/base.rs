@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::quote;
 
 use crate::{
     ast::{Camera, FujiOption},
     schema::grammar::build_settings,
+    snake_case_ident,
 };
 
 struct UnionEntry {
@@ -34,9 +35,7 @@ fn build_union(
                 let settings = build_settings(options, &simulation.settings);
                 simulation.settings.iter().for_each(|setting| {
                     let id = setting.id.clone();
-                    let info = settings
-                        .get(id.as_str())
-                        .expect("ctx was just built from these settings");
+                    let info = &settings[id.as_str()];
                     by_id.entry(id.clone()).or_insert_with(|| UnionEntry {
                         id,
                         type_path: info.type_path(),
@@ -50,7 +49,7 @@ fn build_union(
 
 fn generate_struct_def(union: &[UnionEntry]) -> TokenStream {
     let base_fields = union.iter().map(|entry| {
-        let ident = format_ident!("{}", entry.id);
+        let ident = snake_case_ident!("{}", entry.id);
         let ty = &entry.type_path;
         quote! {
             #[serde(skip_serializing_if = "Option::is_none")]
