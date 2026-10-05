@@ -417,7 +417,7 @@ mod tests {
         assert_eq!(bytes, vec![0x00, 0x00, 0x00, 0x00]);
 
         let parsed = Vec::<u32>::try_from_ptp(&bytes).unwrap();
-        assert!(parsed.is_empty());
+        assert_eq!(parsed, Vec::<u32>::new());
     }
 
     #[test]

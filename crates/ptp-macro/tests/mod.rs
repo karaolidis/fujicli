@@ -70,7 +70,7 @@ struct Marker;
 #[test]
 fn unit_struct_writes_zero_bytes() {
     let bytes = Marker.try_into_ptp().unwrap();
-    assert!(bytes.is_empty());
+    assert_eq!(bytes, Vec::<u8>::new());
 }
 
 #[test]
