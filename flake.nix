@@ -77,6 +77,7 @@
             cargo-edit
             cargo-expand
             cue
+            mandoc
           ];
 
           shellHook = ''

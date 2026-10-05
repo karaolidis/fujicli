@@ -1,6 +1,6 @@
 .Dd October 5, 2026
 .Dt FUJICLI-FML 5
-.Os fujicli
+.Os
 .Sh NAME
 .Nm fujicli-fml
 .Nd Fuji Modelling Language
@@ -240,7 +240,7 @@ itself.
 When writing a simulation, if the camera rejects this setting, log a warning
 and continue with the remaining settings instead of failing.
 .El
-.Sh CAMERAS
+.Sh CAMERAS\&
 A camera is one supported model.
 .Bd -literal -offset indent
 cameras: <id>: #Camera & {
@@ -722,8 +722,8 @@ x_s20: #Camera & {
 .Ed
 .Pp
 A rule against a white balance temperature outside Temperature mode.
-To repair it, fujicli clears the temperature or, if the user set the temperature, selects
-Temperature mode.
+To repair it, fujicli clears the temperature or, if the user set the
+temperature, selects Temperature mode.
 The temperature is read only in Temperature mode.
 .Bd -literal -offset indent
 {
