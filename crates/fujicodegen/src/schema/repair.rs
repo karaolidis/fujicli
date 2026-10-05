@@ -71,7 +71,7 @@ pub fn generate_solve(
             let msg = &r.message;
             quote! {
                 if !ok[#i_lit] {
-                    if !self.#fn_name(pin, &ok #original_arg) {
+                    if !self.#fn_name(partial, &ok #original_arg) {
                         return Err(crate::features::simulation::SimulationError::RuleViolation(#msg));
                     }
                     ok[#i_lit] = true;
@@ -96,7 +96,7 @@ pub fn generate_solve(
                 )]
                 fn #fn_name(
                     &mut self,
-                    pin: &::std::collections::HashSet<&'static str>,
+                    partial: &Self,
                     ok: &[bool; #n_lit]
                     #original_param,
                 ) -> bool {
@@ -128,7 +128,7 @@ pub fn generate_solve(
         )]
         pub fn solve(
             &mut self,
-            pin: &::std::collections::HashSet<&'static str>
+            partial: &Self
             #original_param,
         ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
             let mut ok: [bool; #n_lit] = [false; #n_lit];
@@ -154,29 +154,6 @@ pub fn generate_solve(
             false
         }
     })
-}
-
-pub fn generate_pin_set(
-    settings: &BTreeMap<&str, SettingInfo<'_>>,
-    accessor: &TokenStream,
-) -> TokenStream {
-    let insertions = settings.values().map(|info| {
-        let id = info.id;
-        let ident = info.field_ident();
-        quote! {
-            if #accessor.#ident.is_some() {
-                pin.insert(#id);
-            }
-        }
-    });
-    quote! {
-        {
-            let mut pin: ::std::collections::HashSet<&'static str> =
-                ::std::collections::HashSet::new();
-            #( #insertions )*
-            pin
-        }
-    }
 }
 
 fn generate_dnf_walk(
@@ -284,7 +261,6 @@ fn generate_leaf_attempt(
     let Some((info, mutation)) = leaf_flip(settings, leaf, optional)? else {
         return Ok(TokenStream::new());
     };
-    let field_id = info.id;
     let field_ident = info.field_ident();
     let original_arg = if has_original {
         quote! { , original }
@@ -293,7 +269,7 @@ fn generate_leaf_attempt(
     };
     Ok(quote! {
         {
-            if !pin.contains(#field_id) {
+            if partial.#field_ident.is_none() {
                 let saved = self.#field_ident.take();
                 #mutation
                 if !Self::re_fires_other_ok(self, ok, current #original_arg) {
@@ -429,7 +405,7 @@ mod tests {
             .unwrap()
             .to_string();
         assert!(out.contains("try_repair_rule_0"));
-        assert!(out.contains("pin . contains (\"a\")"));
+        assert!(out.contains("partial . a . is_none ()"));
         assert!(out.contains("re_fires_other_ok"));
         assert!(out.contains("self . a = None"));
         assert!(out.contains("self . a = saved"));
@@ -495,8 +471,8 @@ mod tests {
         let out = generate_solve(&settings, &rules, false, &opt(&["a", "b"]))
             .unwrap()
             .to_string();
-        assert!(out.contains("pin . contains (\"a\")"));
-        assert!(out.contains("pin . contains (\"b\")"));
+        assert!(out.contains("partial . a . is_none ()"));
+        assert!(out.contains("partial . b . is_none ()"));
         assert!(out.contains("let snap = self . clone ()"));
     }
 
