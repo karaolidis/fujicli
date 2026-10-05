@@ -23,9 +23,21 @@ impl PresenceDag {
             .enumerate()
             .filter(|(_, r)| r.severity == Severity::Error)
             .try_for_each(|(rule_idx, rule)| {
-                rule.when.iter().try_for_each(|conj| {
-                    Self::process_disjunct(rule_idx, conj, &mut contributions, &mut edges)
-                })
+                if let Some(gref) = rule.authored.iter().find_map(Self::self_reference) {
+                    bail!(
+                        "rule #{rule_idx}: gating clauses reference anchor target `{gref}`; \
+                         deciding whether to read the target would require already knowing its value.",
+                    );
+                }
+
+                // Alias exemptions may add guards on the anchor itself; those disjuncts only
+                // validate and never gate presence.
+                rule.when
+                    .iter()
+                    .filter(|conj| Self::self_reference(conj).is_none())
+                    .for_each(|conj| Self::process_disjunct(conj, &mut contributions, &mut edges));
+
+                Ok(())
             })?;
 
         let conditions = contributions
@@ -44,12 +56,55 @@ impl PresenceDag {
         Ok(Self { conditions, edges })
     }
 
+    fn self_reference(conj: &Conjunction) -> Option<String> {
+        let gate = Gate::try_from_disjunct(conj)?;
+        gate.refs.into_iter().find(|r| gate.anchors.contains(r))
+    }
+
     fn process_disjunct(
-        rule_idx: usize,
         conj: &Conjunction,
         contributions: &mut BTreeMap<String, Vec<Dnf>>,
         edges: &mut BTreeSet<(String, String)>,
-    ) -> anyhow::Result<()> {
+    ) {
+        let Some(Gate {
+            polarity,
+            anchors,
+            clauses,
+            refs,
+        }) = Gate::try_from_disjunct(conj)
+        else {
+            return;
+        };
+
+        edges.extend(
+            refs.iter()
+                .flat_map(|gref| anchors.iter().map(|anchor| (gref.clone(), anchor.clone()))),
+        );
+
+        let gate = if polarity {
+            Dnf(clauses
+                .into_iter()
+                .map(|l| Conjunction(vec![l.negated()]))
+                .collect())
+        } else {
+            Dnf(vec![Conjunction(clauses)])
+        };
+
+        for anchor in anchors {
+            contributions.entry(anchor).or_default().push(gate.clone());
+        }
+    }
+}
+
+struct Gate {
+    polarity: bool,
+    anchors: BTreeSet<String>,
+    clauses: Vec<Leaf>,
+    refs: BTreeSet<String>,
+}
+
+impl Gate {
+    fn try_from_disjunct(conj: &Conjunction) -> Option<Self> {
         let mut true_anchors: BTreeSet<String> = BTreeSet::new();
         let mut false_anchors: BTreeSet<String> = BTreeSet::new();
         let mut other_clauses: Vec<Leaf> = Vec::new();
@@ -70,7 +125,7 @@ impl PresenceDag {
             }
         }
 
-        let (polarity, anchors, other_clauses) = if !true_anchors.is_empty() {
+        let (polarity, anchors, clauses) = if !true_anchors.is_empty() {
             let extended: Vec<Leaf> = other_clauses
                 .into_iter()
                 .chain(false_anchors.iter().map(|r| {
@@ -85,47 +140,21 @@ impl PresenceDag {
         } else if !false_anchors.is_empty() {
             (false, false_anchors, other_clauses)
         } else {
-            return Ok(());
+            return None;
         };
 
-        let gating_refs: BTreeSet<String> = other_clauses
-            .iter()
-            .map(|l| l.r#ref().to_string())
-            .collect();
+        let refs: BTreeSet<String> = clauses.iter().map(|l| l.r#ref().to_string()).collect();
 
-        if other_clauses.is_empty() || gating_refs.is_empty() {
-            return Ok(());
+        if clauses.is_empty() || refs.is_empty() {
+            return None;
         }
 
-        for gref in &gating_refs {
-            if anchors.contains(gref) {
-                bail!(
-                    "rule #{rule_idx}: gating clauses reference anchor target `{gref}`; \
-                 deciding whether to read the target would require already knowing its value.",
-                );
-            }
-        }
-
-        edges.extend(
-            gating_refs
-                .iter()
-                .flat_map(|gref| anchors.iter().map(|anchor| (gref.clone(), anchor.clone()))),
-        );
-
-        let gate = if polarity {
-            Dnf(other_clauses
-                .into_iter()
-                .map(|l| Conjunction(vec![l.negated()]))
-                .collect())
-        } else {
-            Dnf(vec![Conjunction(other_clauses)])
-        };
-
-        for anchor in anchors {
-            contributions.entry(anchor).or_default().push(gate.clone());
-        }
-
-        Ok(())
+        Some(Self {
+            polarity,
+            anchors,
+            clauses,
+            refs,
+        })
     }
 }
 
@@ -133,7 +162,11 @@ impl PresenceDag {
 mod tests {
     use super::*;
     use crate::{
-        ast::{LeafEquals, LeafIn, LeafPresent, PredAll, PredAny, PredNot, Rule},
+        ast::{
+            Assignment, AssignmentEffect, LeafEquals, LeafIn, LeafPresent, PredAll, PredAny,
+            PredNot, Rule, Transformation,
+        },
+        schema::alias::NormalizedTransformation,
         util::dag::Dag,
     };
     use serde_json::json;
@@ -916,6 +949,62 @@ mod tests {
         )];
         let err = collect_raw(&rules).unwrap_err().to_string();
         assert!(err.contains("anchor target"), "got: {err}");
+    }
+
+    #[test]
+    fn alias_exemption_self_reference_only_validates() {
+        let alias = Transformation {
+            when: Some(
+                LeafEquals {
+                    r#ref: "A".into(),
+                    scope: Scope::Current,
+                    equals: json!("ab"),
+                }
+                .into(),
+            ),
+            apply: vec![
+                Assignment {
+                    r#ref: "A".into(),
+                    effect: AssignmentEffect::Set(json!("a")),
+                },
+                Assignment {
+                    r#ref: "B".into(),
+                    effect: AssignmentEffect::Set(json!("b")),
+                },
+            ],
+        };
+        let aliases: Vec<NormalizedTransformation> = Option::from(alias).into_iter().collect();
+        let rules = [NormalizedRule::from_rule(
+            &rule(
+                PredAll {
+                    all: vec![
+                        LeafPresent {
+                            r#ref: "A".into(),
+                            scope: Scope::Current,
+                            present: true,
+                        }
+                        .into(),
+                        PredNot {
+                            not: Box::new(
+                                LeafEquals {
+                                    r#ref: "B".into(),
+                                    scope: Scope::Current,
+                                    equals: json!("off"),
+                                }
+                                .into(),
+                            ),
+                        }
+                        .into(),
+                    ],
+                }
+                .into(),
+            ),
+            &aliases,
+        )];
+
+        let info = PresenceDag::try_from_rules(&rules).unwrap();
+        assert!(info.conditions.contains_key("A"));
+        assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
     }
 
     #[test]

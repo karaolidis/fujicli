@@ -366,19 +366,11 @@ mod tests {
     }
 
     fn nrule(when: Predicate) -> NormalizedRule {
-        NormalizedRule {
-            severity: Severity::Error,
-            message: "bad".into(),
-            when: when.into(),
-        }
+        NormalizedRule::new(Severity::Error, "bad", when.into())
     }
 
     fn nrule_msg(when: Predicate, msg: &str) -> NormalizedRule {
-        NormalizedRule {
-            severity: Severity::Error,
-            message: msg.into(),
-            when: when.into(),
-        }
+        NormalizedRule::new(Severity::Error, msg, when.into())
     }
 
     #[test]
@@ -430,26 +422,26 @@ mod tests {
         let mut settings = BTreeMap::new();
         settings.insert("a", integer_info("a"));
         let rules = vec![
-            NormalizedRule {
-                severity: Severity::Warning,
-                message: "w".into(),
-                when: Predicate::from(LeafEquals {
+            NormalizedRule::new(
+                Severity::Warning,
+                "w",
+                Predicate::from(LeafEquals {
                     r#ref: "a".into(),
                     scope: Scope::Current,
                     equals: json!(1),
                 })
                 .into(),
-            },
-            NormalizedRule {
-                severity: Severity::Info,
-                message: "i".into(),
-                when: Predicate::from(LeafEquals {
+            ),
+            NormalizedRule::new(
+                Severity::Info,
+                "i",
+                Predicate::from(LeafEquals {
                     r#ref: "a".into(),
                     scope: Scope::Current,
                     equals: json!(2),
                 })
                 .into(),
-            },
+            ),
         ];
         let out = generate_solve(
             &settings,
