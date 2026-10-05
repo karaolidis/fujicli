@@ -149,13 +149,13 @@ fn handle_export(
 
     let mut camera = usb::get_camera(device, emulate)?;
 
-    let mut writer = output.get_writer()?;
     let simulation = camera
         .get_simulation(slot)
         .with_context(|| format!("reading simulation slot {slot}"))?;
     let simulation = camera
         .serialize_simulation(&*simulation)
         .context("serializing simulation")?;
+    let mut writer = output.get_writer()?;
     writer
         .write_all(&simulation)
         .context("writing serialized simulation to output")?;
