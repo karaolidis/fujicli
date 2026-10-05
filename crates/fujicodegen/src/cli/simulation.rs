@@ -13,6 +13,7 @@ struct Entry {
     id: String,
     ident: proc_macro2::Ident,
     type_path: TokenStream,
+    category: Option<String>,
 }
 
 pub fn generate(
@@ -64,6 +65,7 @@ fn build_entries(options: &BTreeMap<String, FujiOption>) -> Vec<Entry> {
                 id: opt.id.clone(),
                 ident,
                 type_path,
+                category: opt.spec.category().map(str::to_owned),
             }
         })
         .collect()
@@ -74,7 +76,10 @@ fn generate_struct(entries: &[Entry]) -> TokenStream {
         let ident = &entry.ident;
         let ty = &entry.type_path;
 
-        let attrs = quote! { #[clap(long, allow_hyphen_values(true))] };
+        let attrs = entry.category.as_deref().map_or_else(
+            || quote! { #[clap(long, allow_hyphen_values(true))] },
+            |heading| quote! { #[clap(long, allow_hyphen_values(true), help_heading = #heading)] },
+        );
 
         quote! {
             #attrs

@@ -12,6 +12,7 @@ use crate::{
 struct Entry {
     ident: proc_macro2::Ident,
     type_path: TokenStream,
+    category: Option<String>,
 }
 
 pub fn generate(
@@ -85,7 +86,11 @@ fn build_entries(
             let type_ident = upper_camel_case_ident!("{}", opt.id);
             let options_path = options::path();
             let type_path = quote! { #options_path::#type_ident };
-            Entry { ident, type_path }
+            Entry {
+                ident,
+                type_path,
+                category: opt.spec.category().map(str::to_owned),
+            }
         })
         .collect()
 }
@@ -94,7 +99,10 @@ fn generate_struct(entries: &[Entry]) -> TokenStream {
     let fields = entries.iter().map(|entry| {
         let ident = &entry.ident;
         let ty = &entry.type_path;
-        let attrs = quote! { #[clap(long, allow_hyphen_values(true))] };
+        let attrs = entry.category.as_deref().map_or_else(
+            || quote! { #[clap(long, allow_hyphen_values(true))] },
+            |heading| quote! { #[clap(long, allow_hyphen_values(true), help_heading = #heading)] },
+        );
         quote! {
             #attrs
             pub #ident: Option<#ty>,
