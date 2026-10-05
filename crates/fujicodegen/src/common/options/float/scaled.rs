@@ -150,6 +150,9 @@ fn generate_struct_def(type_name: &Ident, repr_type: &Ident) -> TokenStream {
             ::std::marker::Copy,
             ::std::cmp::PartialEq,
             ::std::cmp::Eq,
+            ::std::cmp::PartialOrd,
+            ::std::cmp::Ord,
+            ::std::hash::Hash,
             ::ptp_macro::PtpSerialize,
             ::ptp_macro::PtpDeserialize,
         )]

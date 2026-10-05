@@ -62,6 +62,9 @@ fn generate_struct_def(union: &[UnionEntry]) -> TokenStream {
             ::std::fmt::Debug,
             ::std::clone::Clone,
             ::std::default::Default,
+            ::std::cmp::PartialEq,
+            ::std::cmp::Eq,
+            ::std::hash::Hash,
             ::serde::Serialize,
             ::serde::Deserialize,
         )]

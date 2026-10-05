@@ -349,6 +349,7 @@ pub fn generate_apply_transformations(
         .map(|t| generate_transformation(settings, t, accessor))
         .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(quote! {
+        #[allow(clippy::nonminimal_bool)]
         pub fn apply_transformations(#accessor: &mut #buf_ty) {
             #( #parts )*
         }

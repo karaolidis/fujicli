@@ -183,6 +183,9 @@ fn generate_enum_def(
             ::std::marker::Copy,
             ::std::cmp::PartialEq,
             ::std::cmp::Eq,
+            ::std::cmp::PartialOrd,
+            ::std::cmp::Ord,
+            ::std::hash::Hash,
             ::strum_macros::EnumIter,
         )]
         pub enum #type_name {
