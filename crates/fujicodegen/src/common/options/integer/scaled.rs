@@ -46,6 +46,7 @@ pub fn generate(
     prop_code: Option<u16>,
     rules: Option<&NumericRules<i32>>,
     encoding: &NumericEncoding,
+    default: Option<i32>,
 ) -> anyhow::Result<TokenStream> {
     let bounds = Bounds::resolve(id, rules, encoding)
         .with_context(|| format!("resolving bounds for integer option `{id}`"))?;
@@ -72,6 +73,8 @@ pub fn generate(
     );
     let conversion_profile_impl =
         generate_conversion_profile_impl(&type_name, &repr_type, &repr_type_32);
+    let default_impl = generate_default_impl(id, &type_name, signed, &bounds, default)
+        .with_context(|| format!("generating Default impl for integer option `{id}`"))?;
 
     Ok(quote! {
         #struct_def
@@ -83,7 +86,55 @@ pub fn generate(
         #serde_impls
         #simulation_setting_impl
         #conversion_profile_impl
+        #default_impl
     })
+}
+
+fn generate_default_impl(
+    id: &str,
+    type_name: &Ident,
+    signed: bool,
+    bounds: &Bounds,
+    default: Option<i32>,
+) -> anyhow::Result<TokenStream> {
+    let logical = default.unwrap_or_else(|| step_aligned_nearest_zero(bounds));
+
+    let raw_logical = logical
+        .checked_mul(bounds.scale)
+        .with_context(|| format!("default {logical} × scale overflows i32 for `{id}`"))?;
+
+    let raw_literal = if signed {
+        let v: i16 = raw_logical
+            .try_into()
+            .with_context(|| format!("default raw {raw_logical} does not fit i16 for `{id}`"))?;
+        quote! { #v }
+    } else {
+        let v: u16 = raw_logical
+            .try_into()
+            .with_context(|| format!("default raw {raw_logical} does not fit u16 for `{id}`"))?;
+        quote! { #v }
+    };
+
+    Ok(quote! {
+        #[allow(clippy::derivable_impls)]
+        impl ::std::default::Default for #type_name {
+            fn default() -> Self {
+                Self(#raw_literal)
+            }
+        }
+    })
+}
+
+fn step_aligned_nearest_zero(bounds: &Bounds) -> i32 {
+    if bounds.min == i32::MIN || bounds.max == i32::MAX {
+        return 0;
+    }
+    let span = bounds.max - bounds.min;
+    let max_n = span / bounds.step;
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+    let raw_n = ((-f64::from(bounds.min)) / f64::from(bounds.step)).round() as i32;
+    let n = raw_n.clamp(0, max_n);
+    bounds.min + n * bounds.step
 }
 
 fn generate_struct_def(type_name: &Ident, repr_type: &Ident) -> TokenStream {

@@ -18,38 +18,50 @@ pub fn generate(options: &BTreeMap<String, FujiOption>) -> anyhow::Result<TokenS
     for (id, opt) in options {
         let block = match &opt.spec {
             OptionSpec::Enum {
-                rules, encoding, ..
-            } => r#enum::generate(id, rules, encoding)
+                rules,
+                encoding,
+                default,
+                ..
+            } => r#enum::generate(id, rules, encoding, default.as_deref())
                 .with_context(|| format!("generating enum option `{id}`"))?,
             OptionSpec::Integer {
-                rules, encoding, ..
+                rules,
+                encoding,
+                default,
+                ..
             } => match encoding {
                 NumericEncoding::Lookup { spec, prop_code } => {
-                    integer::lookup::generate(id, *prop_code, spec)
+                    integer::lookup::generate(id, *prop_code, spec, *default)
                         .with_context(|| format!("generating integer lookup option `{id}`"))?
                 }
                 NumericEncoding::Raw { prop_code, .. }
                 | NumericEncoding::Scale { prop_code, .. } => {
-                    integer::scaled::generate(id, *prop_code, rules.as_ref(), encoding)
+                    integer::scaled::generate(id, *prop_code, rules.as_ref(), encoding, *default)
                         .with_context(|| format!("generating integer option `{id}`"))?
                 }
             },
             OptionSpec::Float {
-                rules, encoding, ..
+                rules,
+                encoding,
+                default,
+                ..
             } => match encoding {
                 NumericEncoding::Lookup { spec, prop_code } => {
-                    float::lookup::generate(id, *prop_code, spec)
+                    float::lookup::generate(id, *prop_code, spec, *default)
                         .with_context(|| format!("generating float lookup option `{id}`"))?
                 }
                 NumericEncoding::Raw { prop_code, .. }
                 | NumericEncoding::Scale { prop_code, .. } => {
-                    float::scaled::generate(id, *prop_code, rules.as_ref(), encoding)
+                    float::scaled::generate(id, *prop_code, rules.as_ref(), encoding, *default)
                         .with_context(|| format!("generating float option `{id}`"))?
                 }
             },
             OptionSpec::String {
-                rules, encoding, ..
-            } => string::generate(id, rules.as_ref(), encoding),
+                rules,
+                encoding,
+                default,
+                ..
+            } => string::generate(id, rules.as_ref(), encoding, default.as_deref()),
         };
         blocks.push(block);
     }

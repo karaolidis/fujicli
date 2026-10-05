@@ -43,6 +43,7 @@ pub fn generate(
     id: &str,
     prop_code: Option<u16>,
     spec: &LookupSpec,
+    default: Option<i32>,
 ) -> anyhow::Result<TokenStream> {
     let mut resolved: Vec<_> = spec
         .values
@@ -92,6 +93,7 @@ pub fn generate(
     );
     let conversion_profile_impl =
         generate_conversion_profile_impl(&type_name, &repr_type, &repr_type_32);
+    let default_impl = generate_default_impl(&type_name, &resolved, default);
 
     Ok(quote! {
         #enum_def
@@ -105,7 +107,38 @@ pub fn generate(
         #ptp_serde_impl
         #simulation_setting_impl
         #conversion_profile_impl
+        #default_impl
     })
+}
+
+fn generate_default_impl(
+    type_name: &Ident,
+    resolved: &[Resolved],
+    default: Option<i32>,
+) -> TokenStream {
+    let chosen = default.map_or_else(
+        || {
+            resolved
+                .iter()
+                .min_by_key(|r| r.logical.abs())
+                .expect("at least one lookup entry")
+        },
+        |want| {
+            resolved
+                .iter()
+                .find(|r| r.logical == want)
+                .expect("default is one of the lookup keys")
+        },
+    );
+    let variant = &chosen.ident;
+    quote! {
+        #[allow(clippy::derivable_impls)]
+        impl ::std::default::Default for #type_name {
+            fn default() -> Self {
+                Self::#variant
+            }
+        }
+    }
 }
 
 fn wire_items(resolved: &[Resolved]) -> Vec<(Ident, Vec<i32>)> {
