@@ -32,4 +32,4 @@ result-*
 *.json
 
 # Build-time codegen output. Inspect locally; never commit.
-src/lib/generated/
+crates/fujicore/src/generated/

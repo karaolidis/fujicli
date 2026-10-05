@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail};
-use fujicli::Camera;
+use fujicore::Camera;
 use log::trace;
 
 #[derive(Debug, Clone, Copy)]

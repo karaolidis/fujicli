@@ -22,29 +22,26 @@ pub struct Scopes<'a> {
 }
 
 impl<'a> Scopes<'a> {
-    pub fn new(accessor: &'a TokenStream) -> Self {
+    pub const fn new(accessor: &'a TokenStream) -> Self {
         Self {
             current: accessor,
             original: None,
         }
     }
 
-    pub fn with_original(current: &'a TokenStream, original: &'a TokenStream) -> Self {
+    pub const fn with_original(current: &'a TokenStream, original: &'a TokenStream) -> Self {
         Self {
             current,
             original: Some(original),
         }
     }
 
-    fn pick(&self, scope: Scope) -> &'a TokenStream {
+    const fn pick(&self, scope: Scope) -> &'a TokenStream {
         match scope {
             Scope::Current => self.current,
-            Scope::Original => match self.original {
-                Some(o) => o,
-                None => {
-                    unreachable!("original-scope leaf reached a context with no original accessor")
-                }
-            },
+            Scope::Original => self
+                .original
+                .expect("original-scope leaf reached a context with no original accessor"),
         }
     }
 }

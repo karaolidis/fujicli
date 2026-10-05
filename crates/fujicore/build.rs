@@ -3,17 +3,18 @@ use std::{path::PathBuf, process::Command, str};
 use anyhow::bail;
 
 fn main() -> anyhow::Result<()> {
-    println!("cargo:rerun-if-changed=fml/");
-    println!("cargo:rerun-if-changed=crates/codegen/");
+    println!("cargo:rerun-if-changed=../../fml/");
+    println!("cargo:rerun-if-changed=../fujicodegen/");
 
     let manifest = PathBuf::from(
         std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set by cargo"),
     );
-    let generated = manifest.join("src").join("lib").join("generated");
+    let workspace = manifest.join("..").join("..");
+    let generated = manifest.join("src").join("generated");
 
     let cue = Command::new("cue")
         .args(["export", "./fml", "--out", "json"])
-        .current_dir(&manifest)
+        .current_dir(&workspace)
         .output()
         .map_err(|err| {
             anyhow::anyhow!("failed to invoke `cue export`: {err}. Install CUE (https://cuelang.org) or run inside `nix develop`.")
@@ -27,7 +28,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     let json = str::from_utf8(&cue.stdout)?;
-    codegen::generate(json, &generated)?;
+    fujicodegen::generate(json, &generated)?;
 
     Ok(())
 }

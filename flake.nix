@@ -71,6 +71,7 @@
             inputs.fenix.packages.${system}.latest.toolchain
             cargo-udeps
             cargo-outdated
+            cargo-edit
             cargo-expand
             cue
           ];

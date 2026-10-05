@@ -191,20 +191,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
-name = "codegen"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "heck",
- "prettyplease",
- "proc-macro2",
- "quote",
- "serde",
- "serde_json",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -399,16 +385,45 @@ name = "fujicli"
 version = "0.2.0"
 dependencies = [
  "anyhow",
- "byteorder",
  "clap",
- "codegen",
- "erased-serde",
- "exiftool",
+ "fujicore",
  "log",
  "log4rs",
+ "ptp-cursor",
+ "rusb",
+ "serde_json",
+ "strum",
+ "tempfile",
+]
+
+[[package]]
+name = "fujicodegen"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "heck",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "fujicore"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "byteorder",
+ "clap",
+ "erased-serde",
+ "exiftool",
+ "fujicodegen",
+ "log",
  "num_enum",
- "ptp_cursor",
- "ptp_macro",
+ "ptp-cursor",
+ "ptp-macro",
  "rusb",
  "serde",
  "serde_json",
@@ -416,7 +431,6 @@ dependencies = [
  "strsim",
  "strum",
  "strum_macros",
- "tempfile",
 ]
 
 [[package]]
@@ -825,7 +839,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ptp_cursor"
+name = "ptp-cursor"
 version = "0.1.0"
 dependencies = [
  "byteorder",
@@ -833,13 +847,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "ptp_macro"
+name = "ptp-macro"
 version = "0.1.0"
 dependencies = [
  "byteorder",
  "num_enum",
  "proc-macro2",
- "ptp_cursor",
+ "ptp-cursor",
  "quote",
  "syn 2.0.119",
 ]
