@@ -33,7 +33,7 @@
         {
           fujicli = pkgs.rustPlatform.buildRustPackage {
             pname = "fujicli";
-            version = "0.1.0";
+            inherit ((pkgs.lib.importTOML ./Cargo.toml).workspace.package) version;
 
             src = ./.;
             cargoLock.lockFile = ./Cargo.lock;

@@ -1,10 +1,8 @@
 [package]
 name = "ptp-macro"
-version = "0.1.0"
-edition = "2024"
-authors = [
-    "Nikolaos Karaolidis <nick@karaolidis.com>",
-]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 
 [lib]
 proc-macro = true
@@ -13,11 +11,9 @@ proc-macro = true
 workspace = true
 
 [dependencies]
-byteorder = "1.5.0"
-proc-macro2 = "1.0.106"
-quote = "1.0.45"
-syn = { version = "2.0.117", features = ["full"] }
+quote.workspace = true
+syn = { workspace = true, features = ["full"] }
 
 [dev-dependencies]
-num_enum = "0.7.6"
-ptp-cursor = { path = "../ptp-cursor" }
+num_enum.workspace = true
+ptp-cursor.workspace = true

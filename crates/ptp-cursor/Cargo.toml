@@ -1,14 +1,12 @@
 [package]
 name = "ptp-cursor"
-version = "0.1.0"
-edition = "2024"
-authors = [
-    "Nikolaos Karaolidis <nick@karaolidis.com>",
-]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 
 [lints]
 workspace = true
 
 [dependencies]
-byteorder = "1.5.0"
-derive_more = { version = "2.1.1", features = ["full"] }
+byteorder.workspace = true
+derive_more = { workspace = true, features = ["full"] }

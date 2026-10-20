@@ -399,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "fujicodegen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "heck",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "ptp-cursor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "byteorder",
  "derive_more",
@@ -849,11 +849,9 @@ dependencies = [
 
 [[package]]
 name = "ptp-macro"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
- "byteorder",
  "num_enum",
- "proc-macro2",
  "ptp-cursor",
  "quote",
  "syn 2.0.119",
