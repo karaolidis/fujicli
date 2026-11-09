@@ -514,7 +514,7 @@ options: {
 					weak_large:   0x04
 					strong_small: 0x03
 					weak_small:   0x02
-					off:          0x01
+					off:          [0x01, 0x06, 0x07] // camera stores Off as 6/7, keeping the last grain size
 				}
 			}
 		}
