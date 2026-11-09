@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 description = "Core library for managing Fujifilm devices, simulations, backups, and rendering"
 authors.workspace = true
+license.workspace = true
 build = "build.rs"
 
 [lints]
