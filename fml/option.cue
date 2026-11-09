@@ -514,7 +514,7 @@ options: {
 					weak_large:   0x04
 					strong_small: 0x03
 					weak_small:   0x02
-					off:          0x01
+					off:          [0x01, 0x06] // cameras read back 6 for Off on default slots; write 1
 				}
 			}
 		}
