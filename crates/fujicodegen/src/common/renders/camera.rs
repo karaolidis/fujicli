@@ -676,6 +676,7 @@ fn generate_camera_render_manager_impl(
             ) -> crate::error::CoreResult<()> {
                 let current: crate::features::render::ConversionProfile<#complete_ident> =
                     ptp.get_prop(crate::ptp::DevicePropCode::FujiRawConversionProfile)?;
+                ::log::debug!("Profile as shot: {current:?}");
                 let partial_draft = <#draft_ident as ::std::convert::TryFrom<
                     #renders_path::RenderBase,
                 >>::try_from(partial.clone())?;
@@ -685,6 +686,7 @@ fn generate_camera_render_manager_impl(
                     code: current.code,
                     fields: <#complete_ident as ::std::convert::TryFrom<#draft_ident>>::try_from(buf)?,
                 };
+                ::log::debug!("Profile to apply: {next:?}");
                 ptp.set_prop(crate::ptp::DevicePropCode::FujiRawConversionProfile, &next)?;
                 Ok(())
             }
