@@ -233,11 +233,10 @@ and
 .Ql fujicli simulation set
 round-trip on every slot.
 .It Va render
-The profile's fields, the transformations between user-facing values and wire
-values, and the render rules.
+The profile fields the camera uses, the transformations between user-facing
+values and wire values, and the render rules.
 Most cameras use their generation's.
-A camera whose profile differs declares its own fields, recovered as described
-in
+A field missing from the profile layout is recovered as described in
 .Sx Render profiles .
 Check that a render with each setting changed produces what was asked for.
 .El
@@ -296,6 +295,9 @@ RAW Studio.
 .Pp
 The profile is serialised as a 16-bit field count, the profile code as a
 string padded to 0x1FF bytes, and one 32-bit value per field.
+X RAW Studio writes the same fields to every camera.
+A camera may send back fewer, and fewer than the count in its reply claims.
+Treat what X RAW Studio writes as authoritative.
 .Pp
 The setup is a Windows virtual machine running X RAW Studio, with the camera
 passed through to it over USB, and Wireshark on the host.
@@ -329,19 +331,15 @@ The script prints each conversion profile the host sends.
 Compare successive profiles to map each field to a setting.
 .El
 .Pp
-Each field becomes an entry in
-.Va render.fields ,
-in wire order.
-Fields shared by a generation belong in its template; see
-.Xr fujicli-fml 5 .
+Each field becomes an entry in the profile layout in
+.Pa fml/profile.cue ,
+in wire order, and each camera lists the fields it uses in
+.Va render.fields .
 A field with no matching option gets an inline identifier.
 When one user-facing value is stored as several wire values, as HDR800+ is
 stored as HDR800 plus a priority flag, declare a transformation.
 Transformations with a single equality condition and a unique result are
 inverted when reading, so the user sees the original value.
-.Pp
-X RAW Studio sometimes reads fewer fields than it writes.
-Treat what it writes as authoritative.
 .Sh ARCHITECTURE
 .Ss Build
 .Pa crates/fujicore/build.rs

@@ -20,12 +20,15 @@ turns the package into a single JSON document, which is compiled into
 .Xr fujicli 1 .
 Editing FML and rebuilding is how support for a camera or option is added.
 .Pp
-The document has three top-level maps:
+The document has four top-level keys: the maps
 .Cm options ,
 .Cm cameras
 and
-.Cm generations .
-Each entry has an
+.Cm generations ,
+and
+.Cm profile ,
+the conversion profile layout.
+Each map entry has an
 .Cm id ,
 which is set to its map key and need not be written, and a
 .Cm spec .
@@ -315,21 +318,8 @@ See
 The camera converts RAF files using a conversion profile.
 .Bl -tag -width Ds
 .It Cm fields : Ar list
-The profile's 32-bit fields, in wire order.
-A field with a
-.Cm ref
-takes its type and encoding from that option, and
-.Cm id
-defaults to
-.Cm ref .
-A field without one is an integer with no encoding, for headers and padding,
-and must have an
-.Cm id .
-Ids are unique.
-.Cm skip_read : true
-marks a field as absent from profiles read from the camera or a file;
-.Cm skip_write : true
-marks it as never written.
+The ids of the profile fields the camera uses; see
+.Sx PROFILE .
 Required.
 .It Cm rules : Ar list
 See
@@ -383,6 +373,26 @@ A generation may build on another's templates the same way.
 .Pp
 Codegen sees only the result, and uses a camera's generation to order the list
 of supported cameras.
+.Sh PROFILE
+The conversion profile is a list of 32-bit fields, in wire order, shared by
+every camera.
+.Bd -literal -offset indent
+profile: fields: [...#Field]
+.Ed
+.Pp
+A field with a
+.Cm ref
+takes its type and encoding from that option, and
+.Cm id
+defaults to
+.Cm ref .
+A field without one is an integer with no encoding, and must have an
+.Cm id .
+Ids are unique.
+.Pp
+A camera's render uses the fields it lists.
+The others are written as 0 and ignored when read.
+A camera may send back fewer fields than it is sent.
 .Sh PREDICATES
 A predicate is a test on a block's values.
 It is a leaf, a combination of predicates, or a boolean literal.
@@ -586,8 +596,7 @@ Each
 .Cm when
 sees the effect of earlier transformations.
 They map values the user sees onto the values the camera stores, for example a
-single option value that the camera represents as two fields, or constant
-header fields.
+single option value that the camera represents as two fields.
 .Ss Aliases
 Every transformation with a
 .Cm when
@@ -665,6 +674,9 @@ and all cameras.
 .It Pa fml/generation.cue
 .Ql #Generation
 and all generations.
+.It Pa fml/profile.cue
+.Ql #Profile
+and the profile layout.
 .It Pa fml/grammar.cue
 Predicates, assignments, rules and transformations.
 .It Pa fml/main.cue
