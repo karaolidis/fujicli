@@ -402,7 +402,9 @@ The field is less than, at most, greater than, or at least the value.
 .Pp
 Every test but
 .Cm present
-is false when the field has no value.
+is unknown when the field has no value, and so is its negation.
+A predicate holds only when it is true; to match a field without a value, test
+.Cm present : false .
 .Cm present ,
 .Cm equals
 and
@@ -420,11 +422,14 @@ Float equality allows for rounding error.
 .It Cm all : Ar list
 All of the predicates hold.
 An empty list is true.
+False if any is false, otherwise unknown if any is unknown.
 .It Cm any : Ar list
 At least one of the predicates holds.
 An empty list is false.
+True if any holds, otherwise unknown if any is unknown.
 .It Cm not : Ar predicate
 The predicate does not hold.
+Unknown if the predicate is unknown.
 .It Cm true , false
 Always and never.
 .El
@@ -475,19 +480,20 @@ as an
 .Cm any
 of conjunctions, each an
 .Cm all
-of leaves, and makes each conjunction that holds false by changing one field.
-For a leaf that requires a value, it clears the field, but only if the field
-is optional.
+of leaves, and changes one field in each conjunction that holds so that it no
+longer does.
+If the field is optional, it first tries clearing it.
 For a negated
 .Cm equals ,
 .Cm in
 or
 .Cm min Ns / Ns Cm max ,
-it sets the field to the value named, the first value listed, or
+it then tries setting the field to the value named, the first value listed, or
 .Cm min .
 It never changes a field the user set, including fields that a transformation
 set from the user's input, and never an original value.
-A change is undone if it makes a rule that was satisfied fire.
+A change is undone if it makes a rule that was satisfied fire, or leaves the
+rule being repaired firing.
 If no change works, the update fails with the rule's
 .Cm message .
 .Pp
@@ -532,15 +538,16 @@ Gated fields are optional in the camera's generated simulation or render
 profile type.
 All other fields are required: they are always read and must have a value.
 .Pp
-A gate may not test the field it gates, since deciding whether to read
+A test on
 .Ql x
-would require its value; codegen fails on such a rule.
-Write a test on
+requires a value, so a conjunction with both it and
+.Cm present : true
+validates
 .Ql x
-alone, without
-.Cm present : true ,
-instead.
-Codegen also fails if gates form a cycle.
+without gating it, and one with
+.Cm present : false
+never holds.
+Codegen fails if gates form a cycle.
 Apart from gating, fields are processed in declaration order.
 .Ss Warnings and information
 After a successful repair, each

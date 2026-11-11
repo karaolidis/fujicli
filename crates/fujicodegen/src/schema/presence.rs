@@ -1,7 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::bail;
-
 use crate::{
     ast::{Conjunction, Dnf, Leaf, LeafPresent, PredAll, Predicate, Scope, Severity},
     schema::alias::NormalizedRule,
@@ -14,31 +12,15 @@ pub struct PresenceDag {
 }
 
 impl PresenceDag {
-    pub fn try_from_rules(rules: &[NormalizedRule]) -> anyhow::Result<Self> {
+    pub fn from_rules(rules: &[NormalizedRule]) -> Self {
         let mut contributions: BTreeMap<String, Vec<Dnf>> = BTreeMap::new();
         let mut edges: BTreeSet<(String, String)> = BTreeSet::new();
 
         rules
             .iter()
-            .enumerate()
-            .filter(|(_, r)| r.severity == Severity::Error)
-            .try_for_each(|(rule_idx, rule)| {
-                if let Some(gref) = rule.authored.iter().find_map(Self::self_reference) {
-                    bail!(
-                        "rule #{rule_idx}: gating clauses reference anchor target `{gref}`; \
-                         deciding whether to read the target would require already knowing its value.",
-                    );
-                }
-
-                // Alias exemptions may add guards on the anchor itself; those disjuncts only
-                // validate and never gate presence.
-                rule.when
-                    .iter()
-                    .filter(|conj| Self::self_reference(conj).is_none())
-                    .for_each(|conj| Self::process_disjunct(conj, &mut contributions, &mut edges));
-
-                Ok(())
-            })?;
+            .filter(|r| r.severity == Severity::Error)
+            .flat_map(|r| r.gating.iter())
+            .for_each(|conj| Self::process_disjunct(conj, &mut contributions, &mut edges));
 
         let conditions = contributions
             .into_iter()
@@ -53,12 +35,7 @@ impl PresenceDag {
             })
             .collect();
 
-        Ok(Self { conditions, edges })
-    }
-
-    fn self_reference(conj: &Conjunction) -> Option<String> {
-        let gate = Gate::try_from_disjunct(conj)?;
-        gate.refs.into_iter().find(|r| gate.anchors.contains(r))
+        Self { conditions, edges }
     }
 
     fn process_disjunct(
@@ -81,11 +58,9 @@ impl PresenceDag {
                 .flat_map(|gref| anchors.iter().map(|anchor| (gref.clone(), anchor.clone()))),
         );
 
+        // An anchor that must be absent while the clauses hold is read unless they definitely hold.
         let gate = if polarity {
-            Dnf(clauses
-                .into_iter()
-                .map(|l| Conjunction(vec![l.negated()]))
-                .collect())
+            Dnf(clauses.into_iter().flat_map(Self::complement).collect()).simplified()
         } else {
             Dnf(vec![Conjunction(clauses)])
         };
@@ -93,6 +68,22 @@ impl PresenceDag {
         for anchor in anchors {
             contributions.entry(anchor).or_default().push(gate.clone());
         }
+    }
+
+    /// The classical complement of a leaf: a negated value test does not hold on an absent field.
+    fn complement(leaf: Leaf) -> Vec<Conjunction> {
+        let absent = match &leaf {
+            Leaf::Present(_) => None,
+            test => Some(Conjunction(vec![Leaf::Present(LeafPresent {
+                r#ref: test.r#ref().to_owned(),
+                scope: test.scope(),
+                present: false,
+            })])),
+        };
+        absent
+            .into_iter()
+            .chain([Conjunction(vec![leaf.negated()])])
+            .collect()
     }
 }
 
@@ -148,6 +139,10 @@ impl Gate {
         if clauses.is_empty() || refs.is_empty() {
             return None;
         }
+        debug_assert!(
+            refs.is_disjoint(&anchors),
+            "gate tests its own anchor; the conjunction was not simplified: {conj:?}"
+        );
 
         Some(Self {
             polarity,
@@ -191,24 +186,26 @@ mod tests {
         (from.to_string(), to.to_string())
     }
 
-    fn collect_raw(rules: &[Rule]) -> anyhow::Result<PresenceDag> {
+    fn collect_raw(rules: &[Rule]) -> PresenceDag {
         let normalised: Vec<NormalizedRule> = rules
             .iter()
             .map(|r| NormalizedRule::from_rule(r, &[]))
             .collect();
-        PresenceDag::try_from_rules(&normalised)
+        PresenceDag::from_rules(&normalised)
     }
 
-    fn assert_gate_is_single_negated_value_leaf(gate: &Dnf) {
-        assert_eq!(gate.0.len(), 1, "expected one disjunct, got {gate:?}");
-        assert_eq!(
-            gate.0[0].0.len(),
-            1,
-            "expected one literal in the disjunct, got {gate:?}"
+    fn assert_gate_is_complement_of_single_value_leaf(gate: &Dnf) {
+        assert_eq!(gate.0.len(), 2, "expected two disjuncts, got {gate:?}");
+        assert!(gate.0.iter().all(|c| c.0.len() == 1), "got {gate:?}");
+        let (absent, negated) = (&gate.0[0].0[0], &gate.0[1].0[0]);
+        assert!(
+            matches!(absent, Leaf::Present(LeafPresent { present: false, .. })),
+            "expected an absence literal, got {absent:?}"
         );
+        assert_eq!(absent.r#ref(), negated.r#ref());
         assert!(
             matches!(
-                gate.0[0].0[0],
+                negated,
                 Leaf::NotEquals(_)
                     | Leaf::NotIn(_)
                     | Leaf::NotBetween(_)
@@ -216,16 +213,14 @@ mod tests {
                     | Leaf::NotLessThanOrEqual(_)
                     | Leaf::NotGreaterThan(_)
                     | Leaf::NotGreaterThanOrEqual(_)
-                    | Leaf::Present(LeafPresent { present: false, .. }),
             ),
-            "expected a negated value-leaf literal, got {:?}",
-            gate.0[0].0[0],
+            "expected a negated value test, got {negated:?}"
         );
     }
 
     #[test]
     fn empty_rules_yield_empty_info() {
-        let info = PresenceDag::try_from_rules(&[]).unwrap();
+        let info = PresenceDag::from_rules(&[]);
         assert!(info.conditions.is_empty());
         assert!(info.edges.is_empty());
     }
@@ -251,9 +246,9 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         let cond = info.conditions.get("A").expect("A condition");
-        assert_gate_is_single_negated_value_leaf(cond);
+        assert_gate_is_complement_of_single_value_leaf(cond);
         assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
     }
 
@@ -278,7 +273,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert!(info.conditions.is_empty());
         assert!(info.edges.is_empty());
     }
@@ -310,9 +305,9 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         let cond = info.conditions.get("B").expect("B condition");
-        assert_gate_is_single_negated_value_leaf(cond);
+        assert_gate_is_complement_of_single_value_leaf(cond);
         assert_eq!(info.edges, std::iter::once(edge("C", "B")).collect());
     }
 
@@ -337,7 +332,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         let cond = info.conditions.get("A").expect("A condition");
         assert_eq!(cond.0.len(), 1);
         assert_eq!(cond.0[0].0.len(), 1);
@@ -368,7 +363,7 @@ mod tests {
                 }
                 .into(),
             )];
-            assert!(collect_raw(&rules).unwrap().conditions.is_empty());
+            assert!(collect_raw(&rules).conditions.is_empty());
         }
     }
 
@@ -382,7 +377,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert!(info.conditions.is_empty());
         assert!(info.edges.is_empty());
 
@@ -399,7 +394,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert!(info.conditions.is_empty());
 
         let rules = vec![rule(
@@ -421,7 +416,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert!(info.conditions.is_empty());
     }
 
@@ -468,7 +463,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert!(info.conditions.contains_key("A"));
         assert!(info.conditions.contains_key("C"));
         assert_eq!(
@@ -508,7 +503,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert!(info.conditions.contains_key("A"));
         assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
     }
@@ -539,27 +534,27 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert!(info.conditions.contains_key("A"));
         assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
     }
 
     #[test]
     fn tautological_predicate_allows_unconditional_rule() {
-        let info = collect_raw(&[rule(Predicate::Bool(true))]).unwrap();
+        let info = collect_raw(&[rule(Predicate::Bool(true))]);
         assert!(info.conditions.is_empty());
         assert!(info.edges.is_empty());
-        let info = collect_raw(&[rule(PredAll { all: vec![] }.into())]).unwrap();
+        let info = collect_raw(&[rule(PredAll { all: vec![] }.into())]);
         assert!(info.conditions.is_empty());
         assert!(info.edges.is_empty());
     }
 
     #[test]
     fn unsatisfiable_predicate_is_skipped() {
-        let info = collect_raw(&[rule(Predicate::Bool(false))]).unwrap();
+        let info = collect_raw(&[rule(Predicate::Bool(false))]);
         assert!(info.conditions.is_empty());
         assert!(info.edges.is_empty());
-        let info = collect_raw(&[rule(PredAny { any: vec![] }.into())]).unwrap();
+        let info = collect_raw(&[rule(PredAny { any: vec![] }.into())]);
         assert!(info.conditions.is_empty());
         assert!(info.edges.is_empty());
     }
@@ -638,8 +633,8 @@ mod tests {
             .into(),
         )];
 
-        let info_d = collect_raw(&direct).unwrap();
-        let info_dd = collect_raw(&distributed).unwrap();
+        let info_d = collect_raw(&direct);
+        let info_dd = collect_raw(&distributed);
 
         assert_eq!(info_d.edges, info_dd.edges);
         let keys_d: BTreeSet<_> = info_d.conditions.keys().cloned().collect();
@@ -668,7 +663,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert!(info.conditions.is_empty());
         assert!(info.edges.is_empty());
     }
@@ -694,7 +689,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
 
         assert!(info.conditions.contains_key("A"));
         assert!(!info.conditions.contains_key("B"));
@@ -729,7 +724,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert!(info.conditions.contains_key("B"));
         assert!(!info.conditions.contains_key("A"));
         assert_eq!(info.edges, std::iter::once(edge("A", "B")).collect());
@@ -756,7 +751,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert!(info.conditions.contains_key("A"));
         assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
     }
@@ -793,7 +788,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
 
         assert!(info.conditions.contains_key("A"));
         assert!(info.conditions.contains_key("B"));
@@ -801,8 +796,8 @@ mod tests {
             info.edges,
             [edge("C", "A"), edge("C", "B")].into_iter().collect()
         );
-        assert_gate_is_single_negated_value_leaf(&info.conditions["A"]);
-        assert_gate_is_single_negated_value_leaf(&info.conditions["B"]);
+        assert_gate_is_complement_of_single_value_leaf(&info.conditions["A"]);
+        assert_gate_is_complement_of_single_value_leaf(&info.conditions["B"]);
     }
 
     #[test]
@@ -832,7 +827,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert!(info.conditions.contains_key("A"));
         assert!(info.conditions.contains_key("B"));
         assert_eq!(
@@ -883,17 +878,16 @@ mod tests {
                 .into(),
             ),
         ];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
 
-        // Per-rule gates were {!B=x} and {!C=y}; All-combined gives a
-        // single conjunction over both negated literals.
+        // {B absent or B!=x} and {C absent or C!=y}, distributed.
         let cond = &info.conditions["A"];
-        assert_eq!(cond.0.len(), 1, "expected one disjunct, got {cond:?}");
-        assert_eq!(cond.0[0].0.len(), 2);
-        let mut refs: Vec<&str> = cond.0[0].0.iter().map(Leaf::r#ref).collect();
-        refs.sort_unstable();
-        assert_eq!(refs, vec!["B", "C"]);
-        assert!(cond.0[0].0.iter().all(|l| matches!(l, Leaf::NotEquals(_))));
+        assert_eq!(cond.0.len(), 4, "expected four disjuncts, got {cond:?}");
+        for conj in cond {
+            let mut refs: Vec<&str> = conj.iter().map(Leaf::r#ref).collect();
+            refs.sort_unstable();
+            assert_eq!(refs, vec!["B", "C"]);
+        }
 
         assert_eq!(
             info.edges,
@@ -922,12 +916,12 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
-        assert_gate_is_single_negated_value_leaf(&info.conditions["A"]);
+        let info = collect_raw(&rules);
+        assert_gate_is_complement_of_single_value_leaf(&info.conditions["A"]);
     }
 
     #[test]
-    fn self_referential_gating_rejected() {
+    fn presence_beside_a_value_test_on_the_same_field_does_not_gate() {
         let rules = vec![rule(
             PredAll {
                 all: vec![
@@ -947,8 +941,9 @@ mod tests {
             }
             .into(),
         )];
-        let err = collect_raw(&rules).unwrap_err().to_string();
-        assert!(err.contains("anchor target"), "got: {err}");
+        let info = collect_raw(&rules);
+        assert!(info.conditions.is_empty(), "got: {:?}", info.conditions);
+        assert!(info.edges.is_empty(), "got: {:?}", info.edges);
     }
 
     #[test]
@@ -1002,13 +997,77 @@ mod tests {
             &aliases,
         )];
 
-        let info = PresenceDag::try_from_rules(&rules).unwrap();
-        assert!(info.conditions.contains_key("A"));
+        let info = PresenceDag::from_rules(&rules);
+        let b = |leaf: Leaf| Conjunction(vec![leaf]);
+        let expected = Dnf(vec![
+            b(Leaf::Present(LeafPresent {
+                r#ref: "B".into(),
+                scope: Scope::Current,
+                present: false,
+            })),
+            b(Leaf::Equals(LeafEquals {
+                r#ref: "B".into(),
+                scope: Scope::Current,
+                equals: json!("off"),
+            })),
+            b(Leaf::Equals(LeafEquals {
+                r#ref: "B".into(),
+                scope: Scope::Current,
+                equals: json!("b"),
+            })),
+        ]);
+        assert_eq!(info.conditions["A"], expected);
         assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
     }
 
     #[test]
-    fn self_reference_via_nested_clause_also_rejected() {
+    fn alias_guards_on_value_rules_do_not_gate() {
+        let alias = Transformation {
+            when: Some(
+                LeafEquals {
+                    r#ref: "A".into(),
+                    scope: Scope::Current,
+                    equals: json!("ab"),
+                }
+                .into(),
+            ),
+            apply: vec![
+                Assignment {
+                    r#ref: "A".into(),
+                    effect: AssignmentEffect::Set(json!("a")),
+                },
+                Assignment {
+                    r#ref: "B".into(),
+                    effect: AssignmentEffect::Set(json!("b")),
+                },
+            ],
+        };
+        let aliases: Vec<NormalizedTransformation> = Option::from(alias).into_iter().collect();
+        let not_in = |r: &str| -> Predicate {
+            PredNot {
+                not: Box::new(
+                    LeafIn {
+                        r#ref: r.into(),
+                        scope: Scope::Current,
+                        values: vec![json!("x")],
+                    }
+                    .into(),
+                ),
+            }
+            .into()
+        };
+        let rules = [
+            NormalizedRule::from_rule(&rule(not_in("A")), &aliases),
+            NormalizedRule::from_rule(&rule(not_in("B")), &aliases),
+        ];
+
+        let info = PresenceDag::from_rules(&rules);
+        assert!(info.conditions.is_empty(), "got: {:?}", info.conditions);
+        assert!(info.edges.is_empty(), "got: {:?}", info.edges);
+    }
+
+    #[test]
+    fn presence_beside_a_nested_value_test_on_the_same_field_does_not_gate() {
         let rules = vec![rule(
             PredAll {
                 all: vec![
@@ -1044,8 +1103,9 @@ mod tests {
             }
             .into(),
         )];
-        let err = collect_raw(&rules).unwrap_err().to_string();
-        assert!(err.contains("anchor target"), "got: {err}");
+        let info = collect_raw(&rules);
+        assert!(info.conditions.is_empty(), "got: {:?}", info.conditions);
+        assert!(info.edges.is_empty(), "got: {:?}", info.edges);
     }
 
     #[test]
@@ -1085,7 +1145,7 @@ mod tests {
             }
             .into(),
         )];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert_eq!(
             info.edges,
             [edge("B", "A"), edge("C", "A")].into_iter().collect()
@@ -1134,7 +1194,7 @@ mod tests {
                 .into(),
             ),
         ];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
     }
 
@@ -1180,7 +1240,7 @@ mod tests {
                 .into(),
             ),
         ];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         assert_eq!(info.edges.len(), 2);
 
         let nodes = vec!["A", "B"];
@@ -1238,7 +1298,7 @@ mod tests {
                 .into(),
             ),
         ];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         let nodes = vec!["C", "B", "A"];
         let edges: Vec<(&str, &str)> = info
             .edges
@@ -1340,7 +1400,7 @@ mod tests {
                 .into(),
             ),
         ];
-        let info = collect_raw(&rules).unwrap();
+        let info = collect_raw(&rules);
         let expected: BTreeSet<(String, String)> = [
             edge("film_simulation", "monochromatic_color_temperature"),
             edge("film_simulation", "monochromatic_color_tint"),

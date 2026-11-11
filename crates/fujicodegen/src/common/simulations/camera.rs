@@ -79,8 +79,7 @@ fn generate_one(
     let camera_struct_path = quote! { #cameras_path::#camera_struct_ident };
     let options_path = options::path();
 
-    let presence_info = PresenceDag::try_from_rules(&effective_rules)
-        .with_context(|| format!("extracting presence DAG for `{}`", camera.id))?;
+    let presence_info = PresenceDag::from_rules(&effective_rules);
 
     let nodes: Vec<&str> = simulation.settings.iter().map(|s| s.id.as_str()).collect();
     let edges: Vec<(&str, &str)> = presence_info
@@ -683,6 +682,7 @@ fn generate_try_pull(
                 let cond = generate_dnf(settings, dnf, Scopes::new(&staged_accessor))?;
                 quote! {
                     {
+                        #[allow(clippy::manual_is_variant_and)]
                         let present = #cond;
                         if present { #read_call } else { None }
                     }

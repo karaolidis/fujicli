@@ -3,7 +3,8 @@ use std::cmp::Ordering;
 use serde_json::Value;
 
 use crate::ast::{
-    Conjunction, Dnf, Leaf, PredAll, PredNot, Predicate, Rule, Severity, Transformation,
+    Conjunction, Dnf, Leaf, LeafPresent, PredAll, PredNot, Predicate, Rule, Severity,
+    Transformation,
 };
 
 #[derive(Clone, Debug)]
@@ -30,7 +31,7 @@ impl From<Transformation> for Option<NormalizedTransformation> {
 impl Dnf {
     #[must_use]
     pub fn transform(self, alias: &NormalizedTransformation) -> Self {
-        Self(self.into_iter().map(|c| c.transform(alias)).collect())
+        Self(self.into_iter().map(|c| c.transform(alias)).collect()).simplified()
     }
 }
 
@@ -57,19 +58,20 @@ pub struct NormalizedRule {
     pub severity: Severity,
     pub message: String,
     pub when: Dnf,
-    pub authored: Dnf,
+    /// `when` with alias guards reduced to value tests, so a guard never anchors a read gate.
+    pub gating: Dnf,
 }
 
 impl NormalizedRule {
     pub fn from_rule(rule: &Rule, aliases: &[NormalizedTransformation]) -> Self {
         let initial = Dnf::from(rule.when.clone());
         let substituted = aliases.iter().fold(initial, Dnf::transform);
-        let when = Self::exempt_alias_expansions(substituted.clone(), aliases, &rule.message);
+        let (when, gating) = Self::exempt_alias_expansions(substituted, aliases, &rule.message);
         Self {
             severity: rule.severity,
             message: rule.message.clone(),
             when,
-            authored: substituted,
+            gating,
         }
     }
 
@@ -78,7 +80,7 @@ impl NormalizedRule {
         Self {
             severity,
             message: message.to_owned(),
-            authored: when.clone(),
+            gating: when.clone(),
             when,
         }
     }
@@ -87,8 +89,9 @@ impl NormalizedRule {
         dnf: Dnf,
         aliases: &[NormalizedTransformation],
         message: &str,
-    ) -> Dnf {
-        let mut out: Vec<Conjunction> = Vec::new();
+    ) -> (Dnf, Dnf) {
+        let mut when: Vec<Conjunction> = Vec::new();
+        let mut gating: Vec<Conjunction> = Vec::new();
         for conjunction in dnf {
             let mut guards: Vec<&Conjunction> = Vec::new();
             for alias in aliases {
@@ -119,27 +122,49 @@ impl NormalizedRule {
             }
 
             if guards.is_empty() {
-                out.push(conjunction);
+                gating.push(conjunction.clone());
+                when.push(conjunction);
                 continue;
             }
 
-            let mut all: Vec<Predicate> =
-                conjunction.iter().cloned().map(Predicate::from).collect();
-            for expansion in guards {
-                let expansion_pred = PredAll {
-                    all: expansion.iter().cloned().map(Predicate::from).collect(),
-                };
-                all.push(
-                    PredNot {
-                        not: Box::new(expansion_pred.into()),
-                    }
-                    .into(),
-                );
-            }
-            out.extend(Dnf::from(Predicate::from(PredAll { all })));
+            when.extend(Self::guarded(&conjunction, &guards, true));
+            gating.extend(Self::guarded(&conjunction, &guards, false));
         }
-        Dnf(out)
+        (Dnf(when), Dnf(gating))
     }
+
+    /// The conjunction minus the exact alias states. With `classical`, each guard leaf carries the
+    /// presence it implies, so its negation also holds when the field is absent.
+    fn guarded(conjunction: &Conjunction, guards: &[&Conjunction], classical: bool) -> Dnf {
+        let all = conjunction
+            .iter()
+            .cloned()
+            .map(Predicate::from)
+            .chain(guards.iter().map(|expansion| {
+                let all = expansion
+                    .iter()
+                    .flat_map(|leaf| guard_leaf(leaf, classical))
+                    .collect();
+                PredNot {
+                    not: Box::new(PredAll { all }.into()),
+                }
+                .into()
+            }))
+            .collect();
+        Dnf::from(Predicate::from(PredAll { all }))
+    }
+}
+
+fn guard_leaf(leaf: &Leaf, classical: bool) -> Vec<Predicate> {
+    let presence = (classical && !matches!(leaf, Leaf::Present(_))).then(|| {
+        LeafPresent {
+            r#ref: leaf.r#ref().to_owned(),
+            scope: leaf.scope(),
+            present: true,
+        }
+        .into()
+    });
+    presence.into_iter().chain([leaf.clone().into()]).collect()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -746,14 +771,15 @@ mod tests {
         )];
         let out = normalize(&rules, vec![dr_plus_alias()]);
 
-        assert_eq!(out[0].when.0.len(), 2);
-        let flat: Vec<&Leaf> = out[0].when.0.iter().flat_map(|c| c.iter()).collect();
-        assert!(flat.contains(&&lne("dr", json!("hdr800"))));
-        assert!(flat.contains(&&lne("drp", json!("plus"))));
-        for conj in &out[0].when.0 {
-            assert!(conj.0.contains(&lp("dr", true)));
-            assert!(conj.0.contains(&lne("drp", json!("off"))));
-        }
+        let expected = Dnf(vec![
+            Conjunction(vec![lne("drp", json!("off")), lne("dr", json!("hdr800"))]),
+            Conjunction(vec![
+                lp("dr", true),
+                lne("drp", json!("off")),
+                lne("drp", json!("plus")),
+            ]),
+        ]);
+        assert_eq!(out[0].when, expected);
     }
 
     #[test]

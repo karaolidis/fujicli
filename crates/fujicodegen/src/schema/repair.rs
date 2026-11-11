@@ -207,7 +207,8 @@ fn generate_dnf_walk(
                 #( #steps )*
                 true
             };
-            if !all { *#accessor = snap; break #outer false; }
+            // Fixing one conjunction can make an earlier one hold.
+            if !all || ( #dnf_eval ) { *#accessor = snap; break #outer false; }
             break #outer true;
         }
     })
@@ -261,78 +262,51 @@ fn generate_leaf_attempt(
         None => quote! {},
     };
 
-    let Some((info, mutation)) = leaf_flip(settings, leaf, accessor, optional)? else {
+    let flips = leaf_flips(settings, leaf, optional)?;
+    if flips.is_empty() {
         return Ok(quote! {});
-    };
-    let field_ident = info.field_ident();
+    }
+    let field_ident = settings[leaf.r#ref()].field_ident();
     Ok(quote! {
         {
             if partial.#field_ident.is_none() {
                 let saved = #accessor.#field_ident.take();
-                #mutation
-                if !re_fires_other_ok(#accessor, ok, current #original_arg) {
-                    break #parent true;
-                }
+                #(
+                    #accessor.#field_ident = #flips;
+                    if !re_fires_other_ok(#accessor, ok, current #original_arg) {
+                        break #parent true;
+                    }
+                )*
                 #accessor.#field_ident = saved;
             }
         }
     })
 }
 
-fn leaf_flip<'a>(
-    settings: &'a BTreeMap<&str, SettingInfo<'a>>,
+/// The assignments that stop a leaf from holding: clearing an optional field, then the value a
+/// negated test names.
+fn leaf_flips(
+    settings: &BTreeMap<&str, SettingInfo<'_>>,
     leaf: &Leaf,
-    accessor: &TokenStream,
     optional: &BTreeSet<String>,
-) -> anyhow::Result<Option<(&'a SettingInfo<'a>, TokenStream)>> {
-    let r#ref = leaf.r#ref();
-    let info = &settings[r#ref];
-    let ident = info.field_ident();
-
-    let mutation = match leaf {
-        Leaf::Equals(_)
-        | Leaf::In(_)
-        | Leaf::Between(_)
-        | Leaf::LessThan(_)
-        | Leaf::LessThanOrEqual(_)
-        | Leaf::GreaterThan(_)
-        | Leaf::GreaterThanOrEqual(_) => {
-            if optional.contains(r#ref) {
-                quote! { #accessor.#ident = None; }
-            } else {
-                return Ok(None);
-            }
-        }
-        Leaf::Present(p) if p.present => {
-            if optional.contains(r#ref) {
-                quote! { #accessor.#ident = None; }
-            } else {
-                return Ok(None);
-            }
-        }
-        Leaf::NotEquals(l) => {
-            let value = generate_value_expr(info, &l.equals)?;
-            quote! { #accessor.#ident = Some(#value); }
-        }
-        Leaf::NotIn(l) => {
-            let Some(first) = l.values.first() else {
-                return Ok(None);
-            };
-            let value = generate_value_expr(info, first)?;
-            quote! { #accessor.#ident = Some(#value); }
-        }
-        Leaf::NotBetween(l) => {
-            let value = generate_value_expr(info, &l.min)?;
-            quote! { #accessor.#ident = Some(#value); }
-        }
-        Leaf::Present(_)
-        | Leaf::NotLessThan(_)
-        | Leaf::NotLessThanOrEqual(_)
-        | Leaf::NotGreaterThan(_)
-        | Leaf::NotGreaterThanOrEqual(_) => return Ok(None),
+) -> anyhow::Result<Vec<TokenStream>> {
+    let info = &settings[leaf.r#ref()];
+    let clearable =
+        optional.contains(leaf.r#ref()) && !matches!(leaf, Leaf::Present(p) if !p.present);
+    let named = match leaf {
+        Leaf::NotEquals(l) => Some(&l.equals),
+        Leaf::NotIn(l) => l.values.first(),
+        Leaf::NotBetween(l) => Some(&l.min),
+        _ => None,
     };
-
-    Ok(Some((info, mutation)))
+    let set = named
+        .map(|value| generate_value_expr(info, value).map(|v| quote! { Some(#v) }))
+        .transpose()?;
+    Ok(clearable
+        .then(|| quote! { None })
+        .into_iter()
+        .chain(set)
+        .collect())
 }
 
 fn walk_label(depth: usize) -> Lifetime {
@@ -515,13 +489,48 @@ mod tests {
             &rules,
             Scopes::new(&quote! { buf }),
             &quote! { Buf },
-            &opt(&["a", "b"]),
+            &opt(&["b"]),
         )
         .unwrap()
         .to_string();
         assert!(
             out.contains("buf . a = Some"),
             "expected NotEquals flip to set field, got: {out}"
+        );
+    }
+
+    #[test]
+    fn negated_value_walk_clears_an_optional_field_then_sets_the_named_value() {
+        let mut settings = BTreeMap::new();
+        settings.insert("a", integer_info("a"));
+        let rules = vec![nrule(
+            crate::ast::PredNot {
+                not: Box::new(
+                    LeafEquals {
+                        r#ref: "a".into(),
+                        scope: Scope::Current,
+                        equals: json!(1),
+                    }
+                    .into(),
+                ),
+            }
+            .into(),
+        )];
+        let out = generate_solve(
+            &settings,
+            &rules,
+            Scopes::new(&quote! { buf }),
+            &quote! { Buf },
+            &opt(&["a"]),
+        )
+        .unwrap()
+        .to_string();
+        let clear = out.find("buf . a = None").expect("clear attempt");
+        let set = out.find("buf . a = Some (1i32)").expect("set attempt");
+        assert!(clear < set, "got: {out}");
+        assert!(
+            out.contains("if ! all || (buf . a . is_some_and"),
+            "expected the rule to be rechecked after the walk, got: {out}"
         );
     }
 

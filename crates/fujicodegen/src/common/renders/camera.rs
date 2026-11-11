@@ -79,8 +79,7 @@ fn generate_one(
     let camera_struct_path = quote! { #cameras_path::#camera_struct_ident };
     let renders_path = renders::path();
 
-    let presence_info = PresenceDag::try_from_rules(&effective_rules)
-        .with_context(|| format!("extracting read DAG for `{}`", camera.id))?;
+    let presence_info = PresenceDag::from_rules(&effective_rules);
 
     let nodes: Vec<&str> = render.fields.iter().map(Field::id).collect();
     let edges: Vec<(&str, &str)> = presence_info
@@ -636,6 +635,7 @@ fn generate_convert_one(
         let cond = generate_dnf(settings, condition, Scopes::new(&staged_accessor))?;
         Ok(quote! {
             staged.#ident = {
+                #[allow(clippy::manual_is_variant_and)]
                 let present = #cond;
                 if present { Some(#value_expr) } else { None }
             };

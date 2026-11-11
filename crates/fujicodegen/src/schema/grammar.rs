@@ -77,6 +77,7 @@ impl OptionLike for Field {
 #[derive(Clone, Copy, Debug)]
 enum CompareOp {
     Eq,
+    Ne,
     Lt,
     Lte,
     Gt,
@@ -87,6 +88,7 @@ impl CompareOp {
     fn tokens(self) -> TokenStream {
         match self {
             Self::Eq => quote! { == },
+            Self::Ne => quote! { != },
             Self::Lt => quote! { < },
             Self::Lte => quote! { <= },
             Self::Gt => quote! { > },
@@ -159,139 +161,56 @@ pub fn build_settings<'a, F: OptionLike + 'a>(
     table
 }
 
+/// Predicates follow Kleene's three-valued logic: a value test on an absent field is unknown,
+/// and a predicate holds only when it is definitely true. Negations are pushed down to the
+/// leaves, so a negated value test still requires its field to be present.
 pub fn generate_predicate(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     pred: &Predicate,
     scopes: Scopes<'_>,
 ) -> anyhow::Result<TokenStream> {
-    Ok(match pred {
+    generate_polarized(settings, pred, scopes, true)
+}
+
+fn generate_polarized(
+    settings: &BTreeMap<&str, SettingInfo<'_>>,
+    pred: &Predicate,
+    scopes: Scopes<'_>,
+    positive: bool,
+) -> anyhow::Result<TokenStream> {
+    match pred {
         Predicate::Bool(b) => {
-            if *b {
-                quote! { true }
-            } else {
-                quote! { false }
-            }
+            let b = *b == positive;
+            Ok(quote! { #b })
         }
-        Predicate::All(p) => {
-            if p.all.is_empty() {
-                quote! { true }
-            } else if p.all.len() == 1 {
-                generate_predicate(settings, &p.all[0], scopes)?
-            } else {
-                let parts = p
-                    .all
-                    .iter()
-                    .map(|c| generate_predicate(settings, c, scopes))
-                    .collect::<anyhow::Result<Vec<_>>>()?;
-                quote! { #( ( #parts ) )&&* }
-            }
+        Predicate::All(p) => generate_junction(settings, &p.all, scopes, positive, positive),
+        Predicate::Any(p) => generate_junction(settings, &p.any, scopes, positive, !positive),
+        Predicate::Not(p) => generate_polarized(settings, &p.not, scopes, !positive),
+        leaf => {
+            let leaf = Leaf::try_from(leaf.clone())?;
+            let leaf = if positive { leaf } else { leaf.negated() };
+            generate_leaf(settings, &leaf, scopes)
         }
-        Predicate::Any(p) => {
-            if p.any.is_empty() {
-                quote! { false }
-            } else if p.any.len() == 1 {
-                generate_predicate(settings, &p.any[0], scopes)?
-            } else {
-                let parts = p
-                    .any
-                    .iter()
-                    .map(|c| generate_predicate(settings, c, scopes))
-                    .collect::<anyhow::Result<Vec<_>>>()?;
-                quote! { #( ( #parts ) )||* }
-            }
-        }
-        Predicate::Not(p) => {
-            let inner = generate_predicate(settings, &p.not, scopes)?;
-            quote! { !( #inner ) }
-        }
-        Predicate::Present(p) => {
-            let info = &settings[p.r#ref.as_str()];
-            let field = info.field_ident();
-            let accessor = scopes.pick(p.scope);
-            if p.present {
-                quote! { #accessor.#field.is_some() }
-            } else {
-                quote! { #accessor.#field.is_none() }
-            }
-        }
-        Predicate::Equals(p) => {
-            let info = &settings[p.r#ref.as_str()];
-            generate_compare(info, scopes.pick(p.scope), &p.equals, CompareOp::Eq)?
-        }
-        Predicate::In(p) => {
-            let info = &settings[p.r#ref.as_str()];
-            let field = info.field_ident();
-            let accessor = scopes.pick(p.scope);
-            let arms = p
-                .values
-                .iter()
-                .map(|v| generate_value_expr(info, v))
-                .collect::<anyhow::Result<Vec<_>>>()?;
-            match info.kind {
-                SpecKind::Enum => {
-                    quote! { #accessor.#field.is_some_and(|v| matches!(v, #( #arms )|*)) }
-                }
-                SpecKind::Integer => {
-                    let v_expr = info.int(&quote! { v });
-                    quote! { #accessor.#field.is_some_and(|v| matches!(#v_expr, #( #arms )|*)) }
-                }
-                SpecKind::Float => {
-                    quote! {
-                        #accessor.#field.is_some_and(|v| {
-                            let v = f32::from(v);
-                            #( (v - (#arms)).abs() < f32::EPSILON )||*
-                        })
-                    }
-                }
-                SpecKind::String => {
-                    quote! { #accessor.#field.as_deref().is_some_and(|v| matches!(v, #( #arms )|*)) }
-                }
-            }
-        }
-        Predicate::Between(p) => {
-            let info = &settings[p.r#ref.as_str()];
-            let field = info.field_ident();
-            let accessor = scopes.pick(p.scope);
-            let lo = generate_value_expr(info, &p.min)?;
-            let hi = generate_value_expr(info, &p.max)?;
-            match info.kind {
-                SpecKind::Integer => {
-                    let v_expr = info.int(&quote! { v });
-                    quote! { #accessor.#field.is_some_and(|v| ( (#lo) ..= (#hi) ).contains(&#v_expr)) }
-                }
-                SpecKind::Float => {
-                    quote! { #accessor.#field.is_some_and(|v| ( (#lo) ..= (#hi) ).contains(&f32::from(v))) }
-                }
-                other => bail!(
-                    "`between` predicate on non-numeric setting `{}` ({other:?})",
-                    p.r#ref
-                ),
-            }
-        }
-        Predicate::LessThan(p) => generate_compare(
-            &settings[p.r#ref.as_str()],
-            scopes.pick(p.scope),
-            &p.lt,
-            CompareOp::Lt,
-        )?,
-        Predicate::LessThanOrEqual(p) => generate_compare(
-            &settings[p.r#ref.as_str()],
-            scopes.pick(p.scope),
-            &p.lte,
-            CompareOp::Lte,
-        )?,
-        Predicate::GreaterThan(p) => generate_compare(
-            &settings[p.r#ref.as_str()],
-            scopes.pick(p.scope),
-            &p.gt,
-            CompareOp::Gt,
-        )?,
-        Predicate::GreaterThanOrEqual(p) => generate_compare(
-            &settings[p.r#ref.as_str()],
-            scopes.pick(p.scope),
-            &p.gte,
-            CompareOp::Gte,
-        )?,
+    }
+}
+
+fn generate_junction(
+    settings: &BTreeMap<&str, SettingInfo<'_>>,
+    preds: &[Predicate],
+    scopes: Scopes<'_>,
+    positive: bool,
+    conjunctive: bool,
+) -> anyhow::Result<TokenStream> {
+    let mut parts = preds
+        .iter()
+        .map(|p| generate_polarized(settings, p, scopes, positive))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(match (parts.len(), conjunctive) {
+        (0, true) => quote! { true },
+        (0, false) => quote! { false },
+        (1, _) => parts.pop().expect("parts has exactly one element"),
+        (_, true) => quote! { #( ( #parts ) )&&* },
+        (_, false) => quote! { #( ( #parts ) )||* },
     })
 }
 
@@ -475,8 +394,46 @@ pub fn generate_leaf(
     leaf: &Leaf,
     scopes: Scopes<'_>,
 ) -> anyhow::Result<TokenStream> {
-    let pred: Predicate = leaf.clone().into();
-    generate_predicate(settings, &pred, scopes)
+    let info = &settings[leaf.r#ref()];
+    let field = info.field_ident();
+    let accessor = scopes.pick(leaf.scope());
+
+    let (test, negated) = match leaf {
+        Leaf::Present(p) => {
+            return Ok(if p.present {
+                quote! { #accessor.#field.is_some() }
+            } else {
+                quote! { #accessor.#field.is_none() }
+            });
+        }
+        Leaf::Equals(l) => (generate_compare(info, &l.equals, CompareOp::Eq)?, false),
+        Leaf::NotEquals(l) => (generate_compare(info, &l.equals, CompareOp::Ne)?, false),
+        Leaf::In(l) if l.values.is_empty() => return Ok(quote! { false }),
+        Leaf::NotIn(l) if l.values.is_empty() => return Ok(quote! { #accessor.#field.is_some() }),
+        Leaf::In(l) => (generate_membership(info, &l.values)?, false),
+        Leaf::NotIn(l) => (generate_membership(info, &l.values)?, true),
+        Leaf::Between(l) => (generate_range(info, &l.min, &l.max)?, false),
+        Leaf::NotBetween(l) => (generate_range(info, &l.min, &l.max)?, true),
+        Leaf::LessThan(l) => (generate_compare(info, &l.lt, CompareOp::Lt)?, false),
+        Leaf::NotLessThan(l) => (generate_compare(info, &l.lt, CompareOp::Gte)?, false),
+        Leaf::LessThanOrEqual(l) => (generate_compare(info, &l.lte, CompareOp::Lte)?, false),
+        Leaf::NotLessThanOrEqual(l) => (generate_compare(info, &l.lte, CompareOp::Gt)?, false),
+        Leaf::GreaterThan(l) => (generate_compare(info, &l.gt, CompareOp::Gt)?, false),
+        Leaf::NotGreaterThan(l) => (generate_compare(info, &l.gt, CompareOp::Lte)?, false),
+        Leaf::GreaterThanOrEqual(l) => (generate_compare(info, &l.gte, CompareOp::Gte)?, false),
+        Leaf::NotGreaterThanOrEqual(l) => (generate_compare(info, &l.gte, CompareOp::Lt)?, false),
+    };
+
+    let test = if negated {
+        quote! { !( #test ) }
+    } else {
+        test
+    };
+    Ok(if info.kind == SpecKind::String {
+        quote! { #accessor.#field.as_deref().is_some_and(|v| #test) }
+    } else {
+        quote! { #accessor.#field.is_some_and(|v| #test) }
+    })
 }
 
 pub fn generate_value_expr(info: &SettingInfo<'_>, value: &Value) -> anyhow::Result<TokenStream> {
@@ -515,45 +472,71 @@ pub fn generate_value_expr(info: &SettingInfo<'_>, value: &Value) -> anyhow::Res
 
 fn generate_compare(
     info: &SettingInfo<'_>,
-    accessor: &TokenStream,
     value: &Value,
     op: CompareOp,
 ) -> anyhow::Result<TokenStream> {
-    let field = info.field_ident();
     let value_expr = generate_value_expr(info, value)?;
 
-    Ok(match info.kind {
-        SpecKind::Enum => match op {
-            CompareOp::Eq => quote! { #accessor.#field.is_some_and(|v| v == #value_expr) },
-            _ => bail!(
-                "ordered comparison ({op:?}) on enum setting `{}` is not supported",
-                info.id
-            ),
-        },
-        SpecKind::Integer => {
+    Ok(match (info.kind, op) {
+        (SpecKind::Enum | SpecKind::String, CompareOp::Eq) => quote! { v == #value_expr },
+        (SpecKind::Enum | SpecKind::String, CompareOp::Ne) => quote! { v != #value_expr },
+        (SpecKind::Enum | SpecKind::String, _) => bail!(
+            "ordered comparison ({op:?}) on non-numeric setting `{}` is not supported",
+            info.id
+        ),
+        (SpecKind::Integer, _) => {
             let op_tok = op.tokens();
             let v_expr = info.int(&quote! { v });
-            quote! { #accessor.#field.is_some_and(|v| #v_expr #op_tok (#value_expr)) }
+            quote! { #v_expr #op_tok (#value_expr) }
         }
-        SpecKind::Float => {
-            if matches!(op, CompareOp::Eq) {
-                quote! {
-                    #accessor.#field.is_some_and(|v| (f32::from(v) - (#value_expr)).abs() < f32::EPSILON)
-                }
-            } else {
-                let op_tok = op.tokens();
-                quote! { #accessor.#field.is_some_and(|v| f32::from(v) #op_tok (#value_expr)) }
-            }
+        (SpecKind::Float, CompareOp::Eq) => {
+            quote! { (f32::from(v) - (#value_expr)).abs() < f32::EPSILON }
         }
-        SpecKind::String => match op {
-            CompareOp::Eq => {
-                quote! { #accessor.#field.as_deref().is_some_and(|v| v == #value_expr) }
+        (SpecKind::Float, CompareOp::Ne) => {
+            quote! { (f32::from(v) - (#value_expr)).abs() >= f32::EPSILON }
+        }
+        (SpecKind::Float, _) => {
+            let op_tok = op.tokens();
+            quote! { f32::from(v) #op_tok (#value_expr) }
+        }
+    })
+}
+
+fn generate_membership(info: &SettingInfo<'_>, values: &[Value]) -> anyhow::Result<TokenStream> {
+    let arms = values
+        .iter()
+        .map(|v| generate_value_expr(info, v))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    Ok(match info.kind {
+        SpecKind::Enum | SpecKind::String => quote! { matches!(v, #( #arms )|*) },
+        SpecKind::Integer => {
+            let v_expr = info.int(&quote! { v });
+            quote! { matches!(#v_expr, #( #arms )|*) }
+        }
+        SpecKind::Float => quote! {
+            {
+                let v = f32::from(v);
+                #( (v - (#arms)).abs() < f32::EPSILON )||*
             }
-            _ => bail!(
-                "ordered comparison ({op:?}) on string setting `{}` is not supported",
-                info.id
-            ),
         },
+    })
+}
+
+fn generate_range(info: &SettingInfo<'_>, min: &Value, max: &Value) -> anyhow::Result<TokenStream> {
+    let lo = generate_value_expr(info, min)?;
+    let hi = generate_value_expr(info, max)?;
+
+    Ok(match info.kind {
+        SpecKind::Integer => {
+            let v_expr = info.int(&quote! { v });
+            quote! { ( (#lo) ..= (#hi) ).contains(&#v_expr) }
+        }
+        SpecKind::Float => quote! { ( (#lo) ..= (#hi) ).contains(&f32::from(v)) },
+        other => bail!(
+            "`between` predicate on non-numeric setting `{}` ({other:?})",
+            info.id
+        ),
     })
 }
 
@@ -562,7 +545,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::ast::{LeafEquals, Scope};
+    use crate::ast::{
+        Assignment, AssignmentEffect, LeafBetween, LeafEquals, LeafIn, PredAll, PredNot, Scope,
+        Transformation,
+    };
 
     fn integer_info(id: &'static str) -> SettingInfo<'static> {
         SettingInfo {
@@ -615,5 +601,94 @@ mod tests {
         .unwrap()
         .to_string();
         assert!(out.contains("original . x"), "got: {out}");
+    }
+
+    #[test]
+    fn negated_value_test_requires_presence() {
+        let current = quote! { self };
+        let pred = PredNot {
+            not: Box::new(eq_leaf(Scope::Current)),
+        }
+        .into();
+        let out = generate_predicate(&settings(), &pred, Scopes::new(&current))
+            .unwrap()
+            .to_string();
+        assert_eq!(out, "self . x . is_some_and (| v | v != (1i32))");
+    }
+
+    #[test]
+    fn negation_is_pushed_through_junctions() {
+        let current = quote! { self };
+        let pred = PredNot {
+            not: Box::new(
+                PredAll {
+                    all: vec![eq_leaf(Scope::Current), Predicate::Bool(true)],
+                }
+                .into(),
+            ),
+        }
+        .into();
+        let out = generate_predicate(&settings(), &pred, Scopes::new(&current))
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            out,
+            "(self . x . is_some_and (| v | v != (1i32))) || (false)"
+        );
+    }
+
+    fn leaf_tokens(leaf: &Leaf) -> String {
+        let current = quote! { self };
+        generate_leaf(&settings(), leaf, Scopes::new(&current))
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn negated_range_requires_presence() {
+        let out = leaf_tokens(&Leaf::NotBetween(LeafBetween {
+            r#ref: "x".into(),
+            scope: Scope::Current,
+            min: json!(1),
+            max: json!(2),
+        }));
+        assert_eq!(
+            out,
+            "self . x . is_some_and (| v | ! (((1i32) ..= (2i32)) . contains (& v)))"
+        );
+    }
+
+    #[test]
+    fn empty_membership_needs_no_value() {
+        let empty = LeafIn {
+            r#ref: "x".into(),
+            scope: Scope::Current,
+            values: vec![],
+        };
+        assert_eq!(leaf_tokens(&Leaf::In(empty.clone())), "false");
+        assert_eq!(leaf_tokens(&Leaf::NotIn(empty)), "self . x . is_some ()");
+    }
+
+    #[test]
+    fn negated_transformation_condition_skips_absent_fields() {
+        let transformation = Transformation {
+            when: Some(
+                PredNot {
+                    not: Box::new(eq_leaf(Scope::Current)),
+                }
+                .into(),
+            ),
+            apply: vec![Assignment {
+                r#ref: "x".into(),
+                effect: AssignmentEffect::Set(json!(2)),
+            }],
+        };
+        let out = generate_transformation(&settings(), &transformation, &quote! { buf })
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            out,
+            "if buf . x . is_some_and (| v | v != (1i32)) { buf . x = Some (2i32) ; }"
+        );
     }
 }

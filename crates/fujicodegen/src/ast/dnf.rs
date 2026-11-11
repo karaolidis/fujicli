@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap, HashSet},
     hash::{Hash, Hasher},
     ops::{Deref, DerefMut},
     slice::Iter,
@@ -158,6 +158,70 @@ impl From<Leaf> for Predicate {
 pub struct Conjunction(pub Vec<Leaf>);
 
 impl Conjunction {
+    /// Drops each `present: true` beside a value test on the same field, moving the first such test
+    /// into its position. `None` if the conjunction contradicts itself.
+    fn simplified(self) -> Option<Self> {
+        fn key(l: &Leaf) -> (&str, Scope) {
+            (l.r#ref(), l.scope())
+        }
+        const fn presence(l: &Leaf) -> Option<bool> {
+            match l {
+                Leaf::Present(p) => Some(p.present),
+                _ => None,
+            }
+        }
+
+        if self.iter().all(|l| presence(l).is_none()) {
+            return Some(self);
+        }
+
+        let tested: HashSet<_> = self
+            .iter()
+            .filter(|l| presence(l).is_none())
+            .map(key)
+            .collect();
+        let required: HashSet<_> = self
+            .iter()
+            .filter(|l| presence(l) == Some(true))
+            .map(key)
+            .collect();
+        let contradicted = self
+            .iter()
+            .filter(|l| presence(l) == Some(false))
+            .map(key)
+            .any(|k| tested.contains(&k) || required.contains(&k));
+        if contradicted {
+            return None;
+        }
+
+        let mut first_test: HashMap<_, usize> = HashMap::new();
+        for (i, l) in self.iter().enumerate() {
+            if presence(l).is_none() && required.contains(&key(l)) {
+                first_test.entry(key(l)).or_insert(i);
+            }
+        }
+        if first_test.is_empty() {
+            return Some(self);
+        }
+
+        let mut placed = HashSet::new();
+        let mut out = Vec::with_capacity(self.len());
+        for (i, l) in self.iter().enumerate() {
+            let k = key(l);
+            let Some(&j) = first_test.get(&k) else {
+                out.push(l.clone());
+                continue;
+            };
+            if placed.insert(k) {
+                out.push(self[j].clone());
+            }
+            if i != j && presence(l).is_none() {
+                out.push(l.clone());
+            }
+        }
+        Some(Self(out))
+    }
+
     pub fn refs(&self, out: &mut BTreeSet<String>) {
         self.iter().for_each(|leaf| {
             out.insert(leaf.r#ref().to_string());
@@ -219,6 +283,17 @@ pub struct Dnf(pub Vec<Conjunction>);
 
 impl Dnf {
     #[must_use]
+    pub(crate) fn simplified(self) -> Self {
+        let mut seen = HashSet::new();
+        Self(
+            self.into_iter()
+                .filter_map(Conjunction::simplified)
+                .filter(|c| seen.insert(c.clone()))
+                .collect(),
+        )
+    }
+
+    #[must_use]
     pub fn is_tautology(&self) -> bool {
         self.iter().any(|c| c.is_empty())
     }
@@ -279,7 +354,7 @@ impl Hash for Dnf {
 
 impl From<Predicate> for Dnf {
     fn from(p: Predicate) -> Self {
-        Self(p.into_disjuncts())
+        Self(p.into_disjuncts()).simplified()
     }
 }
 
@@ -552,6 +627,74 @@ mod tests {
             assert_eq!(c.len(), 2);
             assert!(c.iter().any(|l| *l == lp("A", true)));
         }
+    }
+
+    #[test]
+    fn presence_beside_a_value_test_is_redundant() {
+        let c = Conjunction(vec![lp("x", true), lp("y", true), le("x", json!(1))]);
+        assert_eq!(
+            c.simplified().map(|c| c.0),
+            Some(vec![le("x", json!(1)), lp("y", true)])
+        );
+    }
+
+    #[test]
+    fn absence_beside_a_value_test_is_a_contradiction() {
+        let c = Conjunction(vec![lp("x", false), le("x", json!(1)).negated()]);
+        assert_eq!(c.simplified(), None);
+        let c = Conjunction(vec![lp("x", false), lp("x", true)]);
+        assert_eq!(c.simplified(), None);
+    }
+
+    #[test]
+    fn every_test_on_a_required_field_is_kept() {
+        let ne = le("x", json!(2)).negated();
+        let c = Conjunction(vec![
+            le("x", json!(1)),
+            lp("x", true),
+            lp("x", true),
+            ne.clone(),
+        ]);
+        assert_eq!(
+            c.simplified().map(|c| c.0),
+            Some(vec![le("x", json!(1)), ne])
+        );
+    }
+
+    #[test]
+    fn negated_test_absorbs_presence_through_dnf() {
+        let dnf = Dnf::from(Predicate::from(PredAll {
+            all: vec![
+                lp("x", true).into(),
+                PredNot {
+                    not: Box::new(le("x", json!(1)).into()),
+                }
+                .into(),
+            ],
+        }));
+        assert_eq!(
+            dnf,
+            Dnf(vec![Conjunction(vec![le("x", json!(1)).negated()])])
+        );
+    }
+
+    #[test]
+    fn duplicate_conjunctions_are_dropped() {
+        let dnf = Dnf::from(Predicate::from(PredAny {
+            any: vec![le("x", json!(1)).into(), le("x", json!(1)).into()],
+        }));
+        assert_eq!(dnf.len(), 1);
+    }
+
+    #[test]
+    fn presence_in_another_scope_is_kept() {
+        let original = Leaf::Equals(LeafEquals {
+            r#ref: "x".into(),
+            scope: Scope::Original,
+            equals: json!(1),
+        });
+        let c = Conjunction(vec![lp("x", true), original]);
+        assert_eq!(c.clone().simplified(), Some(c));
     }
 
     #[test]
