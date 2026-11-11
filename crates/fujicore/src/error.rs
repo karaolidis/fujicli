@@ -6,7 +6,7 @@ use crate::{
     UsbId,
     features::{image::ImageError, simulation::SimulationError},
     input::OptionError,
-    ptp::{DevicePropCode, PtpError},
+    ptp::{DevicePropCode, PtpError, transport::TransportError},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -53,9 +53,6 @@ pub enum CoreError {
     Ptp(#[from] PtpError),
 
     #[error(transparent)]
-    Usb(#[from] rusb::Error),
-
-    #[error(transparent)]
     Option(#[from] OptionError),
 
     #[error(transparent)]
@@ -73,8 +70,14 @@ impl CoreError {
     pub const fn is_disconnect(&self) -> bool {
         matches!(
             self,
-            Self::Usb(_) | Self::NoImagingInterface | Self::Ptp(PtpError::Transport(_))
+            Self::NoImagingInterface | Self::Ptp(PtpError::Transport(_))
         )
+    }
+}
+
+impl From<TransportError> for CoreError {
+    fn from(err: TransportError) -> Self {
+        Self::Ptp(PtpError::Transport(err))
     }
 }
 

@@ -101,7 +101,8 @@ The camera appears as a PTP device on USB.
 .Nm
 claims its interface, opens a PTP session, and exchanges command, data and
 response containers over the bulk endpoints.
-Large transfers are split into chunks of the camera's
+On Windows it instead goes through the stock MTP driver.
+Large transfers are split into chunks of at most the camera's
 .Va chunk_size .
 Most of what follows uses Fujifilm's vendor extensions to PTP: vendor device
 properties, and vendor operations for sending objects.

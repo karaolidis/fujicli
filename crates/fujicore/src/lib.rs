@@ -96,10 +96,12 @@ impl SupportedCamera {
 }
 
 impl Camera {
+    #[must_use]
     pub fn name(&self) -> &'static str {
         self.r#impl.camera_definition().name
     }
 
+    #[must_use]
     pub fn usb_id(&self) -> UsbId {
         self.r#impl.camera_definition().usb_id
     }

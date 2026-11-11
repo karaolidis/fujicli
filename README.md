@@ -39,7 +39,7 @@ or add the flake's `overlays.default` and install the `fujicli` package, which
 includes the manual pages.
 
 From source, you need Rust (edition 2024), [CUE](https://cuelang.org/) on
-`PATH`, and the `libusb-1.0` headers:
+`PATH`, and, except on Windows, the `libusb-1.0` headers:
 
 ```sh
 cargo build --release
@@ -57,8 +57,7 @@ Fujifilm's vendor ID:
 SUBSYSTEM=="usb", ATTRS{idVendor}=="04cb", MODE="0666"
 ```
 
-On Windows, replace the camera's driver with WinUSB using
-[Zadig](https://zadig.akeo.ie/). macOS needs no setup.
+Windows and macOS should need no setup.
 
 ## Documentation
 

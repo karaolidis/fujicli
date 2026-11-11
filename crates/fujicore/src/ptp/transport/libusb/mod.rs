@@ -10,7 +10,7 @@ use crate::{
     usb::FUJIFILM_VENDOR_ID,
 };
 
-use super::SESSION;
+const SESSION: u32 = 1;
 
 pub struct Device {
     inner: rusb::Device<GlobalContext>,

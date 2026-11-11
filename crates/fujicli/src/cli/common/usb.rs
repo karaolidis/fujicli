@@ -10,7 +10,7 @@ pub fn get_device_by_serial(serial: &str) -> anyhow::Result<Device> {
     transport::devices()
         .context("enumerating USB devices")?
         .into_iter()
-        .find(|d| d.serial() == Some(serial))
+        .find(|d| d.serial().is_some_and(|s| s.eq_ignore_ascii_case(serial)))
         .ok_or_else(|| anyhow!("no camera found with serial number {serial}"))
 }
 

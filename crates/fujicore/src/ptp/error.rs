@@ -2,7 +2,7 @@ use std::io;
 
 use thiserror::Error;
 
-use crate::ptp::ResponseCode;
+use crate::ptp::{ResponseCode, transport::TransportError};
 
 #[derive(Debug, Error)]
 pub enum PtpError {
@@ -16,7 +16,7 @@ pub enum PtpError {
     Malformed(String),
 
     #[error(transparent)]
-    Transport(#[from] rusb::Error),
+    Transport(#[from] TransportError),
 
     #[error(transparent)]
     Io(io::Error),
