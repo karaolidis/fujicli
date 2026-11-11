@@ -101,13 +101,8 @@ Log more to standard error.
 Repeat to increase verbosity: once for info, twice for debug, three times for
 trace.
 By default only warnings and errors are logged.
-.It Fl d Ar bus . Ns Ar address , Fl -device Ar bus . Ns Ar address
-Use the USB device at
-.Ar bus
-and
-.Ar address ,
-given in decimal, for example
-.Ql 3.14 .
+.It Fl d Ar serial , Fl -device Ar serial
+Use the camera with the given USB serial number.
 .Cm device list
 prints these.
 .It Fl -emulate Ar vendor : Ns Ar product
@@ -129,7 +124,7 @@ Each command and subcommand has a one-letter alias, given in parentheses.
 .Ss device (d)
 .Bl -tag -width Ds
 .It Cm device list Pq Cm l
-List connected supported cameras, with their name, USB ID and bus address.
+List connected supported cameras, with their name, USB ID and serial number.
 Ignores
 .Fl -device
 and

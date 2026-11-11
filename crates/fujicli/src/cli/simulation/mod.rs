@@ -65,7 +65,7 @@ fn handle_list(options: GlobalOptions) -> anyhow::Result<()> {
         ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(device.as_deref(), emulate)?;
 
     let slot_list = camera
         .custom_settings_slots()
@@ -105,7 +105,7 @@ fn handle_get(options: GlobalOptions, slot: CustomSetting) -> anyhow::Result<()>
         ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(device.as_deref(), emulate)?;
 
     let simulation = camera
         .get_simulation(slot)
@@ -133,7 +133,7 @@ fn handle_set(
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(device.as_deref(), emulate)?;
     let partial: SimulationBase = simulation.into();
     camera
         .update_simulation(slot, partial)
@@ -151,7 +151,7 @@ fn handle_export(
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(device.as_deref(), emulate)?;
 
     let simulation = camera
         .get_simulation(slot)
@@ -173,7 +173,7 @@ fn handle_import(options: GlobalOptions, slot: CustomSetting, input: Input) -> a
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(device.as_deref(), emulate)?;
 
     let mut reader = input.get_reader()?;
     let mut buffer = Vec::new();

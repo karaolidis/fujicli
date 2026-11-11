@@ -3,6 +3,8 @@ use std::{fmt, num::ParseIntError, str::FromStr};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub const FUJIFILM_VENDOR_ID: u16 = 0x04cb;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct UsbId {
     pub vendor: u16,

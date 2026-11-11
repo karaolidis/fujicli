@@ -12,8 +12,6 @@ use device::DeviceCmd;
 use image::ImageCmd;
 use simulation::SimulationCmd;
 
-use crate::cli::common::usb::Location;
-
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None, author)]
 pub struct Cli {
@@ -35,9 +33,9 @@ pub struct GlobalOptions {
     #[arg(long, short = 'v', action = ArgAction::Count, global = true)]
     pub verbose: u8,
 
-    /// Manually specify target device using USB <BUS>.<ADDRESS>
-    #[arg(long, short = 'd', global = true)]
-    pub device: Option<Location>,
+    /// Manually specify target device using its serial number
+    #[arg(long, short = 'd', global = true, value_name = "SERIAL")]
+    pub device: Option<String>,
 
     #[allow(clippy::doc_markdown)]
     /// Treat device as a different model using <VENDOR_ID>:<PRODUCT_ID>

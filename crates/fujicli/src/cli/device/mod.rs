@@ -58,7 +58,7 @@ fn handle_info(options: GlobalOptions) -> anyhow::Result<()> {
         ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(device.as_deref(), emulate)?;
 
     let repr = camera.get_info().context("fetching camera info")?;
 

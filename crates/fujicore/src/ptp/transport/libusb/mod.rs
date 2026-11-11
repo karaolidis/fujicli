@@ -7,6 +7,7 @@ use rusb::{GlobalContext, constants::LIBUSB_CLASS_IMAGE};
 use crate::{
     CoreError, CoreResult, UsbId,
     ptp::{CommandCode, ContainerCode, ContainerInfo, ContainerType, PtpError, ResponseCode},
+    usb::FUJIFILM_VENDOR_ID,
 };
 
 use super::SESSION;
@@ -14,6 +15,7 @@ use super::SESSION;
 pub struct Device {
     inner: rusb::Device<GlobalContext>,
     usb_id: UsbId,
+    serial: Option<String>,
 }
 
 pub fn devices() -> CoreResult<Vec<Device>> {
@@ -26,14 +28,31 @@ pub fn devices() -> CoreResult<Vec<Device>> {
             product: descriptor.product_id(),
         };
 
-        trace!("Found USB device {device:x?} ({usb_id})");
+        if usb_id.vendor != FUJIFILM_VENDOR_ID {
+            continue;
+        }
+
+        let serial = read_serial(&device, &descriptor);
+        trace!("Found USB device {device:x?} ({usb_id}, serial {serial:?})");
         devices.push(Device {
             inner: device,
             usb_id,
+            serial,
         });
     }
 
     Ok(devices)
+}
+
+fn read_serial(
+    device: &rusb::Device<GlobalContext>,
+    descriptor: &rusb::DeviceDescriptor,
+) -> Option<String> {
+    device
+        .open()
+        .and_then(|handle| handle.read_serial_number_string_ascii(descriptor))
+        .inspect_err(|e| debug!("Could not read serial number of {device:x?}: {e}"))
+        .ok()
 }
 
 impl Device {
@@ -43,13 +62,8 @@ impl Device {
     }
 
     #[must_use]
-    pub fn bus(&self) -> u8 {
-        self.inner.bus_number()
-    }
-
-    #[must_use]
-    pub fn address(&self) -> u8 {
-        self.inner.address()
+    pub fn serial(&self) -> Option<&str> {
+        self.serial.as_deref()
     }
 
     pub fn open(&self, chunk_size: usize) -> CoreResult<Transport> {

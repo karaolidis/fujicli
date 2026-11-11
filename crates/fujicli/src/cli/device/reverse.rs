@@ -52,8 +52,8 @@ macro_rules! try_call {
 fn handle_backup_export(options: GlobalOptions, output: Output) -> anyhow::Result<()> {
     let GlobalOptions { device, .. } = options;
 
-    let location = device.ok_or_else(|| anyhow!("Device must be specified for backup export"))?;
-    let usb = usb::get_device_by_location(location)?;
+    let serial = device.ok_or_else(|| anyhow!("Device must be specified for backup export"))?;
+    let usb = usb::get_device_by_serial(&serial)?;
     let mut camera = Camera::open_unknown(&usb).context("opening device as unknown camera")?;
 
     try_call!(camera.ptp.read(
@@ -77,8 +77,8 @@ fn handle_backup_export(options: GlobalOptions, output: Output) -> anyhow::Resul
 fn handle_backup_import(options: GlobalOptions, input: Input) -> anyhow::Result<()> {
     let GlobalOptions { device, .. } = options;
 
-    let location = device.ok_or_else(|| anyhow!("Device must be specified for backup import"))?;
-    let usb = usb::get_device_by_location(location)?;
+    let serial = device.ok_or_else(|| anyhow!("Device must be specified for backup import"))?;
+    let usb = usb::get_device_by_serial(&serial)?;
     let mut camera = Camera::open_unknown(&usb).context("opening device as unknown camera")?;
 
     let mut reader = input.get_reader()?;
@@ -110,8 +110,8 @@ fn handle_backup_import(options: GlobalOptions, input: Input) -> anyhow::Result<
 fn handle_info(options: GlobalOptions) -> anyhow::Result<()> {
     let GlobalOptions { device, .. } = options;
 
-    let location = device.ok_or_else(|| anyhow!("Device must be specified for info dump"))?;
-    let usb = usb::get_device_by_location(location)?;
+    let serial = device.ok_or_else(|| anyhow!("Device must be specified for info dump"))?;
+    let usb = usb::get_device_by_serial(&serial)?;
     let mut camera = Camera::open_unknown(&usb).context("opening device as unknown camera")?;
 
     let _ = try_call!(camera.ptp.get_info());
@@ -125,9 +125,9 @@ fn handle_info(options: GlobalOptions) -> anyhow::Result<()> {
 fn handle_simulation(options: GlobalOptions) -> anyhow::Result<()> {
     let GlobalOptions { device, .. } = options;
 
-    let location =
+    let serial =
         device.ok_or_else(|| anyhow!("Device must be specified for simulation prop dump"))?;
-    let usb = usb::get_device_by_location(location)?;
+    let usb = usb::get_device_by_serial(&serial)?;
     let mut camera = Camera::open_unknown(&usb).context("opening device as unknown camera")?;
 
     for slot in CustomSetting::iter() {

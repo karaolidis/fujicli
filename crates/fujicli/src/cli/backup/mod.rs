@@ -27,7 +27,7 @@ fn handle_export(options: GlobalOptions, output: Output) -> anyhow::Result<()> {
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(device.as_deref(), emulate)?;
 
     let backup = camera.export_backup().context("exporting camera backup")?;
     let mut writer = output.get_writer()?;
@@ -44,7 +44,7 @@ fn handle_import(options: GlobalOptions, input: Input) -> anyhow::Result<()> {
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(device.as_deref(), emulate)?;
 
     let mut reader = input.get_reader()?;
     let mut backup = Vec::new();

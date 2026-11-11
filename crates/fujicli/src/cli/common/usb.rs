@@ -1,80 +1,17 @@
-use std::{
-    fmt::{Display, Formatter},
-    num::ParseIntError,
-    str::FromStr,
-};
-
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use fujicore::{
     Camera, UsbId,
     features::base::info::CameraInfoListItem,
     ptp::transport::{self, Device},
 };
 use log::trace;
-use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum ParseLocationError {
-    #[error("invalid device format '{0}', expected <BUS>.<ADDRESS>")]
-    Format(String),
-
-    #[error("invalid bus number '{value}': {source}")]
-    Bus {
-        value: String,
-        #[source]
-        source: ParseIntError,
-    },
-
-    #[error("invalid address '{value}': {source}")]
-    Address {
-        value: String,
-        #[source]
-        source: ParseIntError,
-    },
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Location {
-    pub bus: u8,
-    pub address: u8,
-}
-
-impl FromStr for Location {
-    type Err = ParseLocationError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (bus, address) = s
-            .split_once('.')
-            .ok_or_else(|| ParseLocationError::Format(s.to_owned()))?;
-
-        let bus = bus.parse().map_err(|source| ParseLocationError::Bus {
-            value: bus.to_owned(),
-            source,
-        })?;
-
-        let address = address
-            .parse()
-            .map_err(|source| ParseLocationError::Address {
-                value: address.to_owned(),
-                source,
-            })?;
-
-        Ok(Self { bus, address })
-    }
-}
-
-impl Display for Location {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}", self.bus, self.address)
-    }
-}
-
-pub fn get_device_by_location(location: Location) -> anyhow::Result<Device> {
+pub fn get_device_by_serial(serial: &str) -> anyhow::Result<Device> {
     transport::devices()
         .context("enumerating USB devices")?
         .into_iter()
-        .find(|d| d.bus() == location.bus && d.address() == location.address)
-        .ok_or_else(|| anyhow::anyhow!("no USB device found at location {location}"))
+        .find(|d| d.serial() == Some(serial))
+        .ok_or_else(|| anyhow!("no camera found with serial number {serial}"))
 }
 
 fn supported_devices() -> anyhow::Result<impl Iterator<Item = Device>> {
@@ -98,12 +35,12 @@ pub fn list_cameras() -> anyhow::Result<Vec<CameraInfoListItem>> {
         .collect())
 }
 
-pub fn get_camera(device: Option<Location>, emulate: Option<UsbId>) -> anyhow::Result<Camera> {
-    let device = match device {
-        Some(location) => get_device_by_location(location)?,
+pub fn get_camera(serial: Option<&str>, emulate: Option<UsbId>) -> anyhow::Result<Camera> {
+    let device = match serial {
+        Some(serial) => get_device_by_serial(serial)?,
         None => supported_devices()?
             .next()
-            .ok_or_else(|| anyhow::anyhow!("no supported camera found"))?,
+            .ok_or_else(|| anyhow!("no supported camera found"))?,
     };
 
     emulate.as_ref().map_or_else(

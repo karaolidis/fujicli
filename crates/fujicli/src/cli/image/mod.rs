@@ -74,7 +74,7 @@ fn handle_render(
         device, emulate, ..
     } = options;
 
-    let mut camera = usb::get_camera(device, emulate)?;
+    let mut camera = usb::get_camera(device.as_deref(), emulate)?;
 
     let mut reader = input.get_reader()?;
     let mut image = Vec::new();

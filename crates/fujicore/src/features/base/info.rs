@@ -36,8 +36,8 @@ impl CameraInfo for DefaultCameraInfo {}
 #[serde(rename_all = "camelCase")]
 pub struct CameraInfoListItem {
     pub name: &'static str,
-    pub bus_address: String,
     pub usb_id: UsbId,
+    pub serial_number: Option<String>,
 }
 
 impl CameraInfoListItem {
@@ -46,18 +46,18 @@ impl CameraInfoListItem {
         let camera = SupportedCamera::find(device.usb_id())?;
         Some(Self {
             name: camera.name,
-            bus_address: format!("{}.{}", device.bus(), device.address()),
             usb_id: camera.usb_id,
+            serial_number: device.serial().map(str::to_owned),
         })
     }
 }
 
 impl fmt::Display for CameraInfoListItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} ({}) (bus {})",
-            self.name, self.usb_id, self.bus_address
-        )
+        write!(f, "{} ({})", self.name, self.usb_id)?;
+        if let Some(serial) = &self.serial_number {
+            write!(f, " (serial {serial})")?;
+        }
+        Ok(())
     }
 }
