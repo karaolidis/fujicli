@@ -82,12 +82,12 @@ generations: {
 						]
 					},
 					{
-						message: "Color does not apply to black and white simulations."
+						message: "Color does not apply to black and white or sepia simulations."
 						when: all: [
 							{ref: "color", present: true},
 							{
 								ref: "film_simulation"
-								in: ["monochrome", "monochrome_ye", "monochrome_r", "monochrome_g", "acros", "acros_ye", "acros_r", "acros_g"]
+								in: ["monochrome", "monochrome_ye", "monochrome_r", "monochrome_g", "sepia", "acros", "acros_ye", "acros_r", "acros_g"]
 							},
 						]
 					},
