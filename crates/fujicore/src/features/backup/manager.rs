@@ -17,8 +17,8 @@ pub const IMPORT_OBJECT_INFO_HANDLE: [u32; 2] = [0x0, 0x0];
 pub trait CameraBackupManager: CameraBase {
     fn export_backup(&self, ptp: &mut Ptp) -> CoreResult<Vec<u8>> {
         debug!("Starting backup export");
-        let _ = ptp.send(CommandCode::GetObjectInfo, &EXPORT_OBJECT_INFO_HANDLE, None)?;
-        let response = ptp.send(CommandCode::GetObject, &OBJECT_HANDLE, None)?;
+        let _ = ptp.read(CommandCode::GetObjectInfo, &EXPORT_OBJECT_INFO_HANDLE)?;
+        let response = ptp.read(CommandCode::GetObject, &OBJECT_HANDLE)?;
         debug!("Backup export completed");
 
         Ok(response)
@@ -30,12 +30,12 @@ pub trait CameraBackupManager: CameraBase {
         let serialized = object_info
             .try_into_ptp()
             .map_err(crate::ptp::PtpError::from)?;
-        let _ = ptp.send(
+        ptp.write(
             CommandCode::SendObjectInfo,
             &IMPORT_OBJECT_INFO_HANDLE,
-            Some(&serialized),
+            &serialized,
         )?;
-        let _ = ptp.send(CommandCode::SendObject, &OBJECT_HANDLE, Some(buffer))?;
+        ptp.write(CommandCode::SendObject, &OBJECT_HANDLE, buffer)?;
         debug!("Backup import completed");
 
         Ok(())

@@ -29,7 +29,24 @@ pub struct Ptp {
 }
 
 impl Ptp {
-    pub fn send(
+    /// Run an operation without a data phase.
+    pub fn command(&mut self, code: CommandCode, params: &[u32]) -> CoreResult<()> {
+        self.transact(code, params, None)?;
+        Ok(())
+    }
+
+    /// Run an operation whose data phase flows from the camera.
+    pub fn read(&mut self, code: CommandCode, params: &[u32]) -> CoreResult<Vec<u8>> {
+        self.transact(code, params, None)
+    }
+
+    /// Run an operation whose data phase flows to the camera.
+    pub fn write(&mut self, code: CommandCode, params: &[u32], data: &[u8]) -> CoreResult<()> {
+        self.transact(code, params, Some(data))?;
+        Ok(())
+    }
+
+    fn transact(
         &mut self,
         code: CommandCode,
         params: &[u32],
@@ -47,21 +64,21 @@ impl Ptp {
         for p in params {
             p.try_write_ptp(&mut payload).map_err(PtpError::from)?;
         }
-        self.write(ContainerType::Command, code, &payload, transaction_id)?;
+        self.write_container(ContainerType::Command, code, &payload, transaction_id)?;
 
         if let Some(data) = data {
             trace!(
                 "PTP tx={transaction_id}: sending payload ({} bytes)",
                 data.len()
             );
-            self.write(ContainerType::Data, code, data, transaction_id)?;
+            self.write_container(ContainerType::Data, code, data, transaction_id)?;
         }
 
         let response = {
             let mut response: CoreResult<Vec<u8>> = Ok(Vec::new());
             loop {
                 trace!("PTP tx={transaction_id}: receiving response");
-                let (container, payload) = self.read()?;
+                let (container, payload) = self.read_container()?;
 
                 match container.kind {
                     ContainerType::Data => {
@@ -116,7 +133,7 @@ impl Ptp {
         response
     }
 
-    fn write(
+    fn write_container(
         &self,
         kind: ContainerType,
         code: CommandCode,
@@ -146,7 +163,7 @@ impl Ptp {
         Ok(())
     }
 
-    fn read(&self) -> CoreResult<(ContainerInfo, Vec<u8>)> {
+    fn read_container(&self) -> CoreResult<(ContainerInfo, Vec<u8>)> {
         let mut stack_buf = [0u8; 8 * 1024];
 
         let n = self
@@ -197,19 +214,17 @@ impl Ptp {
 
     pub fn open_session(&mut self, session_id: u32) -> CoreResult<()> {
         debug!("Opening PTP session");
-        self.send(CommandCode::OpenSession, &[session_id], None)?;
-        Ok(())
+        self.command(CommandCode::OpenSession, &[session_id])
     }
 
     pub fn close_session(&mut self, _: u32) -> CoreResult<()> {
         debug!("Closing PTP session");
-        self.send(CommandCode::CloseSession, &[], None)?;
-        Ok(())
+        self.command(CommandCode::CloseSession, &[])
     }
 
     pub fn get_info(&mut self) -> CoreResult<DeviceInfo> {
         debug!("Retrieving device info");
-        let response = self.send(CommandCode::GetDeviceInfo, &[], None)?;
+        let response = self.read(CommandCode::GetDeviceInfo, &[])?;
         let info = DeviceInfo::try_from_ptp(&response).map_err(PtpError::from)?;
         Ok(info)
     }
@@ -217,17 +232,13 @@ impl Ptp {
     pub fn get_prop_raw(&mut self, prop: impl Into<u16>) -> CoreResult<Vec<u8>> {
         let prop = prop.into();
         debug!("Getting device prop: 0x{prop:04x}");
-        self.send(CommandCode::GetDevicePropValue, &[u32::from(prop)], None)
+        self.read(CommandCode::GetDevicePropValue, &[u32::from(prop)])
     }
 
-    pub fn set_prop_raw(&mut self, prop: impl Into<u16>, value: &[u8]) -> CoreResult<Vec<u8>> {
+    pub fn set_prop_raw(&mut self, prop: impl Into<u16>, value: &[u8]) -> CoreResult<()> {
         let prop = prop.into();
         debug!("Setting device prop: 0x{prop:04x}");
-        self.send(
-            CommandCode::SetDevicePropValue,
-            &[u32::from(prop)],
-            Some(value),
-        )
+        self.write(CommandCode::SetDevicePropValue, &[u32::from(prop)], value)
     }
 
     pub fn get_prop<T: PtpDeserialize>(&mut self, code: impl Into<u16>) -> CoreResult<T> {
@@ -238,8 +249,7 @@ impl Ptp {
 
     pub fn set_prop<T: PtpSerialize>(&mut self, code: impl Into<u16>, value: &T) -> CoreResult<()> {
         let bytes = value.try_into_ptp().map_err(PtpError::from)?;
-        self.set_prop_raw(code, &bytes)?;
-        Ok(())
+        self.set_prop_raw(code, &bytes)
     }
 }
 

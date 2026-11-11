@@ -29,12 +29,12 @@ pub trait CameraRenderManager: CameraBase {
         let serialized = object_info
             .try_into_ptp()
             .map_err(crate::ptp::PtpError::from)?;
-        ptp.send(
+        ptp.write(
             CommandCode::FujiSendObjectInfo,
             &OUTGOING_OBJECT_HANDLE,
-            Some(&serialized),
+            &serialized,
         )?;
-        ptp.send(CommandCode::FujiSendObject, &[], Some(image))?;
+        ptp.write(CommandCode::FujiSendObject, &[], image)?;
         debug!("Sent image to camera");
 
         Ok(())
@@ -51,7 +51,7 @@ pub trait CameraRenderManager: CameraBase {
         let handle;
         loop {
             debug!("Fetching rendered object handles");
-            let response = ptp.send(CommandCode::GetObjectHandles, &[u32::MAX, 0, 0], None)?;
+            let response = ptp.read(CommandCode::GetObjectHandles, &[u32::MAX, 0, 0])?;
             let response =
                 <Vec<u32>>::try_from_ptp(&response).map_err(crate::ptp::PtpError::from)?;
             if let Some(&first) = response.first() {
@@ -63,11 +63,11 @@ pub trait CameraRenderManager: CameraBase {
         }
 
         debug!("Fetching rendered image");
-        let buf = ptp.send(CommandCode::GetObject, &[handle], None)?;
+        let buf = ptp.read(CommandCode::GetObject, &[handle])?;
         debug!("Fetched rendered image");
 
         debug!("Cleaning up rendered image on camera");
-        let _ = ptp.send(CommandCode::DeleteObject, &[handle], None)?;
+        ptp.command(CommandCode::DeleteObject, &[handle])?;
         debug!("Cleaned up rendered image on camera");
 
         Ok(buf)

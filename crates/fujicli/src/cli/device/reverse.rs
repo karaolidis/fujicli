@@ -56,15 +56,14 @@ fn handle_backup_export(options: GlobalOptions, output: Output) -> anyhow::Resul
     let usb = usb::get_usb_device_by_location(location)?;
     let mut camera = Camera::open_unknown(&usb).context("opening device as unknown camera")?;
 
-    try_call!(camera.ptp.send(
+    try_call!(camera.ptp.read(
         CommandCode::GetObjectInfo,
         &backup::EXPORT_OBJECT_INFO_HANDLE,
-        None
     ))?;
     let backup = try_call!(
         camera
             .ptp
-            .send(CommandCode::GetObject, &backup::OBJECT_HANDLE, None)
+            .read(CommandCode::GetObject, &backup::OBJECT_HANDLE)
     )?;
     let mut writer = output.get_writer()?;
     writer
@@ -93,16 +92,16 @@ fn handle_backup_import(options: GlobalOptions, input: Input) -> anyhow::Result<
         .try_into_ptp()
         .context("serializing backup envelope")?;
 
-    try_call!(camera.ptp.send(
+    try_call!(camera.ptp.write(
         CommandCode::SendObjectInfo,
         &backup::IMPORT_OBJECT_INFO_HANDLE,
-        Some(&backup_info_bytes),
+        &backup_info_bytes,
     ))?;
-    try_call!(camera.ptp.send(
-        CommandCode::SendObject,
-        &backup::OBJECT_HANDLE,
-        Some(&backup)
-    ))?;
+    try_call!(
+        camera
+            .ptp
+            .write(CommandCode::SendObject, &backup::OBJECT_HANDLE, &backup)
+    )?;
 
     Ok(())
 }
