@@ -69,6 +69,13 @@ generations: {
 
 				rules: [
 					{
+						message: "Image Size does not apply to RAW image quality."
+						when: all: [
+							{ref: "image_size", present: true},
+							{ref: "image_quality", equals: "raw"},
+						]
+					},
+					{
 						message: "Monochromatic color settings only apply to black and white simulations."
 						when: all: [
 							{any: [
