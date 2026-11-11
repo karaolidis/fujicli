@@ -26,7 +26,7 @@ Only the X-T5 is extensively tested. Other models may work, but
 
 ## Installation
 
-Linux x86_64 binaries are attached to each
+Linux and Windows x86_64 binaries are attached to each
 [release](https://git.karaolidis.com/karaolidis/fujicli/releases).
 
 With Nix:

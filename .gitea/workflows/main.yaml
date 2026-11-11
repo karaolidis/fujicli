@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RUSTUP_PERMIT_COPY_RENAME: "1"
+      CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUNNER: wine
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,6 +19,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: nightly
+          target: x86_64-pc-windows-gnu
           components: clippy, rustfmt
 
       - name: Install CUE
@@ -26,17 +28,31 @@ jobs:
           curl -fsSL "https://github.com/cue-lang/cue/releases/download/${CUE_VERSION}/cue_${CUE_VERSION}_linux_amd64.tar.gz" | tar -xzC /tmp
           sudo mv /tmp/cue /usr/local/bin/cue
 
-      - name: Compile
+      - name: Install MinGW and Wine
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 wine
+
+      - name: Compile (Linux)
         run: cargo check --all-features --all-targets --workspace
+
+      - name: Compile (Windows)
+        run: cargo check --all-features --all-targets --workspace --target x86_64-pc-windows-gnu
 
       - name: Format
         run: cargo fmt --all --check
 
-      - name: Lint
+      - name: Lint (Linux)
         run: cargo clippy --all-features --all-targets --workspace -- -D warnings
 
-      - name: Test
+      - name: Lint (Windows)
+        run: cargo clippy --all-features --all-targets --workspace --target x86_64-pc-windows-gnu -- -D warnings
+
+      - name: Test (Linux)
         run: cargo test --all-features --all-targets --workspace
+
+      - name: Test (Windows)
+        run: cargo test --all-features --all-targets --workspace --target x86_64-pc-windows-gnu
 
   release:
     if: gitea.ref == 'refs/heads/main'
@@ -52,6 +68,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: nightly
+          target: x86_64-pc-windows-gnu
 
       - name: Install CUE
         run: |
@@ -59,12 +76,22 @@ jobs:
           curl -fsSL "https://github.com/cue-lang/cue/releases/download/${CUE_VERSION}/cue_${CUE_VERSION}_linux_amd64.tar.gz" | tar -xzC /tmp
           sudo mv /tmp/cue /usr/local/bin/cue
 
-      - name: Build
+      - name: Install MinGW
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+
+      - name: Build (Linux)
         run: cargo build --release --all-features --all-targets
+
+      - name: Build (Windows)
+        run: cargo build --release --all-features --all-targets --target x86_64-pc-windows-gnu
 
       - name: Release
         uses: akkuman/gitea-release-action@main
         with:
           name: "Release ${{ gitea.sha }}"
           tag_name: "release-${{ gitea.sha }}"
-          files: target/release/fujicli
+          files: |
+            target/release/fujicli
+            target/x86_64-pc-windows-gnu/release/fujicli.exe
