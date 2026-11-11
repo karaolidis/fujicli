@@ -199,7 +199,7 @@ mod tests {
         let t = Transformation {
             when: None,
             apply: vec![Assignment {
-                r#ref: "head_0".into(),
+                r#ref: "shoot_condition".into(),
                 effect: AssignmentEffect::Set(json!(0)),
             }],
         };

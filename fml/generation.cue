@@ -147,7 +147,7 @@ generations: {
 
 			_render: {
 				fields: [
-					{id: "head_0"},
+					{id: "shoot_condition"},
 					{ref: "file_type"},
 					{ref: "image_size"},
 					{ref: "image_quality"},
@@ -176,7 +176,7 @@ generations: {
 					{ref: "clarity"},
 					{ref: "teleconverter"},
 					{
-						id:        "tail_0"
+						id:        "portrait_enhancer"
 						skip_read: true
 					},
 				]
@@ -198,8 +198,8 @@ generations: {
 					},
 					{
 						apply: [
-							{ref: "head_0", value: 0},
-							{ref: "tail_0", value: 0},
+							{ref: "shoot_condition", value: 0},
+							{ref: "portrait_enhancer", value: 0},
 						]
 					},
 				]

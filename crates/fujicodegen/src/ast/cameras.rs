@@ -249,13 +249,13 @@ mod tests {
         let s: Setting = parse(r#"{ "id": "x", "ref": "image_size" }"#);
         assert_eq!(s.id, "x");
         assert_eq!(s.r#ref, "image_size");
-        parse_err::<Setting>(r#"{ "id": "head_0" }"#);
+        parse_err::<Setting>(r#"{ "id": "shoot_condition" }"#);
     }
 
     #[test]
     fn field_disambiguates_ref_vs_inline_by_presence_of_ref() {
         let r: Field = parse(r#"{ "id": "x", "ref": "image_size" }"#);
-        let i: Field = parse(r#"{ "id": "head_0" }"#);
+        let i: Field = parse(r#"{ "id": "shoot_condition" }"#);
         assert!(matches!(r, Field::Ref(_)));
         assert!(matches!(i, Field::Inline(_)));
     }
