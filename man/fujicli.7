@@ -236,7 +236,7 @@ and
 .Ql fujicli simulation set
 round-trip on every slot.
 .It Va render
-The profile code, the profile's fields in wire order, the transformations
+The profile's fields in wire order, the transformations
 between user-facing values and wire values, and the render rules.
 .El
 .It
@@ -283,10 +283,7 @@ It is recovered by capturing the USB traffic between the camera and Fujifilm X
 RAW Studio.
 .Pp
 The profile is serialised as a 16-bit field count, the profile code as a
-string, 0x1EE bytes of padding, and one 32-bit value per field.
-The padding is hard-coded in
-.Pa crates/fujicodegen/src/common/renders/camera.rs
-until a second camera is reversed.
+string padded to 0x1FF bytes, and one 32-bit value per field.
 .Pp
 The setup is a Windows virtual machine running X RAW Studio, with the camera
 passed through to it over USB, and Wireshark on the host.

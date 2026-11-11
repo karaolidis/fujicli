@@ -21,10 +21,6 @@ use crate::{
     util::dag::Dag,
 };
 
-// NOTE: Naively assume the same padding holds for all Fujifilm cameras
-// until we have a second render-capable camera to compare against.
-const RENDER_HEADER_PADDING: usize = 0x1EE;
-
 pub fn generate(
     options: &BTreeMap<String, FujiOption>,
     cameras: &BTreeMap<String, Camera>,
@@ -101,7 +97,6 @@ fn generate_one(
 
     let n_props = i16::try_from(render.fields.len())
         .with_context(|| format!("too many render fields on camera `{}`", camera.id))?;
-    let profile_code = render.profile_code;
 
     let optional_field_ids: BTreeSet<String> = presence_info.conditions.keys().cloned().collect();
     let foreign_field_ids: Vec<&str> = base_union
@@ -125,7 +120,6 @@ fn generate_one(
         &optional_field_ids,
         &complete_ident,
     );
-    let inherent_impl = generate_inherent_impl(&complete_ident, profile_code);
     let from_complete_for_draft = generate_from_complete_for_draft(
         &settings,
         &render.fields,
@@ -157,23 +151,18 @@ fn generate_one(
         &draft_ident,
         &renders_path,
     );
-    let ptp_serialize = generate_ptp_serialize_impl(
-        &settings,
-        &render.fields,
-        &optional_field_ids,
-        &complete_ident,
-        n_props,
-    );
-    let ptp_deserialize = generate_ptp_deserialize_impl(
+    let write_fields = generate_write_fields(&settings, &render.fields, &optional_field_ids);
+    let read_fields = generate_read_fields(
         &settings,
         &render.fields,
         &complete_ident,
         &draft_ident,
-        n_props,
         &presence_info.conditions,
         &render.transformations,
         &convert_order,
     )?;
+    let profile_fields_impl =
+        generate_profile_fields_impl(&complete_ident, n_props, &write_fields, &read_fields);
     let manager_impl = generate_camera_render_manager_impl(
         &complete_ident,
         &draft_ident,
@@ -186,13 +175,11 @@ fn generate_one(
         #draft_struct
         #rule_module
         #complete_struct
-        #inherent_impl
         #from_complete_for_draft
         #from_complete_for_base
         #try_from_draft_for_complete
         #try_from_base_for_draft
-        #ptp_serialize
-        #ptp_deserialize
+        #profile_fields_impl
         #manager_impl
     })
 }
@@ -316,15 +303,6 @@ fn generate_complete_struct(
         #[derive(::std::fmt::Debug, ::std::clone::Clone)]
         pub struct #complete_ident {
             #( #field_defs )*
-        }
-    }
-}
-
-fn generate_inherent_impl(complete_ident: &Ident, profile_code: u32) -> TokenStream {
-    let profile_code_lit = Literal::u32_suffixed(profile_code);
-    quote! {
-        impl #complete_ident {
-            pub const PROFILE_CODE: u32 = #profile_code_lit;
         }
     }
 }
@@ -499,42 +477,38 @@ fn generate_try_from_base_for_draft(
     }
 }
 
-fn generate_ptp_serialize_impl(
+fn generate_profile_fields_impl(
+    complete_ident: &Ident,
+    n_props: i16,
+    write_fields: &TokenStream,
+    read_fields: &TokenStream,
+) -> TokenStream {
+    let n_props_lit = Literal::i16_suffixed(n_props);
+    quote! {
+        impl crate::features::render::ConversionProfileFields for #complete_ident {
+            const FIELD_COUNT: i16 = #n_props_lit;
+
+            #write_fields
+
+            #read_fields
+        }
+    }
+}
+
+fn generate_write_fields(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     fields: &[Field],
     optional: &BTreeSet<String>,
-    complete_ident: &Ident,
-    n_props: i16,
 ) -> TokenStream {
-    let n_props_lit = Literal::i16_suffixed(n_props);
-    let padding_lit = Literal::usize_suffixed(RENDER_HEADER_PADDING);
-
     let writes = fields
         .iter()
         .map(|field| generate_write_one(settings, optional, field));
 
     quote! {
-        impl ::ptp_cursor::PtpSerialize for #complete_ident {
-            fn try_into_ptp(&self) -> ::std::io::Result<Vec<u8>> {
-                let mut buf = Vec::new();
-                <Self as ::ptp_cursor::PtpSerialize>::try_write_ptp(self, &mut buf)?;
-                Ok(buf)
-            }
+        fn write_fields(&self, buf: &mut Vec<u8>) -> ::std::io::Result<()> {
+            #( #writes )*
 
-            fn try_write_ptp(&self, buf: &mut Vec<u8>) -> ::std::io::Result<()> {
-                let n_props: i16 = #n_props_lit;
-                ::ptp_cursor::PtpSerialize::try_write_ptp(&n_props, buf)?;
-                let profile_code = ::ptp_cursor::ExactString::from(
-                    format!("{:x}", Self::PROFILE_CODE),
-                );
-                ::ptp_cursor::PtpSerialize::try_write_ptp(&profile_code, buf)?;
-                let padding = [0u8; #padding_lit];
-                ::std::io::Write::write_all(buf, &padding)?;
-
-                #( #writes )*
-
-                Ok(())
-            }
+            Ok(())
         }
     }
 }
@@ -581,19 +555,15 @@ fn generate_write_one(
     }
 }
 
-fn generate_ptp_deserialize_impl(
+fn generate_read_fields(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     fields: &[Field],
     complete_ident: &Ident,
     draft_ident: &Ident,
-    n_props: i16,
     presence_conditions: &BTreeMap<String, Dnf>,
     transformations: &[Transformation],
     convert_order: &[String],
 ) -> anyhow::Result<TokenStream> {
-    let n_props_lit = Literal::i16_suffixed(n_props);
-    let padding_lit = Literal::usize_suffixed(RENDER_HEADER_PADDING);
-
     let raw_reads: Vec<TokenStream> = fields
         .iter()
         .filter(|f| !f.skip_read())
@@ -620,69 +590,20 @@ fn generate_ptp_deserialize_impl(
     let inverses = generate_inverses(settings, transformations, &quote! { staged })?;
 
     Ok(quote! {
-        impl ::ptp_cursor::PtpDeserialize for #complete_ident {
-            fn try_from_ptp(buf: &[u8]) -> ::std::io::Result<Self> {
-                let mut cur = ::std::io::Cursor::new(buf);
-                let val = <Self as ::ptp_cursor::PtpDeserialize>::try_read_ptp(&mut cur)?;
-                Ok(val)
-            }
+        #[allow(clippy::nonminimal_bool)]
+        fn read_fields<R: ::ptp_cursor::Read>(cur: &mut R) -> ::std::io::Result<Self> {
+            #( #raw_reads )*
 
-            #[allow(clippy::nonminimal_bool)]
-            fn try_read_ptp<R: ::ptp_cursor::Read>(
-                cur: &mut R,
-            ) -> ::std::io::Result<Self> {
-                let n_props = <i16 as ::ptp_cursor::PtpDeserialize>::try_read_ptp(cur)?;
-                if n_props != #n_props_lit {
-                    return Err(::std::io::Error::new(
-                        ::std::io::ErrorKind::InvalidData,
-                        format!(
-                            "{}: expected {} props on the wire, got {}",
-                            stringify!(#complete_ident),
-                            #n_props_lit,
-                            n_props,
-                        ),
-                    ));
-                }
-                let profile_code_str =
-                    <::ptp_cursor::ExactString as ::ptp_cursor::PtpDeserialize>
-                        ::try_read_ptp(cur)?;
-                let parsed = u32::from_str_radix(profile_code_str.as_str(), 16)
-                    .map_err(|err| ::std::io::Error::new(
-                        ::std::io::ErrorKind::InvalidData,
-                        format!(
-                            "{}: invalid profile-code hex `{}`: {}",
-                            stringify!(#complete_ident),
-                            profile_code_str.as_str(),
-                            err,
-                        ),
-                    ))?;
-                if parsed != Self::PROFILE_CODE {
-                    return Err(::std::io::Error::new(
-                        ::std::io::ErrorKind::InvalidData,
-                        format!(
-                            "{}: expected profile code {:#x}, got {:#x}",
-                            stringify!(#complete_ident),
-                            Self::PROFILE_CODE,
-                            parsed,
-                        ),
-                    ));
-                }
-                let mut padding = [0u8; #padding_lit];
-                <R as ::std::io::Read>::read_exact(cur, &mut padding)?;
+            let mut staged = #draft_ident::default();
+            #( #conversions )*
 
-                #( #raw_reads )*
+            #inverses
 
-                let mut staged = #draft_ident::default();
-                #( #conversions )*
-
-                #inverses
-
-                <Self as ::std::convert::TryFrom<#draft_ident>>::try_from(staged)
-                    .map_err(|err| ::std::io::Error::new(
-                        ::std::io::ErrorKind::InvalidData,
-                        format!("{}: {err}", stringify!(#complete_ident)),
-                    ))
-            }
+            <Self as ::std::convert::TryFrom<#draft_ident>>::try_from(staged)
+                .map_err(|err| ::std::io::Error::new(
+                    ::std::io::ErrorKind::InvalidData,
+                    format!("{}: {err}", stringify!(#complete_ident)),
+                ))
         }
     })
 }
@@ -741,10 +662,11 @@ fn generate_camera_render_manager_impl(
                 &self,
                 ptp: &mut crate::ptp::Ptp,
             ) -> crate::error::CoreResult<#renders_path::RenderBase> {
-                let current: #complete_ident = ptp.get_prop(
-                    crate::ptp::DevicePropCode::FujiRawConversionProfile,
-                )?;
-                Ok(<#renders_path::RenderBase as ::std::convert::From<&#complete_ident>>::from(&current))
+                let current: crate::features::render::ConversionProfile<#complete_ident> =
+                    ptp.get_prop(crate::ptp::DevicePropCode::FujiRawConversionProfile)?;
+                Ok(<#renders_path::RenderBase as ::std::convert::From<&#complete_ident>>::from(
+                    &current.fields,
+                ))
             }
 
             fn apply_profile(
@@ -752,19 +674,18 @@ fn generate_camera_render_manager_impl(
                 ptp: &mut crate::ptp::Ptp,
                 partial: &#renders_path::RenderBase,
             ) -> crate::error::CoreResult<()> {
-                let current: #complete_ident = ptp.get_prop(
-                    crate::ptp::DevicePropCode::FujiRawConversionProfile,
-                )?;
+                let current: crate::features::render::ConversionProfile<#complete_ident> =
+                    ptp.get_prop(crate::ptp::DevicePropCode::FujiRawConversionProfile)?;
                 let partial_draft = <#draft_ident as ::std::convert::TryFrom<
                     #renders_path::RenderBase,
                 >>::try_from(partial.clone())?;
-                let mut buf = #draft_ident::from(&current);
+                let mut buf = #draft_ident::from(&current.fields);
                 #mod_ident::try_update_from(&mut buf, &partial_draft)?;
-                let next = <#complete_ident as ::std::convert::TryFrom<#draft_ident>>::try_from(buf)?;
-                ptp.set_prop(
-                    crate::ptp::DevicePropCode::FujiRawConversionProfile,
-                    &next,
-                )?;
+                let next = crate::features::render::ConversionProfile {
+                    code: current.code,
+                    fields: <#complete_ident as ::std::convert::TryFrom<#draft_ident>>::try_from(buf)?,
+                };
+                ptp.set_prop(crate::ptp::DevicePropCode::FujiRawConversionProfile, &next)?;
                 Ok(())
             }
         }
