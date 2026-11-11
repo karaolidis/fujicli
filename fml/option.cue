@@ -773,7 +773,7 @@ options: {
 			encoding: {
 				prop_code: 0xD1A4
 				kind:      "lookup"
-				spec: values: {srgb: 0x02, adobe_rgb: 0x01}
+				spec: values: {srgb: 0x01, adobe_rgb: 0x02}
 			}
 		}
 	}
