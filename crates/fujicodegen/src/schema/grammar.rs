@@ -566,9 +566,9 @@ fn generate_range(info: &SettingInfo<'_>, min: &Value, max: &Value) -> anyhow::R
     Ok(match info.kind {
         SpecKind::Integer => {
             let v_expr = info.int(&quote! { v });
-            quote! { ( (#lo) ..= (#hi) ).contains(&#v_expr) }
+            quote! { (#lo..=#hi).contains(&#v_expr) }
         }
-        SpecKind::Float => quote! { ( (#lo) ..= (#hi) ).contains(&f32::from(v)) },
+        SpecKind::Float => quote! { (#lo..=#hi).contains(&f32::from(v)) },
         other => bail!(
             "`between` predicate on non-numeric setting `{}` ({other:?})",
             info.id
@@ -690,7 +690,7 @@ mod tests {
         }));
         assert_eq!(
             out,
-            "self . x . is_some_and (| v | ! (((1i32) ..= (2i32)) . contains (& v)))"
+            "self . x . is_some_and (| v | ! ((1i32 ..= 2i32) . contains (& v)))"
         );
     }
 
