@@ -458,19 +458,19 @@ cameras: {
 							when: any: [
 								{all: [
 									{ref: "dynamic_range", scope: "original", equals: "hdr100"},
-									{not: {ref: "dynamic_range", in: ["hdr100"]}},
+									{ref: "dynamic_range", in: ["auto", "hdr200", "hdr400", "hdr800", "hdr800_plus"]},
 								]},
 								{all: [
 									{ref: "dynamic_range", scope: "original", equals: "hdr200"},
-									{not: {ref: "dynamic_range", in: ["hdr100", "hdr200"]}},
+									{ref: "dynamic_range", in: ["auto", "hdr400", "hdr800", "hdr800_plus"]},
 								]},
 								{all: [
 									{ref: "dynamic_range", scope: "original", equals: "hdr400"},
-									{not: {ref: "dynamic_range", in: ["hdr100", "hdr200", "hdr400"]}},
+									{ref: "dynamic_range", in: ["auto", "hdr800", "hdr800_plus"]},
 								]},
 								{all: [
 									{ref: "dynamic_range", scope: "original", equals: "hdr800"},
-									{not: {ref: "dynamic_range", in: ["hdr100", "hdr200", "hdr400", "hdr800"]}},
+									{ref: "dynamic_range", in: ["auto", "hdr800_plus"]},
 								]},
 							]
 						},
