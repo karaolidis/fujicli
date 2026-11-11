@@ -8,7 +8,7 @@ use crate::{
     ast::{Conjunction, Dnf, Leaf, Scope, Severity},
     schema::{
         alias::NormalizedRule,
-        grammar::{Scopes, SettingInfo, generate_conjunction, generate_dnf, generate_value_expr},
+        grammar::{Scopes, SettingInfo, generate_conjunction, generate_dnf, generate_field_value},
     },
 };
 
@@ -300,7 +300,7 @@ fn leaf_flips(
         _ => None,
     };
     let set = named
-        .map(|value| generate_value_expr(info, value).map(|v| quote! { Some(#v) }))
+        .map(|value| generate_field_value(info, value).map(|v| quote! { Some(#v) }))
         .transpose()?;
     Ok(clearable
         .then(|| quote! { None })

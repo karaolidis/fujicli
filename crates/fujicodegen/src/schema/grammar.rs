@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 
-use anyhow::bail;
+use anyhow::{bail, ensure};
 use proc_macro2::{Ident, Literal, TokenStream};
 use quote::quote;
 use serde_json::Value;
 
 use crate::{
     ast::{
-        Assignment, AssignmentEffect, Conjunction, Dnf, Field, FujiOption, Leaf, Predicate, Scope,
-        Setting, Severity, SpecKind, Transformation,
+        Assignment, AssignmentEffect, Conjunction, Dnf, Field, FujiOption, Leaf, NumericRules,
+        OptionSpec, Predicate, Scope, Setting, Severity, SpecKind, Transformation,
     },
     common::options,
     schema::alias::NormalizedRule,
@@ -223,7 +223,7 @@ pub fn generate_assignment(
     let field = info.field_ident();
     Ok(match &assignment.effect {
         AssignmentEffect::Set(value) => {
-            let value = generate_value_expr(info, value)?;
+            let value = generate_field_value(info, value)?;
             quote! { #accessor.#field = Some(#value); }
         }
         AssignmentEffect::Clear => quote! { #accessor.#field = None; },
@@ -433,6 +433,42 @@ pub fn generate_leaf(
         quote! { #accessor.#field.as_deref().is_some_and(|v| #test) }
     } else {
         quote! { #accessor.#field.is_some_and(|v| #test) }
+    })
+}
+
+/// The literal as a value of the field's type. Ranges are checked here, so the generated
+/// conversion cannot fail.
+pub fn generate_field_value(info: &SettingInfo<'_>, value: &Value) -> anyhow::Result<TokenStream> {
+    let expr = generate_value_expr(info, value)?;
+    let Some(option) = info.option else {
+        return Ok(expr);
+    };
+    let in_range = match &option.spec {
+        OptionSpec::Enum { .. } => return Ok(expr),
+        OptionSpec::String { .. } => {
+            bail!("assigning to string setting `{}` is not supported", info.id)
+        }
+        OptionSpec::Integer { rules, .. } => value
+            .as_i64()
+            .and_then(|v| i32::try_from(v).ok())
+            .is_some_and(|v| in_bounds(v, rules.as_ref())),
+        #[allow(clippy::cast_possible_truncation)]
+        OptionSpec::Float { rules, .. } => value
+            .as_f64()
+            .is_some_and(|v| in_bounds(v as f32, rules.as_ref())),
+    };
+    ensure!(
+        in_range,
+        "value {value} is out of range for setting `{}`",
+        info.id
+    );
+    let path = info.type_path();
+    Ok(quote! { #path::try_from(#expr).expect("range checked by codegen") })
+}
+
+fn in_bounds<T: PartialOrd + Copy>(value: T, rules: Option<&NumericRules<T>>) -> bool {
+    rules.is_none_or(|r| {
+        r.min.is_none_or(|min| value >= min) && r.max.is_none_or(|max| value <= max)
     })
 }
 
@@ -690,5 +726,35 @@ mod tests {
             out,
             "if buf . x . is_some_and (| v | v != (1i32)) { buf . x = Some (2i32) ; }"
         );
+    }
+
+    fn sharpness() -> FujiOption {
+        serde_json::from_value(json!({
+            "id": "sharpness",
+            "spec": {
+                "name": "Sharpness", "kind": "integer", "rules": {"min": -4, "max": 4},
+                "encoding": {"kind": "scale", "spec": {"scale": 10}}
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn option_values_are_built_through_their_type() {
+        let option = sharpness();
+        let info = SettingInfo {
+            id: "sharpness",
+            kind: SpecKind::Integer,
+            option: Some(&option),
+            is_copy: true,
+        };
+        let out = generate_field_value(&info, &json!(-4)).unwrap().to_string();
+        assert!(
+            out.ends_with(
+                ":: Sharpness :: try_from (- 4i32) . expect (\"range checked by codegen\")"
+            ),
+            "got: {out}"
+        );
+        assert!(generate_field_value(&info, &json!(5)).is_err());
     }
 }
