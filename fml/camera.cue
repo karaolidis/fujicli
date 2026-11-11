@@ -488,6 +488,27 @@ cameras: {
 							]
 						},
 						{
+							message: "Dynamic Range Priority cannot exceed the value the image was shot with."
+							when: any: [
+								{all: [
+									{ref: "dynamic_range_priority", scope: "original", equals: "off"},
+									{ref: "dynamic_range_priority", in: ["auto", "weak", "strong", "plus"]},
+								]},
+								{all: [
+									{ref: "dynamic_range_priority", scope: "original", equals: "weak"},
+									{ref: "dynamic_range_priority", in: ["auto", "strong", "plus"]},
+								]},
+								{all: [
+									{ref: "dynamic_range_priority", scope: "original", equals: "strong"},
+									{ref: "dynamic_range_priority", in: ["auto", "plus"]},
+								]},
+								{all: [
+									{ref: "dynamic_range_priority", scope: "original", equals: "plus"},
+									{ref: "dynamic_range_priority", in: ["auto"]},
+								]},
+							]
+						},
+						{
 							message: "Teleconverter can only be enabled if it was enabled when the image was shot."
 							when: all: [
 								{ref: "teleconverter", scope: "original", equals: "off"},
