@@ -4,7 +4,6 @@ use anyhow::Context;
 use clap::Subcommand;
 
 use crate::cli::{GlobalOptions, common::usb, device::reverse::ReverseCmd};
-use fujicore::features::base::info::CameraInfoListItem;
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum DeviceCmd {
@@ -28,11 +27,7 @@ pub enum DeviceCmd {
 fn handle_list(options: GlobalOptions) -> anyhow::Result<()> {
     let GlobalOptions { json, .. } = options;
 
-    let cameras: Vec<CameraInfoListItem> = usb::get_all_cameras()
-        .context("enumerating connected cameras")?
-        .iter()
-        .map(std::convert::Into::into)
-        .collect();
+    let cameras = usb::list_cameras().context("enumerating connected cameras")?;
 
     if json {
         println!(

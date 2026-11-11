@@ -390,7 +390,6 @@ dependencies = [
  "log",
  "log4rs",
  "ptp-cursor",
- "rusb",
  "serde_json",
  "strum",
  "tempfile",

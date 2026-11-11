@@ -3,7 +3,7 @@ use std::fmt;
 use erased_serde::serialize_trait_object;
 use serde::Serialize;
 
-use crate::{Camera, UsbId, generated::options::UsbMode};
+use crate::{SupportedCamera, UsbId, generated::options::UsbMode, ptp::transport::Device};
 
 pub trait CameraInfo: fmt::Display + erased_serde::Serialize {}
 serialize_trait_object!(CameraInfo);
@@ -40,13 +40,15 @@ pub struct CameraInfoListItem {
     pub usb_id: UsbId,
 }
 
-impl From<&Camera> for CameraInfoListItem {
-    fn from(camera: &Camera) -> Self {
-        Self {
-            name: camera.name(),
-            bus_address: camera.bus_address(),
-            usb_id: camera.usb_id(),
-        }
+impl CameraInfoListItem {
+    #[must_use]
+    pub fn from_device(device: &Device) -> Option<Self> {
+        let camera = SupportedCamera::find(device.usb_id())?;
+        Some(Self {
+            name: camera.name,
+            bus_address: format!("{}.{}", device.bus(), device.address()),
+            usb_id: camera.usb_id,
+        })
     }
 }
 

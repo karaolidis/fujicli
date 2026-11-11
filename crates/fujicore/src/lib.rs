@@ -12,9 +12,8 @@ use features::{
     base::{CameraBase, info::CameraInfo},
     simulation::Simulation,
 };
-use log::{debug, error};
-use ptp::Ptp;
-use rusb::{GlobalContext, constants::LIBUSB_CLASS_IMAGE};
+use log::debug;
+use ptp::{Ptp, transport::Device};
 
 use crate::{
     features::base::UNKNOWN_CAMERA,
@@ -24,11 +23,9 @@ use crate::{
     },
 };
 
-const SESSION: u32 = 1;
-
 pub struct Camera {
     pub ptp: Ptp,
-    r#impl: Box<dyn CameraBase<Context = GlobalContext>>,
+    r#impl: Box<dyn CameraBase>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,32 +36,19 @@ pub enum CameraMode {
 }
 
 impl Camera {
-    pub fn probe(device: &rusb::Device<GlobalContext>) -> CoreResult<bool> {
-        let descriptor = device.device_descriptor()?;
-
-        let usb_id = UsbId {
-            vendor: descriptor.vendor_id(),
-            product: descriptor.product_id(),
-        };
-
-        Ok(SUPPORTED.iter().any(|c| c.usb_id == usb_id))
+    #[must_use]
+    pub fn probe(device: &Device) -> bool {
+        SupportedCamera::find(device.usb_id()).is_some()
     }
 
-    pub fn open_with(mode: CameraMode, device: &rusb::Device<GlobalContext>) -> CoreResult<Self> {
-        let descriptor = device.device_descriptor()?;
-
+    pub fn open_with(mode: CameraMode, device: &Device) -> CoreResult<Self> {
         let usb_id = match mode {
-            CameraMode::Supported | CameraMode::Unknown => UsbId {
-                vendor: descriptor.vendor_id(),
-                product: descriptor.product_id(),
-            },
+            CameraMode::Supported | CameraMode::Unknown => device.usb_id(),
             CameraMode::Emulated(usb_id) => usb_id,
         };
 
         let factory = match mode {
-            CameraMode::Supported | CameraMode::Emulated(_) => SUPPORTED
-                .iter()
-                .find(|c| c.usb_id == usb_id)
+            CameraMode::Supported | CameraMode::Emulated(_) => SupportedCamera::find(usb_id)
                 .map(|c| {
                     debug!("Found supported camera: {}", c.name);
                     c.camera_factory
@@ -73,87 +57,42 @@ impl Camera {
             CameraMode::Unknown => UNKNOWN_CAMERA.camera_factory,
         };
 
-        let bus = device.bus_number();
-        let address = device.address();
-
-        let config_descriptor = device.active_config_descriptor()?;
-        let interface_descriptor = config_descriptor
-            .interfaces()
-            .flat_map(|i| i.descriptors())
-            .find(|x| x.class_code() == LIBUSB_CLASS_IMAGE)
-            .ok_or(CoreError::NoImagingInterface)?;
-
-        let interface = interface_descriptor.interface_number();
-        debug!("Found interface {interface}");
-
-        let handle = device.open()?;
-        handle.claim_interface(interface)?;
-        debug!("Claimed interface");
-
-        let find_endpoint = |direction: rusb::Direction,
-                             transfer_type: rusb::TransferType|
-         -> Result<u8, rusb::Error> {
-            interface_descriptor
-                .endpoint_descriptors()
-                .find(|ep| ep.direction() == direction && ep.transfer_type() == transfer_type)
-                .map(|x| x.address())
-                .ok_or(rusb::Error::NotFound)
-        };
-
-        let bulk_in = find_endpoint(rusb::Direction::In, rusb::TransferType::Bulk)?;
-        debug!("Found Bulk In endpoint");
-
-        let bulk_out = find_endpoint(rusb::Direction::Out, rusb::TransferType::Bulk)?;
-        debug!("Found Bulk Out endpoint");
-
-        let transaction_id = 0;
         let r#impl = (factory)();
-        let chunk_size = r#impl.chunk_size();
+        let transport = device.open(r#impl.chunk_size())?;
 
-        let mut ptp = Ptp {
-            bus,
-            address,
-            interface,
-            bulk_in,
-            bulk_out,
-            handle,
-            transaction_id,
-            chunk_size,
-        };
-
-        ptp.open_session(SESSION)?;
-
-        Ok(Self { ptp, r#impl })
+        Ok(Self {
+            ptp: Ptp::new(transport),
+            r#impl,
+        })
     }
 
-    pub fn open(device: &rusb::Device<GlobalContext>) -> CoreResult<Self> {
+    pub fn open(device: &Device) -> CoreResult<Self> {
         Self::open_with(CameraMode::Supported, device)
     }
 
-    pub fn open_as(device: &rusb::Device<GlobalContext>, usb_id: UsbId) -> CoreResult<Self> {
+    pub fn open_as(device: &Device, usb_id: UsbId) -> CoreResult<Self> {
         Self::open_with(CameraMode::Emulated(usb_id), device)
     }
 
-    pub fn open_unknown(device: &rusb::Device<GlobalContext>) -> CoreResult<Self> {
+    pub fn open_unknown(device: &Device) -> CoreResult<Self> {
         Self::open_with(CameraMode::Unknown, device)
     }
 }
 
-impl Drop for Camera {
-    fn drop(&mut self) {
-        if let Err(error) = self.ptp.close_session(SESSION) {
-            error!("Error closing session: {error}");
-        }
-    }
-}
-
-type CameraFactory = fn() -> Box<dyn CameraBase<Context = GlobalContext>>;
+type CameraFactory = fn() -> Box<dyn CameraBase>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct SupportedCamera {
     pub name: &'static str,
     pub usb_id: UsbId,
     pub camera_factory: CameraFactory,
+}
+
+impl SupportedCamera {
+    #[must_use]
+    pub fn find(usb_id: UsbId) -> Option<&'static Self> {
+        SUPPORTED.iter().find(|c| c.usb_id == usb_id)
+    }
 }
 
 impl Camera {
@@ -163,10 +102,6 @@ impl Camera {
 
     pub fn usb_id(&self) -> UsbId {
         self.r#impl.camera_definition().usb_id
-    }
-
-    pub fn bus_address(&self) -> String {
-        format!("{}.{}", self.ptp.bus, self.ptp.address)
     }
 
     pub fn get_info(&mut self) -> CoreResult<Box<dyn CameraInfo>> {

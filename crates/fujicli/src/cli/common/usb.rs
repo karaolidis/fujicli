@@ -5,7 +5,11 @@ use std::{
 };
 
 use anyhow::Context;
-use fujicore::{Camera, UsbId};
+use fujicore::{
+    Camera, UsbId,
+    features::base::info::CameraInfoListItem,
+    ptp::transport::{self, Device},
+};
 use log::trace;
 use thiserror::Error;
 
@@ -65,69 +69,48 @@ impl Display for Location {
     }
 }
 
-pub fn get_usb_device_by_location(
-    location: Location,
-) -> anyhow::Result<rusb::Device<rusb::GlobalContext>> {
-    for device in rusb::devices().context("enumerating USB devices")?.iter() {
-        let bus = device.bus_number();
-        let address = device.address();
-
-        if bus != location.bus || address != location.address {
-            trace!("USB device {device:x?} does not match specified location");
-            continue;
-        }
-
-        return Ok(device);
-    }
-
-    anyhow::bail!("no USB device found at location {location}");
+pub fn get_device_by_location(location: Location) -> anyhow::Result<Device> {
+    transport::devices()
+        .context("enumerating USB devices")?
+        .into_iter()
+        .find(|d| d.bus() == location.bus && d.address() == location.address)
+        .ok_or_else(|| anyhow::anyhow!("no USB device found at location {location}"))
 }
 
-pub fn get_all_cameras() -> anyhow::Result<Vec<Camera>> {
-    let mut cameras = Vec::new();
+fn supported_devices() -> anyhow::Result<impl Iterator<Item = Device>> {
+    Ok(transport::devices()
+        .context("enumerating USB devices")?
+        .into_iter()
+        .filter(|d| {
+            let supported = Camera::probe(d);
+            if !supported {
+                trace!("USB device {} is not a supported camera", d.usb_id());
+            }
+            supported
+        }))
+}
 
-    for device in rusb::devices().context("enumerating USB devices")?.iter() {
-        trace!("Found USB device {device:x?}");
-        if !Camera::probe(&device).context("probing USB device for Fujifilm support")? {
-            trace!("USB device {device:x?} is not a supported camera");
-            continue;
-        }
-
-        let camera = Camera::open(&device).context("opening supported camera")?;
-        cameras.push(camera);
-    }
-
-    Ok(cameras)
+pub fn list_cameras() -> anyhow::Result<Vec<CameraInfoListItem>> {
+    Ok(transport::devices()
+        .context("enumerating USB devices")?
+        .iter()
+        .filter_map(CameraInfoListItem::from_device)
+        .collect())
 }
 
 pub fn get_camera(device: Option<Location>, emulate: Option<UsbId>) -> anyhow::Result<Camera> {
-    if let Some(location) = device {
-        let device = get_usb_device_by_location(location)?;
+    let device = match device {
+        Some(location) => get_device_by_location(location)?,
+        None => supported_devices()?
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("no supported camera found"))?,
+    };
 
-        emulate.as_ref().map_or_else(
-            || Camera::open(&device).context("opening camera"),
-            |usb_id| {
-                Camera::open_as(&device, *usb_id)
-                    .with_context(|| format!("opening camera as emulated {usb_id}"))
-            },
-        )
-    } else {
-        for device in rusb::devices().context("enumerating USB devices")?.iter() {
-            trace!("Found USB device {device:x?}");
-            if !Camera::probe(&device).context("probing USB device for Fujifilm support")? {
-                trace!("USB device {device:x?} is not a supported camera");
-                continue;
-            }
-
-            return emulate.as_ref().map_or_else(
-                || Camera::open(&device).context("opening camera"),
-                |usb_id| {
-                    Camera::open_as(&device, *usb_id)
-                        .with_context(|| format!("opening camera as emulated {usb_id}"))
-                },
-            );
-        }
-
-        anyhow::bail!("no supported camera found");
-    }
+    emulate.as_ref().map_or_else(
+        || Camera::open(&device).context("opening camera"),
+        |usb_id| {
+            Camera::open_as(&device, *usb_id)
+                .with_context(|| format!("opening camera as emulated {usb_id}"))
+        },
+    )
 }

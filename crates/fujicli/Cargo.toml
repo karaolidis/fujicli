@@ -20,7 +20,6 @@ fujicore.workspace = true
 log.workspace = true
 log4rs.workspace = true
 ptp-cursor.workspace = true
-rusb.workspace = true
 serde_json.workspace = true
 strum.workspace = true
 tempfile.workspace = true
