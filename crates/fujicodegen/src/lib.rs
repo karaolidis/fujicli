@@ -18,7 +18,7 @@ pub fn generate(json: &str, out_dir: &Path) -> anyhow::Result<()> {
     let options = common::options::generate(&fml.options).context("generating option types")?;
     write(out_dir, "options", options)?;
 
-    let cameras = common::cameras::generate(&fml.cameras).context("generating camera registry")?;
+    let cameras = common::cameras::generate(&fml.cameras);
     write(out_dir, "cameras", cameras)?;
 
     let simulations = common::simulations::generate(&fml.options, &fml.cameras)

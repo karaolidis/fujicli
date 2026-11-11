@@ -1,3 +1,5 @@
+use std::num::NonZeroU32;
+
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -24,7 +26,7 @@ pub struct CameraSpec {
 pub struct Usb {
     pub vendor_id: u16,
     pub product_id: u16,
-    pub chunk_size: u32,
+    pub chunk_size: NonZeroU32,
 }
 
 #[derive(Debug, Deserialize)]

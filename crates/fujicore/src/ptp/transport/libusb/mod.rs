@@ -1,4 +1,4 @@
-use std::{cmp::min, io::Cursor, time::Duration};
+use std::{cmp::min, io::Cursor, num::NonZeroU32, time::Duration};
 
 use log::{debug, error, trace, warn};
 use ptp_cursor::{PtpDeserialize, PtpSerialize};
@@ -66,7 +66,7 @@ impl Device {
         self.serial.as_deref()
     }
 
-    pub fn open(&self, chunk_size: usize) -> CoreResult<Transport> {
+    pub fn open(&self, chunk_size: NonZeroU32) -> CoreResult<Transport> {
         let config_descriptor = self.inner.active_config_descriptor()?;
         let interface_descriptor = config_descriptor
             .interfaces()
@@ -101,7 +101,7 @@ impl Device {
             bulk_in,
             bulk_out,
             transaction_id: 0,
-            chunk_size,
+            chunk_size: chunk_size.get() as usize,
         };
 
         debug!("Opening PTP session");

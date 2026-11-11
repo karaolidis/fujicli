@@ -36,7 +36,7 @@ impl From<&Camera> for Features {
     }
 }
 
-pub fn generate(cameras: &BTreeMap<String, Camera>) -> anyhow::Result<TokenStream> {
+pub fn generate(cameras: &BTreeMap<String, Camera>) -> TokenStream {
     let mut sorted: Vec<&Camera> = cameras.values().collect();
     sorted.sort_by(|a, b| {
         (a.spec.generation.as_str(), a.id.as_str())
@@ -48,12 +48,12 @@ pub fn generate(cameras: &BTreeMap<String, Camera>) -> anyhow::Result<TokenStrea
 
     for camera in sorted {
         let names = CameraNames::from(camera);
-        defs.push(generate_one(camera, &names)?);
+        defs.push(generate_one(camera, &names));
         let r#const = &names.r#const;
         supported_entries.push(quote! { #r#const });
     }
 
-    Ok(quote! {
+    quote! {
         //! Generated camera definitions and supported device registry. Do not edit.
 
         #(#defs)*
@@ -61,54 +61,50 @@ pub fn generate(cameras: &BTreeMap<String, Camera>) -> anyhow::Result<TokenStrea
         pub const SUPPORTED: &[crate::SupportedCamera] = &[
             #(#supported_entries,)*
         ];
-    })
+    }
 }
 
 pub fn path() -> TokenStream {
     quote! { crate::generated::cameras }
 }
 
-fn generate_one(camera: &Camera, names: &CameraNames) -> anyhow::Result<TokenStream> {
+fn generate_one(camera: &Camera, names: &CameraNames) -> TokenStream {
     let features = Features::from(camera);
 
     let struct_name = &names.r#struct;
 
-    let base_impl = generate_base_impl(camera, names, &features)?;
+    let base_impl = generate_base_impl(camera, names, &features);
     let supported_const = generate_supported_camera_const(camera, names);
 
-    Ok(quote! {
+    quote! {
         pub struct #struct_name;
 
         #base_impl
         #supported_const
-    })
+    }
 }
 
-fn generate_base_impl(
-    camera: &Camera,
-    names: &CameraNames,
-    features: &Features,
-) -> anyhow::Result<TokenStream> {
+fn generate_base_impl(camera: &Camera, names: &CameraNames, features: &Features) -> TokenStream {
     let struct_name = &names.r#struct;
     let const_name = &names.r#const;
-    let chunk_size = Literal::usize_suffixed(camera.spec.usb.chunk_size.try_into()?);
+    let chunk_size = Literal::u32_unsuffixed(camera.spec.usb.chunk_size.get());
     let (backup_override, simulation_override, render_override) =
         generate_feature_overrides(features);
 
-    Ok(quote! {
+    quote! {
         impl crate::features::base::CameraBase for #struct_name {
             fn camera_definition(&self) -> &'static crate::SupportedCamera {
                 &#const_name
             }
 
-            fn chunk_size(&self) -> usize {
-                #chunk_size
+            fn chunk_size(&self) -> ::std::num::NonZeroU32 {
+                const { ::std::num::NonZeroU32::new(#chunk_size).expect("chunk size validated by CUE") }
             }
             #backup_override
             #simulation_override
             #render_override
         }
-    })
+    }
 }
 
 fn generate_feature_overrides(

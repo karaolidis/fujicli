@@ -1,5 +1,7 @@
 pub mod info;
 
+use std::num::NonZeroU32;
+
 use info::{CameraInfo, DefaultCameraInfo};
 use log::debug;
 
@@ -18,9 +20,9 @@ use crate::{
 pub trait CameraBase {
     fn camera_definition(&self) -> &'static SupportedCamera;
 
-    fn chunk_size(&self) -> usize {
+    fn chunk_size(&self) -> NonZeroU32 {
         // Default conservative estimate.
-        1024 * 1024
+        const { NonZeroU32::new(1024 * 1024).expect("non-zero") }
     }
 
     fn as_backup_manager(&self) -> Option<&dyn CameraBackupManager> {
