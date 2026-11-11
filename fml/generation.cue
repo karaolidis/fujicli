@@ -322,10 +322,6 @@ generations: {
 						]
 					},
 					{
-						message: "Exposure Offset cannot be below -2 EV."
-						when: {ref: "exposure_offset", lt: -2.0}
-					},
-					{
 						message: "Teleconverter can only be enabled if it was enabled when the image was shot."
 						when: all: [
 							{ref: "teleconverter", scope: "original", equals: "off"},
