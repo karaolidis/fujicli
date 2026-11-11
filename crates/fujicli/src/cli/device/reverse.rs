@@ -118,6 +118,14 @@ fn handle_info(options: GlobalOptions) -> anyhow::Result<()> {
     let _ = try_call!(camera.ptp.get_prop_raw(UsbMode::prop_code()));
     let _ = try_call!(camera.ptp.get_prop_raw(DevicePropCode::FujiBatteryInfo2));
 
+    for code in [
+        DevicePropCode::FujiRawConversionProfileCode,
+        DevicePropCode::FujiRawConversionConditionCode,
+        DevicePropCode::FujiRawConversionCompatibilityCode,
+    ] {
+        let _ = try_call!(camera.ptp.get_prop::<String>(code));
+    }
+
     Ok(())
 }
 
