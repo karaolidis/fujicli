@@ -457,20 +457,33 @@ cameras: {
 							message: "Dynamic Range cannot exceed the value the image was shot with."
 							when: any: [
 								{all: [
-									{ref: "dynamic_range", scope: "original", equals: "hdr100"},
-									{ref: "dynamic_range", in: ["auto", "hdr200", "hdr400", "hdr800", "hdr800_plus"]},
-								]},
-								{all: [
-									{ref: "dynamic_range", scope: "original", equals: "hdr200"},
+									{ref: "dynamic_range_priority", scope: "original", equals: "weak"},
 									{ref: "dynamic_range", in: ["auto", "hdr400", "hdr800", "hdr800_plus"]},
 								]},
 								{all: [
-									{ref: "dynamic_range", scope: "original", equals: "hdr400"},
+									{ref: "dynamic_range_priority", scope: "original", equals: "strong"},
 									{ref: "dynamic_range", in: ["auto", "hdr800", "hdr800_plus"]},
 								]},
 								{all: [
-									{ref: "dynamic_range", scope: "original", equals: "hdr800"},
-									{ref: "dynamic_range", in: ["auto", "hdr800_plus"]},
+									{not: {ref: "dynamic_range_priority", scope: "original", in: ["weak", "strong"]}},
+									{any: [
+										{all: [
+											{ref: "dynamic_range", scope: "original", equals: "hdr100"},
+											{ref: "dynamic_range", in: ["auto", "hdr200", "hdr400", "hdr800", "hdr800_plus"]},
+										]},
+										{all: [
+											{ref: "dynamic_range", scope: "original", equals: "hdr200"},
+											{ref: "dynamic_range", in: ["auto", "hdr400", "hdr800", "hdr800_plus"]},
+										]},
+										{all: [
+											{ref: "dynamic_range", scope: "original", equals: "hdr400"},
+											{ref: "dynamic_range", in: ["auto", "hdr800", "hdr800_plus"]},
+										]},
+										{all: [
+											{ref: "dynamic_range", scope: "original", equals: "hdr800"},
+											{ref: "dynamic_range", in: ["auto", "hdr800_plus"]},
+										]},
+									]},
 								]},
 							]
 						},
