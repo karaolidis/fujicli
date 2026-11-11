@@ -25,11 +25,11 @@ pub fn generate(json: &str, out_dir: &Path) -> anyhow::Result<()> {
         .context("generating simulation types")?;
     write(out_dir, "simulations", simulations)?;
 
-    let renders = common::renders::generate(&fml.options, &fml.cameras)
+    let renders = common::renders::generate(&fml.options, &fml.profile, &fml.cameras)
         .context("generating render profile types")?;
     write(out_dir, "renders", renders)?;
 
-    let cli = cli::generate(&fml.options, &fml.cameras);
+    let cli = cli::generate(&fml.options, &fml.profile, &fml.cameras);
     write(out_dir, "cli", cli)?;
 
     let mod_rs = root(&fml);

@@ -74,6 +74,16 @@ impl OptionLike for Field {
     }
 }
 
+impl<T: OptionLike + ?Sized> OptionLike for &T {
+    fn id(&self) -> &str {
+        T::id(self)
+    }
+
+    fn option_ref(&self) -> Option<&str> {
+        T::option_ref(self)
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 enum CompareOp {
     Eq,

@@ -147,38 +147,33 @@ generations: {
 
 			_render: {
 				fields: [
-					{id: "shoot_condition"},
-					{ref: "file_type"},
-					{ref: "image_size"},
-					{ref: "image_quality"},
-					{ref: "exposure_offset"},
-					{ref: "dynamic_range"},
-					{ref: "dynamic_range_priority"},
-					{ref: "film_simulation"},
-					{ref: "grain_effect"},
-					{ref: "color_chrome_effect"},
-					{id: "white_balance_as_shot"},
-					{ref: "white_balance"},
-					{ref: "white_balance_shift_red"},
-					{ref: "white_balance_shift_blue"},
-					{ref: "white_balance_temperature"},
-					{ref: "highlight_tone"},
-					{ref: "shadow_tone"},
-					{ref: "color"},
-					{ref: "sharpness"},
-					{ref: "noise_reduction"},
-					{ref: "lens_modulation_optimizer"},
-					{ref: "color_space"},
-					{ref: "monochromatic_color_temperature"},
-					{ref: "smooth_skin_effect"},
-					{ref: "color_chrome_fx_blue"},
-					{ref: "monochromatic_color_tint"},
-					{ref: "clarity"},
-					{ref: "teleconverter"},
-					{
-						id:        "portrait_enhancer"
-						skip_read: true
-					},
+					"file_type",
+					"image_size",
+					"image_quality",
+					"exposure_offset",
+					"dynamic_range",
+					"dynamic_range_priority",
+					"film_simulation",
+					"grain_effect",
+					"color_chrome_effect",
+					"white_balance_as_shot",
+					"white_balance",
+					"white_balance_shift_red",
+					"white_balance_shift_blue",
+					"white_balance_temperature",
+					"highlight_tone",
+					"shadow_tone",
+					"color",
+					"sharpness",
+					"noise_reduction",
+					"lens_modulation_optimizer",
+					"color_space",
+					"monochromatic_color_temperature",
+					"smooth_skin_effect",
+					"color_chrome_fx_blue",
+					"monochromatic_color_tint",
+					"clarity",
+					"teleconverter",
 				]
 				transformations: [
 					{
@@ -195,12 +190,6 @@ generations: {
 					{
 						when: {not: {ref: "white_balance", equals: "as_shot"}}
 						apply: [{ref: "white_balance_as_shot", value: 0x02}]
-					},
-					{
-						apply: [
-							{ref: "shoot_condition", value: 0},
-							{ref: "portrait_enhancer", value: 0},
-						]
 					},
 				]
 				rules: [

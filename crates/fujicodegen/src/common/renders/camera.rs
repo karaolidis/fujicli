@@ -5,7 +5,7 @@ use proc_macro2::{Ident, Literal, TokenStream};
 use quote::quote;
 
 use crate::{
-    ast::{Camera, Dnf, Field, FujiOption, Render, Transformation},
+    ast::{Camera, Dnf, Field, FujiOption, Profile, Render, Transformation},
     common::{cameras, renders},
     schema::{
         alias::{NormalizedRule, NormalizedTransformation},
@@ -23,12 +23,13 @@ use crate::{
 
 pub fn generate(
     options: &BTreeMap<String, FujiOption>,
+    profile: &Profile,
     cameras: &BTreeMap<String, Camera>,
 ) -> anyhow::Result<TokenStream> {
     let base_union = collect_base_union(cameras);
     let mut blocks = Vec::with_capacity(cameras.len());
     for camera in cameras.values() {
-        let block = generate_one(options, camera, &base_union)
+        let block = generate_one(options, profile, camera, &base_union)
             .with_context(|| format!("generating render profile for camera `{}`", camera.id))?;
         blocks.push(block);
     }
@@ -39,12 +40,13 @@ fn collect_base_union(cameras: &BTreeMap<String, Camera>) -> BTreeSet<String> {
     cameras
         .values()
         .filter_map(|c| c.spec.features.as_ref()?.render.as_ref())
-        .flat_map(|r| r.fields.iter().map(|f| f.id().to_string()))
+        .flat_map(|r| r.fields.iter().cloned())
         .collect()
 }
 
 fn generate_one(
     options: &BTreeMap<String, FujiOption>,
+    profile: &Profile,
     camera: &Camera,
     base_union: &BTreeSet<String>,
 ) -> anyhow::Result<TokenStream> {
@@ -57,7 +59,8 @@ fn generate_one(
         return Ok(quote! {});
     };
 
-    let settings = build_settings(options, &render.fields);
+    let fields = profile.select(&render.fields)?;
+    let settings = build_settings(options, &fields);
 
     let aliases: Vec<NormalizedTransformation> = render
         .transformations
@@ -81,7 +84,7 @@ fn generate_one(
 
     let presence_info = PresenceDag::from_rules(&effective_rules);
 
-    let nodes: Vec<&str> = render.fields.iter().map(Field::id).collect();
+    let nodes: Vec<&str> = fields.iter().map(|f| f.id()).collect();
     let edges: Vec<(&str, &str)> = presence_info
         .edges
         .iter()
@@ -94,8 +97,7 @@ fn generate_one(
         .map(str::to_owned)
         .collect();
 
-    let n_props = i16::try_from(render.fields.len())
-        .with_context(|| format!("too many render fields on camera `{}`", camera.id))?;
+    let n_props = i16::try_from(profile.fields.len()).context("too many profile fields")?;
 
     let optional_field_ids: BTreeSet<String> = presence_info.conditions.keys().cloned().collect();
     let foreign_field_ids: Vec<&str> = base_union
@@ -104,31 +106,28 @@ fn generate_one(
         .filter(|id| !settings.contains_key(*id))
         .collect();
 
-    let draft_struct = generate_draft_struct(&settings, &render.fields, &draft_ident);
+    let draft_struct = generate_draft_struct(&settings, &fields, &draft_ident);
     let rule_module = generate_rule_module(
         &settings,
+        &fields,
         render,
         &effective_rules,
         &mod_ident,
         &draft_ident,
         &optional_field_ids,
     )?;
-    let complete_struct = generate_complete_struct(
-        &settings,
-        &render.fields,
-        &optional_field_ids,
-        &complete_ident,
-    );
+    let complete_struct =
+        generate_complete_struct(&settings, &fields, &optional_field_ids, &complete_ident);
     let from_complete_for_draft = generate_from_complete_for_draft(
         &settings,
-        &render.fields,
+        &fields,
         &optional_field_ids,
         &complete_ident,
         &draft_ident,
     );
     let from_complete_for_base = generate_from_complete_for_base(
         &settings,
-        &render.fields,
+        &fields,
         &optional_field_ids,
         &foreign_field_ids,
         &complete_ident,
@@ -136,7 +135,7 @@ fn generate_one(
     );
     let try_from_draft_for_complete = generate_try_from_draft_for_complete(
         &settings,
-        &render.fields,
+        &fields,
         &optional_field_ids,
         &complete_ident,
         &draft_ident,
@@ -144,16 +143,17 @@ fn generate_one(
     );
     let try_from_base_for_draft = generate_try_from_base_for_draft(
         &settings,
-        &render.fields,
+        &fields,
         &foreign_field_ids,
         &complete_ident,
         &draft_ident,
         &renders_path,
     );
-    let write_fields = generate_write_fields(&settings, &render.fields, &optional_field_ids);
+    let write_fields = generate_write_fields(&settings, profile, &optional_field_ids);
     let read_fields = generate_read_fields(
         &settings,
-        &render.fields,
+        profile,
+        &fields,
         &complete_ident,
         &draft_ident,
         &presence_info.conditions,
@@ -185,7 +185,7 @@ fn generate_one(
 
 fn generate_draft_struct(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
-    fields: &[Field],
+    fields: &[&Field],
     draft_ident: &Ident,
 ) -> TokenStream {
     let field_defs = fields.iter().map(|f| {
@@ -212,6 +212,7 @@ fn generate_draft_struct(
 
 fn generate_rule_module(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
+    fields: &[&Field],
     render: &Render,
     effective_rules: &[NormalizedRule],
     mod_ident: &Ident,
@@ -227,7 +228,7 @@ fn generate_rule_module(
     let emit_warnings_and_infos =
         generate_emit_warnings_and_infos(settings, effective_rules, scopes, &buf_ty)?;
     let solve = generate_solve(settings, effective_rules, scopes, &buf_ty, optional)?;
-    let try_update_from = generate_try_update_from(&render.fields, settings, &buf_ty);
+    let try_update_from = generate_try_update_from(fields, settings, &buf_ty);
 
     Ok(quote! {
         pub mod #mod_ident {
@@ -240,7 +241,7 @@ fn generate_rule_module(
 }
 
 fn generate_try_update_from(
-    fields: &[Field],
+    fields: &[&Field],
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     buf_ty: &TokenStream,
 ) -> TokenStream {
@@ -283,7 +284,7 @@ fn generate_try_update_from(
 
 fn generate_complete_struct(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
-    fields: &[Field],
+    fields: &[&Field],
     optional: &BTreeSet<String>,
     complete_ident: &Ident,
 ) -> TokenStream {
@@ -326,7 +327,7 @@ fn copy_field(info: &SettingInfo<'_>, source: &TokenStream) -> TokenStream {
 
 fn generate_from_complete_for_draft(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
-    fields: &[Field],
+    fields: &[&Field],
     optional: &BTreeSet<String>,
     complete_ident: &Ident,
     draft_ident: &Ident,
@@ -355,7 +356,7 @@ fn generate_from_complete_for_draft(
 
 fn generate_from_complete_for_base(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
-    fields: &[Field],
+    fields: &[&Field],
     optional: &BTreeSet<String>,
     foreign_field_ids: &[&str],
     complete_ident: &Ident,
@@ -391,7 +392,7 @@ fn generate_from_complete_for_base(
 
 fn generate_try_from_draft_for_complete(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
-    fields: &[Field],
+    fields: &[&Field],
     optional: &BTreeSet<String>,
     complete_ident: &Ident,
     draft_ident: &Ident,
@@ -435,7 +436,7 @@ fn generate_try_from_draft_for_complete(
 
 fn generate_try_from_base_for_draft(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
-    fields: &[Field],
+    fields: &[&Field],
     foreign_field_ids: &[&str],
     complete_ident: &Ident,
     draft_ident: &Ident,
@@ -476,32 +477,18 @@ fn generate_try_from_base_for_draft(
     }
 }
 
-fn generate_profile_fields_impl(
-    complete_ident: &Ident,
-    n_props: i16,
-    write_fields: &TokenStream,
-    read_fields: &TokenStream,
-) -> TokenStream {
-    let n_props_lit = Literal::i16_suffixed(n_props);
-    quote! {
-        impl crate::features::render::ConversionProfileFields for #complete_ident {
-            const FIELD_COUNT: i16 = #n_props_lit;
-
-            #write_fields
-
-            #read_fields
-        }
-    }
-}
-
 fn generate_write_fields(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
-    fields: &[Field],
+    profile: &Profile,
     optional: &BTreeSet<String>,
 ) -> TokenStream {
-    let writes = fields
-        .iter()
-        .map(|field| generate_write_one(settings, optional, field));
+    let writes = profile.fields.iter().map(|field| {
+        if settings.contains_key(field.id()) {
+            generate_write_one(settings, optional, field)
+        } else {
+            quote! { ::ptp_cursor::PtpSerialize::try_write_ptp(&0i32, buf)?; }
+        }
+    });
 
     quote! {
         fn write_fields(&self, buf: &mut Vec<u8>) -> ::std::io::Result<()> {
@@ -517,9 +504,6 @@ fn generate_write_one(
     optional: &BTreeSet<String>,
     field: &Field,
 ) -> TokenStream {
-    if field.skip_write() {
-        return quote! {};
-    }
     let id = field.id();
     let info = &settings[id];
     let ident = info.field_ident();
@@ -556,21 +540,24 @@ fn generate_write_one(
 
 fn generate_read_fields(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
-    fields: &[Field],
+    profile: &Profile,
+    fields: &[&Field],
     complete_ident: &Ident,
     draft_ident: &Ident,
     presence_conditions: &BTreeMap<String, Dnf>,
     transformations: &[Transformation],
     convert_order: &[String],
 ) -> anyhow::Result<TokenStream> {
-    let raw_reads: Vec<TokenStream> = fields
+    let raw_reads: Vec<TokenStream> = profile
+        .fields
         .iter()
-        .filter(|f| !f.skip_read())
-        .map(|field| {
-            let info = &settings[field.id()];
-            let raw_ident = raw_local_ident(&info.field_ident());
+        .enumerate()
+        .filter(|(_, field)| settings.contains_key(field.id()))
+        .map(|(position, field)| {
+            let id = field.id();
+            let raw_ident = raw_local_ident(&settings[id].field_ident());
             quote! {
-                let #raw_ident = <i32 as ::ptp_cursor::PtpDeserialize>::try_read_ptp(cur)?;
+                let #raw_ident = crate::features::render::profile_value(values, #position, #id)?;
             }
         })
         .collect();
@@ -590,7 +577,7 @@ fn generate_read_fields(
 
     Ok(quote! {
         #[allow(clippy::nonminimal_bool)]
-        fn read_fields<R: ::ptp_cursor::Read>(cur: &mut R) -> ::std::io::Result<Self> {
+        fn read_fields(values: &[i32]) -> ::std::io::Result<Self> {
             #( #raw_reads )*
 
             let mut staged = #draft_ident::default();
@@ -612,10 +599,6 @@ fn generate_convert_one(
     field: &Field,
     presence_conditions: &BTreeMap<String, Dnf>,
 ) -> anyhow::Result<TokenStream> {
-    if field.skip_read() {
-        return Ok(quote! {});
-    }
-
     let info = &settings[field.id()];
     let ident = info.field_ident();
     let type_path = info.type_path();
@@ -647,6 +630,24 @@ fn generate_convert_one(
 
 fn raw_local_ident(ident: &Ident) -> Ident {
     snake_case_ident!("raw_{}", ident)
+}
+
+fn generate_profile_fields_impl(
+    complete_ident: &Ident,
+    n_props: i16,
+    write_fields: &TokenStream,
+    read_fields: &TokenStream,
+) -> TokenStream {
+    let n_props_lit = Literal::i16_suffixed(n_props);
+    quote! {
+        impl crate::features::render::ConversionProfileFields for #complete_ident {
+            const FIELD_COUNT: i16 = #n_props_lit;
+
+            #write_fields
+
+            #read_fields
+        }
+    }
 }
 
 fn generate_camera_render_manager_impl(

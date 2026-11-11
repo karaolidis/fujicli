@@ -67,26 +67,21 @@ cameras: [string]: #Camera
 			}
 
 			#Render: {
-				fields: [...#Field]
+				fields: [...string]
 
-				#Field: {
-					id:          string | *ref
-					skip_read?:  true
-					skip_write?: true
-					ref?:        #RefOption
-				}
+				_fields: [for f in profile.fields if list.Contains(fields, f.id) {f}]
 
 				#Grammar: #GrammarBase & {
 					_scoped: true
 					_ids: {
-						all: [for _, field in fields {field.id}]
+						all: fields
 						i: list.Concat([
-							[for _, field in fields if field.ref == _|_ {field.id}],
-							[for _, field in fields if field.ref != _|_ if options[field.ref].spec.kind == "integer" {field.id}],
+							[for _, field in _fields if field.ref == _|_ {field.id}],
+							[for _, field in _fields if field.ref != _|_ if options[field.ref].spec.kind == "integer" {field.id}],
 						])
-						f: [for _, field in fields if field.ref != _|_ if options[field.ref].spec.kind == "float" {field.id}]
-						s: [for _, field in fields if field.ref != _|_ if options[field.ref].spec.kind == "string" {field.id}]
-						e: [for _, field in fields if field.ref != _|_ if options[field.ref].spec.kind == "enum" {field.id}]
+						f: [for _, field in _fields if field.ref != _|_ if options[field.ref].spec.kind == "float" {field.id}]
+						s: [for _, field in _fields if field.ref != _|_ if options[field.ref].spec.kind == "string" {field.id}]
+						e: [for _, field in _fields if field.ref != _|_ if options[field.ref].spec.kind == "enum" {field.id}]
 					}
 				}
 
@@ -108,7 +103,8 @@ cameras: [string]: #Camera
 					when: #Grammar.#Predicate
 				}
 
-				_unique_ids: list.UniqueItems & [for f in fields {f.id}]
+				_unique_ids: list.UniqueItems & fields
+				_known_ids: {for id in fields {(id): list.Contains(_profile_ids, id) & true}}
 			}
 		}
 	}

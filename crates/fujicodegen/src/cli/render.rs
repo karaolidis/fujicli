@@ -4,7 +4,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 use crate::{
-    ast::{Camera, Field, FujiOption},
+    ast::{Camera, Field, FujiOption, Profile},
     common::{options, renders},
     snake_case_ident, upper_camel_case_ident,
 };
@@ -17,10 +17,11 @@ struct Entry {
 
 pub fn generate(
     options: &BTreeMap<String, FujiOption>,
+    profile: &Profile,
     cameras: &BTreeMap<String, Camera>,
 ) -> TokenStream {
-    let render_options = collect_render_option_ids(cameras);
-    let render_inline_ids = collect_render_inline_ids(cameras);
+    let render_options = collect_render_option_ids(profile, cameras);
+    let render_inline_ids = collect_render_inline_ids(profile, cameras);
     let entries = build_entries(options, &render_options, &render_inline_ids);
 
     let struct_def = generate_struct(&entries);
@@ -32,7 +33,10 @@ pub fn generate(
     }
 }
 
-fn collect_render_option_ids(cameras: &BTreeMap<String, Camera>) -> BTreeSet<String> {
+fn collect_render_option_ids(
+    profile: &Profile,
+    cameras: &BTreeMap<String, Camera>,
+) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for camera in cameras.values() {
         let Some(render) = camera
@@ -43,7 +47,7 @@ fn collect_render_option_ids(cameras: &BTreeMap<String, Camera>) -> BTreeSet<Str
         else {
             continue;
         };
-        for field in &render.fields {
+        for field in render.fields.iter().filter_map(|id| profile.get(id)) {
             if let Field::Ref(r) = field {
                 out.insert(r.r#ref.clone());
             }
@@ -52,7 +56,10 @@ fn collect_render_option_ids(cameras: &BTreeMap<String, Camera>) -> BTreeSet<Str
     out
 }
 
-fn collect_render_inline_ids(cameras: &BTreeMap<String, Camera>) -> BTreeSet<String> {
+fn collect_render_inline_ids(
+    profile: &Profile,
+    cameras: &BTreeMap<String, Camera>,
+) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for camera in cameras.values() {
         let Some(render) = camera
@@ -63,7 +70,7 @@ fn collect_render_inline_ids(cameras: &BTreeMap<String, Camera>) -> BTreeSet<Str
         else {
             continue;
         };
-        for field in &render.fields {
+        for field in render.fields.iter().filter_map(|id| profile.get(id)) {
             if let Field::Inline(i) = field {
                 out.insert(i.id.clone());
             }

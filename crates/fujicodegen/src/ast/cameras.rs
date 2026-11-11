@@ -52,7 +52,7 @@ pub struct Simulation {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Render {
-    pub fields: Vec<Field>,
+    pub fields: Vec<String>,
     #[serde(default)]
     pub transformations: Vec<Transformation>,
     #[serde(default)]
@@ -64,60 +64,6 @@ pub struct Render {
 pub struct Setting {
     pub id: String,
     pub r#ref: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged, deny_unknown_fields)]
-pub enum Field {
-    Ref(FieldRef),
-    Inline(FieldInline),
-}
-
-impl Field {
-    #[must_use]
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Ref(r) => &r.id,
-            Self::Inline(i) => &i.id,
-        }
-    }
-
-    #[must_use]
-    pub const fn skip_read(&self) -> bool {
-        match self {
-            Self::Ref(r) => r.skip_read,
-            Self::Inline(i) => i.skip_read,
-        }
-    }
-
-    #[must_use]
-    pub const fn skip_write(&self) -> bool {
-        match self {
-            Self::Ref(r) => r.skip_write,
-            Self::Inline(i) => i.skip_write,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FieldRef {
-    pub id: String,
-    pub r#ref: String,
-    #[serde(default)]
-    pub skip_read: bool,
-    #[serde(default)]
-    pub skip_write: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FieldInline {
-    pub id: String,
-    #[serde(default)]
-    pub skip_read: bool,
-    #[serde(default)]
-    pub skip_write: bool,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -250,32 +196,6 @@ mod tests {
         assert_eq!(s.id, "x");
         assert_eq!(s.r#ref, "image_size");
         parse_err::<Setting>(r#"{ "id": "shoot_condition" }"#);
-    }
-
-    #[test]
-    fn field_disambiguates_ref_vs_inline_by_presence_of_ref() {
-        let r: Field = parse(r#"{ "id": "x", "ref": "image_size" }"#);
-        let i: Field = parse(r#"{ "id": "shoot_condition" }"#);
-        assert!(matches!(r, Field::Ref(_)));
-        assert!(matches!(i, Field::Inline(_)));
-    }
-
-    #[test]
-    fn field_skip_flags_default_false_and_round_trip() {
-        let plain: Field = parse(r#"{ "id": "x", "ref": "image_size" }"#);
-        let Field::Ref(plain) = plain else { panic!() };
-        assert!(!plain.skip_read && !plain.skip_write);
-
-        let both: Field =
-            parse(r#"{ "id": "x", "ref": "image_size", "skip_read": true, "skip_write": true }"#);
-        let Field::Ref(both) = both else { panic!() };
-        assert!(both.skip_read && both.skip_write);
-
-        let inline: Field = parse(r#"{ "id": "x", "skip_read": true }"#);
-        let Field::Inline(inline) = inline else {
-            panic!()
-        };
-        assert!(inline.skip_read && !inline.skip_write);
     }
 
     #[test]

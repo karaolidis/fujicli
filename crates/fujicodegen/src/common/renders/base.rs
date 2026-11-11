@@ -4,7 +4,7 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 use crate::{
-    ast::{Camera, FujiOption, SpecKind},
+    ast::{Camera, FujiOption, Profile, SpecKind},
     common::simulations,
     schema::grammar::build_settings,
     snake_case_ident,
@@ -18,9 +18,10 @@ struct UnionEntry {
 
 pub fn generate(
     options: &BTreeMap<String, FujiOption>,
+    profile: &Profile,
     cameras: &BTreeMap<String, Camera>,
 ) -> anyhow::Result<TokenStream> {
-    let render_union = build_union(options, cameras)?;
+    let render_union = build_union(options, profile, cameras)?;
     let simulation_field_ids = collect_simulation_field_ids(cameras);
 
     let struct_def = generate_struct_def(&render_union);
@@ -37,6 +38,7 @@ pub fn generate(
 
 fn build_union(
     options: &BTreeMap<String, FujiOption>,
+    profile: &Profile,
     cameras: &BTreeMap<String, Camera>,
 ) -> anyhow::Result<Vec<UnionEntry>> {
     let by_id = cameras
@@ -45,8 +47,9 @@ fn build_union(
         .try_fold(
             BTreeMap::<String, UnionEntry>::new(),
             |mut by_id, render| -> anyhow::Result<_> {
-                let settings = build_settings(options, &render.fields);
-                render.fields.iter().for_each(|field| {
+                let fields = profile.select(&render.fields)?;
+                let settings = build_settings(options, &fields);
+                for field in &fields {
                     let id = field.id().to_string();
                     let info = &settings[id.as_str()];
                     by_id.entry(id.clone()).or_insert_with(|| UnionEntry {
@@ -54,7 +57,7 @@ fn build_union(
                         type_path: info.type_path(),
                         is_copy: !matches!(info.kind, SpecKind::String),
                     });
-                });
+                }
                 Ok(by_id)
             },
         )?;

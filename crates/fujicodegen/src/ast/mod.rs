@@ -3,12 +3,14 @@ mod dnf;
 mod generations;
 mod grammar;
 mod options;
+mod profile;
 
 pub use cameras::*;
 pub use dnf::*;
 pub use generations::*;
 pub use grammar::*;
 pub use options::*;
+pub use profile::*;
 
 use std::collections::BTreeMap;
 
@@ -20,6 +22,7 @@ pub struct Fml {
     pub cameras: BTreeMap<String, Camera>,
     pub options: BTreeMap<String, FujiOption>,
     pub generations: BTreeMap<String, Generation>,
+    pub profile: Profile,
 }
 
 #[cfg(test)]
@@ -39,15 +42,25 @@ mod tests {
 
     #[test]
     fn minimal_empty_fml() {
-        let fml = parse(r#"{ "cameras": {}, "options": {}, "generations": {} }"#);
+        let fml = parse(
+            r#"{ "cameras": {}, "options": {}, "generations": {}, "profile": { "fields": [] } }"#,
+        );
         assert!(fml.cameras.is_empty() && fml.options.is_empty() && fml.generations.is_empty());
     }
 
     #[test]
     fn each_top_level_field_required() {
-        parse_err(r#"{ "options": {}, "generations": {} }"#);
-        parse_err(r#"{ "cameras": {}, "generations": {} }"#);
-        parse_err(r#"{ "cameras": {}, "options": {} }"#);
+        let profile = r#""profile": { "fields": [] }"#;
+        parse_err(&format!(
+            r#"{{ "options": {{}}, "generations": {{}}, {profile} }}"#
+        ));
+        parse_err(&format!(
+            r#"{{ "cameras": {{}}, "generations": {{}}, {profile} }}"#
+        ));
+        parse_err(&format!(
+            r#"{{ "cameras": {{}}, "options": {{}}, {profile} }}"#
+        ));
+        parse_err(r#"{ "cameras": {}, "options": {}, "generations": {} }"#);
     }
 
     #[test]
@@ -88,7 +101,8 @@ mod tests {
                 },
                 "generations": {
                     "gen_a": { "id": "gen_a", "spec": { "name": "Gen A" } }
-                }
+                },
+                "profile": { "fields": [] }
             }"#,
         );
         assert_eq!(fml.cameras["demo"].spec.generation, "gen_a");
