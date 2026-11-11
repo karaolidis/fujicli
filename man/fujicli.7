@@ -55,9 +55,6 @@ The other features are enabled per camera:
 .It X-S20 Ta X-Trans IV Ta yes Ta 4 slots Ta no
 .El
 .Pp
-Both are tested.
-The X-T5 is the only camera tested extensively, and the only one that renders.
-.Pp
 The remaining cameras are recognised but untested, and support
 .Ql device info
 only:
@@ -236,14 +233,29 @@ and
 .Ql fujicli simulation set
 round-trip on every slot.
 .It Va render
-The profile's fields in wire order, the transformations
-between user-facing values and wire values, and the render rules.
+The profile's fields, the transformations between user-facing values and wire
+values, and the render rules.
+Most cameras use their generation's.
+A camera whose profile differs declares its own fields, recovered as described
+in
+.Sx Render profiles .
+Check that a render with each setting changed produces what was asked for.
 .El
 .It
 Pin the values the camera accepts with rules on the camera, even where an
 option's global definition already allows them.
 A value later added to an option for a newer camera must not silently become
 valid on an older one.
+.Pp
+The camera answers
+.Dv GetDevicePropDesc
+with an error for its vendor properties, so the accepted values have to be
+found by trying each one.
+For simulations, write the value to a spare slot and read it back.
+For rendering, render with it and check the output's metadata.
+A value the camera rejects, or stores or renders as something else, is not
+accepted.
+X RAW Studio's restrictions differ from the camera's, so do not copy them.
 .It
 Update
 .Sx SUPPORTED CAMERAS
@@ -317,9 +329,11 @@ The script prints each conversion profile the host sends.
 Compare successive profiles to map each field to a setting.
 .El
 .Pp
-Each field becomes an entry in the camera's
+Each field becomes an entry in
 .Va render.fields ,
 in wire order.
+Fields shared by a generation belong in its template; see
+.Xr fujicli-fml 5 .
 A field with no matching option gets an inline identifier.
 When one user-facing value is stored as several wire values, as HDR800+ is
 stored as HDR800 plus a priority flag, declare a transformation.
@@ -420,6 +434,8 @@ Every rule condition is rewritten in disjunctive normal form: an
 of
 .Sy and Ns s
 of comparisons, with negation pushed into the comparisons.
+A comparison on an absent setting is neither true nor false, so a negated
+comparison still requires its setting.
 The later passes all work on this form.
 .It Alias substitution
 Rules are written against user-facing values, but checked after
@@ -455,8 +471,9 @@ declaration order.
 A cycle is a build error.
 .It Repair
 For each violated error rule, try changing one setting the request did not
-name: clear it, if it is gated, or set it to the value the rule requires.
-A change is kept only if no rule that held before now fails.
+name: clear it, if it is gated, or else set it to the value the rule requires.
+A change is kept only if it fixes the rule without breaking one that was
+satisfied.
 Values as shot are never changed.
 .It Inverses
 Transformations with a single equality condition and a result no other

@@ -359,6 +359,13 @@ convention
 with
 .Cm settings
 and
+.Cm rules ,
+and
+.Cm _render
+with
+.Cm fields ,
+.Cm transformations
+and
 .Cm rules .
 Within a camera's
 .Cm spec ,
@@ -741,6 +748,14 @@ The temperature is read only in Temperature mode.
         {ref: "white_balance_temperature", present: true},
         {not: {ref: "white_balance", equals: "temperature"}},
     ]
+}
+.Ed
+.Pp
+A rule pinning an option to the values one camera accepts:
+.Bd -literal -offset indent
+{
+    message: "Dynamic Range value is not supported by this camera."
+    when: not: {ref: "dynamic_range", in: ["auto", "hdr100", "hdr200", "hdr400"]}
 }
 .Ed
 .Pp
