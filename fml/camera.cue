@@ -265,11 +265,40 @@ cameras: {
 
 	x_t30_iii: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-T30 III"
-			generation: "x_trans_iv"
+			name:        "FUJIFILM X-T30 III"
+			generation:  "x_trans_iv"
+			_generation: _
+
 			usb: product_id: 0x0317
 
-			features: backup: true
+			features: {
+				backup: true
+
+				simulation: {
+					slots: 7
+					// The camera rejects any write to Monochromatic Color (0xD193/0xD194), even 0.
+					settings: [for s in _generation._simulation.settings if !list.Contains(["monochromatic_color_temperature", "monochromatic_color_tint"], s.ref) {s}]
+					// Pinned on a real camera by writing every value to C1 and reading it back; other settings accept the full range.
+					rules: list.Concat([[
+						{
+							message: "Image Size value is not supported by this camera."
+							when: not: {ref: "image_size", in: ["7728x5152", "7728x4344", "5152x5152", "5472x3648", "5472x3080", "3648x3648", "3888x2592", "3888x2184", "2592x2592"]}
+						},
+						{
+							message: "White Balance value is not supported by this camera."
+							when: {ref: "white_balance", equals: "as_shot"}
+						},
+						{
+							message: "Dynamic Range value is not supported by this camera."
+							when: not: {ref: "dynamic_range", in: ["auto", "hdr100", "hdr200", "hdr400"]}
+						},
+						{
+							message: "Dynamic Range Priority value is not supported by this camera."
+							when: not: {ref: "dynamic_range_priority", in: ["auto", "strong", "weak", "off"]}
+						},
+					], [for r in _generation._simulation.rules if r.message != "Monochromatic color settings only apply to black and white simulations." {r}]])
+				}
+			}
 		}
 	}
 
