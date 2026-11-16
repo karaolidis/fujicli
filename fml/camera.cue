@@ -263,6 +263,16 @@ cameras: {
 		}
 	}
 
+	x_t30_iii: #Camera & {
+		spec: {
+			name:       "FUJIFILM X-T30 III"
+			generation: "x_trans_iv"
+			usb: product_id: 0x0317
+
+			features: backup: true
+		}
+	}
+
 	x100vi: #Camera & {
 		spec: {
 			name:       "FUJIFILM X100VI"
