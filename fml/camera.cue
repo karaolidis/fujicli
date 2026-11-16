@@ -308,7 +308,18 @@ cameras: {
 					transformations: _render.transformations
 					// The camera applies WB shifts on top of As Shot, so the X-T5 rule that drops them is left out:
 					// keeping it made fujicli zero the shot's shifts on every "as shot" render.
-					rules: list.Concat([_pins, [for r in _render.rules if r.message != "White balance shifts apply only when White Balance is not As Shot." {r}]])
+					rules: list.Concat([_pins, [
+						{
+							// RAW variants render as Normal.
+							message: "Image Quality value is not supported by this camera."
+							when: not: {ref: "image_quality", in: ["fine", "normal"]}
+						},
+						{
+							// No effect seen: maker notes unchanged, pixels within render-to-render noise.
+							message: "Smooth Skin Effect is not supported by this camera."
+							when: not: {ref: "smooth_skin_effect", equals: "off"}
+						},
+					], [for r in _render.rules if r.message != "White balance shifts apply only when White Balance is not As Shot." {r}]])
 				}
 			}
 		}
