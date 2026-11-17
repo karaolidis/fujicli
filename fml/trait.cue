@@ -146,6 +146,14 @@ _traits: [
 			]
 			transformations: [
 				{
+					when: {ref: "dynamic_range", equals: "auto"}
+					apply: [{ref: "dynamic_range", present: false}]
+				},
+				{
+					when: {ref: "dynamic_range_priority", equals: "auto"}
+					apply: [{ref: "dynamic_range_priority", present: false}]
+				},
+				{
 					when: {ref: "dynamic_range", equals: "hdr800_plus"}
 					apply: [
 						{ref: "dynamic_range", value: "hdr800"},
@@ -218,30 +226,30 @@ _traits: [
 					when: any: [
 						{all: [
 							{ref: "dynamic_range_priority", scope: "original", equals: "weak"},
-							{ref: "dynamic_range", in: ["auto", "hdr400", "hdr800", "hdr800_plus"]},
+							{ref: "dynamic_range", in: ["hdr400", "hdr800", "hdr800_plus"]},
 						]},
 						{all: [
 							{ref: "dynamic_range_priority", scope: "original", equals: "strong"},
-							{ref: "dynamic_range", in: ["auto", "hdr800", "hdr800_plus"]},
+							{ref: "dynamic_range", in: ["hdr800", "hdr800_plus"]},
 						]},
 						{all: [
 							{not: {ref: "dynamic_range_priority", scope: "original", in: ["weak", "strong"]}},
 							{any: [
 								{all: [
 									{ref: "dynamic_range", scope: "original", equals: "hdr100"},
-									{ref: "dynamic_range", in: ["auto", "hdr200", "hdr400", "hdr800", "hdr800_plus"]},
+									{ref: "dynamic_range", in: ["hdr200", "hdr400", "hdr800", "hdr800_plus"]},
 								]},
 								{all: [
 									{ref: "dynamic_range", scope: "original", equals: "hdr200"},
-									{ref: "dynamic_range", in: ["auto", "hdr400", "hdr800", "hdr800_plus"]},
+									{ref: "dynamic_range", in: ["hdr400", "hdr800", "hdr800_plus"]},
 								]},
 								{all: [
 									{ref: "dynamic_range", scope: "original", equals: "hdr400"},
-									{ref: "dynamic_range", in: ["auto", "hdr800", "hdr800_plus"]},
+									{ref: "dynamic_range", in: ["hdr800", "hdr800_plus"]},
 								]},
 								{all: [
 									{ref: "dynamic_range", scope: "original", equals: "hdr800"},
-									{ref: "dynamic_range", in: ["auto", "hdr800_plus"]},
+									{ref: "dynamic_range", equals: "hdr800_plus"},
 								]},
 							]},
 						]},
@@ -252,19 +260,15 @@ _traits: [
 					when: any: [
 						{all: [
 							{ref: "dynamic_range_priority", scope: "original", equals: "off"},
-							{ref: "dynamic_range_priority", in: ["auto", "weak", "strong", "plus"]},
+							{ref: "dynamic_range_priority", in: ["weak", "strong", "plus"]},
 						]},
 						{all: [
 							{ref: "dynamic_range_priority", scope: "original", equals: "weak"},
-							{ref: "dynamic_range_priority", in: ["auto", "strong", "plus"]},
+							{ref: "dynamic_range_priority", in: ["strong", "plus"]},
 						]},
 						{all: [
 							{ref: "dynamic_range_priority", scope: "original", equals: "strong"},
-							{ref: "dynamic_range_priority", in: ["auto", "plus"]},
-						]},
-						{all: [
-							{ref: "dynamic_range_priority", scope: "original", equals: "plus"},
-							{ref: "dynamic_range_priority", in: ["auto"]},
+							{ref: "dynamic_range_priority", equals: "plus"},
 						]},
 					]
 				},
