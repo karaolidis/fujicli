@@ -103,11 +103,7 @@ fn handle_render(
         )
     } else if let Some(like) = like {
         let path = like.into_path()?;
-        Some(
-            extract_simulation(&path)
-                .context("extracting simulation from reference image")?
-                .to_base(),
-        )
+        Some(extract_simulation(&path).context("extracting simulation from reference image")?)
     } else {
         None
     };
@@ -142,7 +138,7 @@ fn handle_extract(input: Input, output: Output) -> anyhow::Result<()> {
         extract_simulation(&input).context("extracting simulation from source image")?;
 
     let serialized =
-        serde_json::to_vec(&*simulation).context("serializing extracted simulation to JSON")?;
+        serde_json::to_vec(&simulation).context("serializing extracted simulation to JSON")?;
     let mut writer = output.get_writer()?;
     writer
         .write_all(&serialized)

@@ -1,4 +1,5 @@
 pub mod error;
+mod makernotes;
 
 pub use error::ImageError;
 
@@ -12,13 +13,16 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use exiftool::ExifTool;
 use log::debug;
 
-use crate::{CoreResult, features::simulation::Simulation};
+use crate::{CoreResult, generated::simulations::SimulationBase};
 
 pub const MAKER_NOTES_TAG: &str = "MakerNotes";
 
 const ENTRY_SIZE: u64 = 12;
 
-pub fn extract_simulation(image: &Path) -> CoreResult<Box<dyn Simulation>> {
+/// Reads the simulation a Fujifilm image was shot with from its `MakerNotes`.
+///
+/// Only settings that are present and recognised are set; the rest stay unset.
+pub fn extract_simulation(image: &Path) -> CoreResult<SimulationBase> {
     let exiftool = ExifTool::new().map_err(ImageError::from)?;
     let maker_notes = exiftool
         .read_tag_binary(image, MAKER_NOTES_TAG)
@@ -47,7 +51,7 @@ pub fn extract_simulation(image: &Path) -> CoreResult<Box<dyn Simulation>> {
         .map_err(ImageError::from)?;
     debug!("Entries: {entries_len:?}");
 
-    let mut fields: HashMap<FujiExifMakerNoteTag, &[u8]> =
+    let mut fields: HashMap<FujiExifMakerNoteTag, (IFDType, &[u8])> =
         HashMap::with_capacity(entries_len as usize);
 
     for _ in 0..entries_len {
@@ -97,12 +101,14 @@ pub fn extract_simulation(image: &Path) -> CoreResult<Box<dyn Simulation>> {
                 offset: entry_start,
             })?;
 
-        fields.insert(tag, value);
+        fields.insert(tag, (field_type, value));
     }
 
     debug!("{fields:x?}");
 
-    todo!()
+    Ok(makernotes::simulation_from_fields(
+        &makernotes::MakerNotes(fields),
+    )?)
 }
 
 #[repr(u16)]
@@ -117,8 +123,9 @@ pub enum FujiExifMakerNoteTag {
     Saturation = 0x1003, // Both Color and monochrome/sepia film simulations, motherfucker
     Contrast1 = 0x1004,  // What
     ColorTemperature = 0x1005,
-    Contrast2 = 0x1006,       // What
-    NoiseReduction1 = 0x100b, // for older cameras maybe?
+    WhiteBalanceFineTune = 0x100a, // red and blue shift, 20 per step
+    Contrast2 = 0x1006,            // What
+    NoiseReduction1 = 0x100b,      // for older cameras maybe?
     NoiseReduction2 = 0x100e,
     Clarity = 0x100f,
     Shadow = 0x1040,
@@ -131,12 +138,15 @@ pub enum FujiExifMakerNoteTag {
     GrainEffectSize = 0x104c,
     ColorChromeFXBlue = 0x104e,
     FilmMode = 0x1401,                // Film Simulation
+    DynamicRangeSetting = 0x1402,     // 0 = auto
     DevelopmentDynamicRange = 0x1403, // This is the one we want for XT-5
     SmoothSkinEffect = 0x104a,
     WhiteBalanceShiftRed = 0x144a,
     WhiteBalanceShiftGreen = 0x144b,
     WhiteBalanceShiftBlue = 0x144c,
+    DRangePriority = 0x1443,       // 0 = auto, 1 = fixed; absent when off
     DynamicRangePriority = 0x1444, // same bollocks with HDR800+ as PTP
+    DRangePriorityFixed = 0x1445,  // 1 = weak, 2 = strong
     ColorSpace = 0xa001,
 }
 
