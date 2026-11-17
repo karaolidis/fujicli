@@ -5,7 +5,10 @@ use clap::Subcommand;
 use fujicore::{
     features::image::extract_simulation,
     generated::{
-        cli::RenderArgs, options::CustomSetting, renders::RenderBase, simulations::SimulationBase,
+        cli::RenderArgs,
+        options::{CustomSetting, DynamicRange},
+        renders::RenderBase,
+        simulations::SimulationBase,
     },
 };
 
@@ -103,7 +106,13 @@ fn handle_render(
         )
     } else if let Some(like) = like {
         let path = like.into_path()?;
-        Some(extract_simulation(&path).context("extracting simulation from reference image")?)
+        let mut simulation =
+            extract_simulation(&path).context("extracting simulation from reference image")?;
+        // A render cannot pick the dynamic range itself: keep the one the RAF was shot with.
+        if simulation.dynamic_range == Some(DynamicRange::Auto) {
+            simulation.dynamic_range = None;
+        }
+        Some(simulation)
     } else {
         None
     };
