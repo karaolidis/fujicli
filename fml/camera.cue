@@ -317,7 +317,7 @@ cameras: {
 				common: [
 					{
 						message: "Image Size value is not supported by this camera."
-						when: not: {ref: "image_size", in: ["7728x5152", "7728x4344", "5152x5152", "6864x5152", "6432x5152", "5472x3648", "5472x3080", "3648x3648", "4864x3648", "4560x3648", "3888x2592", "3888x2184", "2592x2592", "3456x2592", "3264x2592"]}
+						when: not: {ref: "image_size", in: ["l_3_2", "l_16_9", "l_1_1", "l_4_3", "l_5_4", "m_3_2", "m_16_9", "m_1_1", "m_4_3", "m_5_4", "s_3_2", "s_16_9", "s_1_1", "s_4_3", "s_5_4"]}
 					},
 					{
 						message: "Film Simulation value is not supported by this camera."

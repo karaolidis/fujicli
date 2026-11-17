@@ -4,7 +4,16 @@ use proc_macro2::{Ident, Span};
 macro_rules! upper_camel_case_ident {
     ($($arg:tt)*) => {{
         let raw = ::std::format!($($arg)*).replace('-', "_");
-        let cased = <str as ::heck::ToUpperCamelCase>::to_upper_camel_case(&raw);
+        let mut cased = ::std::string::String::new();
+        let mut after_digit = false;
+        for word in raw.split('_') {
+            // Keep `_` between digits so `l_16_9` and `l_1_69` stay distinct.
+            if after_digit && word.starts_with(|c: char| c.is_ascii_digit()) {
+                cased.push('_');
+            }
+            cased.push_str(&<str as ::heck::ToUpperCamelCase>::to_upper_camel_case(word));
+            after_digit = word.ends_with(|c: char| c.is_ascii_digit());
+        }
         let safe = if cased.chars().next().is_none_or(|c| c.is_ascii_digit()) {
             ::std::format!("X{cased}")
         } else {
@@ -71,11 +80,20 @@ mod tests {
 
     #[test]
     fn upper_camel_case_prepends_x_for_digit_start() {
-        // Rust idents can't start with a digit, so e.g. an enum variant for
-        // image size `7728x5152` becomes `X7728x5152`.
+        // Rust idents can't start with a digit.
         assert_eq!(
             upper_camel_case_ident!("7728x5152").to_string(),
             "X7728x5152"
+        );
+    }
+
+    #[test]
+    fn upper_camel_case_keeps_underscores_between_digits() {
+        assert_eq!(upper_camel_case_ident!("l_16_9").to_string(), "L16_9");
+        assert_eq!(upper_camel_case_ident!("l_1_69").to_string(), "L1_69");
+        assert_eq!(
+            upper_camel_case_ident!("hdr800_plus").to_string(),
+            "Hdr800Plus"
         );
     }
 

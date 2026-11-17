@@ -189,7 +189,7 @@ mod tests {
                 code: ExactString::from(String::from("FF179502")),
                 fields: XT5RenderProfile {
                     file_type: FileType::Jpeg,
-                    image_size: ImageSize::X7728x5152,
+                    image_size: ImageSize::L3_2,
                     image_quality: ImageQuality::Fine,
                     exposure_offset: ExposureOffset::Zero,
                     dynamic_range: Some(DynamicRange::Hdr400),
