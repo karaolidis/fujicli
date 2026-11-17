@@ -155,6 +155,10 @@ pub fn handle(cmd: ReverseCmd, options: GlobalOptions) -> anyhow::Result<()> {
     match cmd {
         ReverseCmd::Backup(BackupCmd::Export { output }) => handle_backup_export(options, output),
         ReverseCmd::Backup(BackupCmd::Import { input }) => handle_backup_import(options, input),
+        // offline file commands: nothing to reverse, run them as usual
+        ReverseCmd::Backup(cmd @ (BackupCmd::Recipes { .. } | BackupCmd::Edit { .. })) => {
+            crate::cli::backup::handle(cmd, options)
+        }
         ReverseCmd::Info => handle_info(options),
         ReverseCmd::Simulation => handle_simulation(options),
     }

@@ -193,6 +193,39 @@ Write the camera's settings backup to
 .It Cm backup import Po Cm i Pc Ar input
 Restore a settings backup from
 .Ar input .
+.It Cm backup recipes Po Cm r Pc Ar input output
+X-T30 III only.
+Write as JSON the recipes stored in a backup file: custom slots C1\(enC7, with what PTP
+can't read (Monochromatic Color, Portrait Enhancer, ISO and ISO AUTO, Long Exposure NR,
+RAW recording, the white balance shift of every mode), and the film simulation dial
+positions FS1\(enFS3 with their recipes.
+Works offline on the file.
+.It Xo
+.Cm backup edit Ar input output
+.Fl -slot Ar n
+.Op Fl -monochromatic-color-temperature Ar value
+.Op Fl -monochromatic-color-tint Ar value
+.Op Fl -portrait-enhancer Ar level
+.Xc
+X-T30 III only.
+Write slot settings the camera refuses over PTP into a backup file and keep its checksum
+valid.
+Load the result with
+.Cm backup import .
+.It Xo
+.Cm backup edit Ar input output
+.Fl -fs Ar n
+.Op Fl -from-slot Ar slot
+.Op Fl -set Ar key Ns = Ns Ar value ...
+.Xc
+X-T30 III only.
+Edit the recipe of film simulation dial position FS
+.Ar n ,
+using the keys printed by
+.Cm backup recipes .
+.Fl -from-slot
+starts from a copy of a custom slot and switches the recipe on.
+Nothing is written if a value would not read back as requested.
 .El
 .Ss image (i)
 .Bl -tag -width Ds
@@ -370,6 +403,15 @@ $ fujicli device info
 Back up the camera before changing anything:
 .Bd -literal -offset indent
 $ fujicli backup export x-t5.bak
+.Ed
+.Pp
+On an X-T30 III, set Monochromatic Color on slot C2 and turn slot C3 into the FS1 recipe:
+.Bd -literal -offset indent
+$ fujicli backup export now.bak
+$ fujicli backup edit now.bak c2.bak --slot 2 \e
+    --monochromatic-color-temperature 3 --monochromatic-color-tint -2
+$ fujicli backup edit c2.bak new.bak --fs 1 --from-slot 3
+$ fujicli backup import new.bak
 .Ed
 .Pp
 Show slot C1, then change its film simulation and tone:

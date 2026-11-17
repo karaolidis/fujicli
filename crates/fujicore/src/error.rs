@@ -4,7 +4,9 @@ use thiserror::Error;
 
 use crate::{
     UsbId,
-    features::{image::ImageError, simulation::SimulationError},
+    features::{
+        backup::x_t30_iii::BackupFileError, image::ImageError, simulation::SimulationError,
+    },
     input::OptionError,
     ptp::{DevicePropCode, PtpError, transport::TransportError},
 };
@@ -60,6 +62,9 @@ pub enum CoreError {
 
     #[error(transparent)]
     Image(#[from] ImageError),
+
+    #[error(transparent)]
+    BackupFile(#[from] BackupFileError),
 
     #[error(transparent)]
     Io(#[from] std::io::Error),
