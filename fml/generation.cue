@@ -224,17 +224,6 @@ generations: {
 						]
 					},
 					{
-						message: "White balance shifts apply only when White Balance is not As Shot."
-						when: all: [
-							{ref: "white_balance", equals: "as_shot"},
-							{any: [
-								{ref: "white_balance_shift_red", present: true},
-								{ref: "white_balance_shift_blue", present: true},
-								{ref: "white_balance_temperature", present: true},
-							]},
-						]
-					},
-					{
 						message: "Dynamic Range can only be set when Dynamic Range Priority is disabled."
 						when: all: [
 							{ref: "dynamic_range", present: true},
