@@ -304,7 +304,9 @@ cameras: {
 				}
 
 				render: {
-					fields:          _render.fields
+					// Portrait Enhancer (Off/Weak/Medium/Strong, maker note 0x1450 = 0/32/64/96): without the field,
+					// every "as shot" render was written back with it off.
+					fields:          list.Concat([_render.fields, ["portrait_enhancer"]])
 					transformations: _render.transformations
 					// The camera applies WB shifts on top of As Shot, so the X-T5 rule that drops them is left out:
 					// keeping it made fujicli zero the shot's shifts on every "as shot" render.
@@ -315,7 +317,7 @@ cameras: {
 							when: not: {ref: "image_quality", in: ["fine", "normal"]}
 						},
 						{
-							// No effect seen: maker notes unchanged, pixels within render-to-render noise.
+							// No effect seen (maker notes unchanged, pixels within render noise): this camera has Portrait Enhancer instead.
 							message: "Smooth Skin Effect is not supported by this camera."
 							when: not: {ref: "smooth_skin_effect", equals: "off"}
 						},

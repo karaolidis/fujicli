@@ -50,5 +50,5 @@ profile: fields: [
 	{ref: "monochromatic_color_tint"},
 	{ref: "clarity"},
 	{ref: "teleconverter"},
-	{id: "portrait_enhancer"},
+	{ref: "portrait_enhancer"},
 ]
