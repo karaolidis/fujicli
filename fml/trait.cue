@@ -156,6 +156,21 @@ _traits: [
 					undo: false
 				},
 				{
+					when: {ref: "image_quality", equals: "fine_raw"}
+					apply: [{ref: "image_quality", value: "fine"}]
+					undo: false
+				},
+				{
+					when: {ref: "image_quality", equals: "normal_raw"}
+					apply: [{ref: "image_quality", value: "normal"}]
+					undo: false
+				},
+				{
+					when: {ref: "image_quality", equals: "raw"}
+					apply: [{ref: "image_quality", present: false}]
+					undo: false
+				},
+				{
 					when: {ref: "dynamic_range", equals: "hdr800_plus"}
 					apply: [
 						{ref: "dynamic_range", value: "hdr800"},
