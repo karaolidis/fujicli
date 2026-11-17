@@ -263,6 +263,70 @@ cameras: {
 		}
 	}
 
+	x_t30_iii: #Camera & {
+		spec: {
+			name:        "FUJIFILM X-T30 III"
+			generation:  "x_trans_iv"
+			_generation: _
+
+			// Pinned on a real camera by writing every value to C1 and reading it back; other settings accept the full range.
+			_pins: [
+				{
+					message: "Image Size value is not supported by this camera."
+					when: not: {ref: "image_size", in: ["7728x5152", "7728x4344", "5152x5152", "5472x3648", "5472x3080", "3648x3648", "3888x2592", "3888x2184", "2592x2592"]}
+				},
+				{
+					message: "Dynamic Range value is not supported by this camera."
+					when: not: {ref: "dynamic_range", in: ["auto", "hdr100", "hdr200", "hdr400"]}
+				},
+				{
+					message: "Dynamic Range Priority value is not supported by this camera."
+					when: not: {ref: "dynamic_range_priority", in: ["auto", "strong", "weak", "off"]}
+				},
+			]
+
+			// Same profile layout as the X-T5 (code FF159511).
+			_render: generations.x_trans_v.spec._render
+
+			usb: product_id: 0x0317
+
+			features: {
+				backup: true
+
+				simulation: {
+					slots: 7
+					// The camera rejects any write to Monochromatic Color (0xD193/0xD194), even 0.
+					settings: [for s in _generation._simulation.settings if !list.Contains(["monochromatic_color_temperature", "monochromatic_color_tint"], s.ref) {s}]
+					rules: list.Concat([_pins, [{
+						message: "White Balance value is not supported by this camera."
+						when: {ref: "white_balance", equals: "as_shot"}
+					}], [for r in _generation._simulation.rules if r.message != "Monochromatic color settings only apply to black and white simulations." {r}]])
+				}
+
+				render: {
+					// Portrait Enhancer (Off/Weak/Medium/Strong, maker note 0x1450 = 0/32/64/96): without the field,
+					// every "as shot" render was written back with it off.
+					fields:          list.Concat([_render.fields, ["portrait_enhancer"]])
+					transformations: _render.transformations
+					// The camera applies WB shifts on top of As Shot, so the X-T5 rule that drops them is left out:
+					// keeping it made fujicli zero the shot's shifts on every "as shot" render.
+					rules: list.Concat([_pins, [
+						{
+							// RAW variants render as Normal.
+							message: "Image Quality value is not supported by this camera."
+							when: not: {ref: "image_quality", in: ["fine", "normal"]}
+						},
+						{
+							// No effect seen (maker notes unchanged, pixels within render noise): this camera has Portrait Enhancer instead.
+							message: "Smooth Skin Effect is not supported by this camera."
+							when: not: {ref: "smooth_skin_effect", equals: "off"}
+						},
+					], [for r in _render.rules if r.message != "White balance shifts apply only when White Balance is not As Shot." {r}]])
+				}
+			}
+		}
+	}
+
 	x100vi: #Camera & {
 		spec: {
 			name:       "FUJIFILM X100VI"
