@@ -148,10 +148,12 @@ _traits: [
 				{
 					when: {ref: "dynamic_range", equals: "auto"}
 					apply: [{ref: "dynamic_range", present: false}]
+					undo: false
 				},
 				{
 					when: {ref: "dynamic_range_priority", equals: "auto"}
 					apply: [{ref: "dynamic_range_priority", present: false}]
+					undo: false
 				},
 				{
 					when: {ref: "dynamic_range", equals: "hdr800_plus"}
@@ -167,6 +169,7 @@ _traits: [
 				{
 					when: {not: {ref: "white_balance", equals: "as_shot"}}
 					apply: [{ref: "white_balance_as_shot", value: 0x02}]
+					undo: false
 				},
 			]
 			rules: [

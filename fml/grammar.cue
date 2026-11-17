@@ -113,4 +113,5 @@ import "list"
 #TransformationBase: {
 	when?: _
 	apply: _
+	undo:  bool | *true
 }

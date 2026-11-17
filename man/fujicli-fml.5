@@ -597,6 +597,10 @@ which sets the field to a value of its type, or
 .Bro Cm ref , present : false Brc ,
 which clears it.
 Required.
+.It Cm undo : Ar bool
+Whether to undo the transformation when a render profile is read.
+Defaults to
+.Sy true .
 .El
 .Pp
 Transformations apply in order, both to the user's input and to the merged
@@ -644,7 +648,10 @@ an ordered comparison involves a non-numeric value, it prints a cargo warning
 naming the rule, and the alias value may be rejected at run time.
 .Pp
 When a render profile is read, aliases are undone, in reverse order, so that
-the user sees the alias value.
+the user sees the alias value, unless
+.Cm undo
+is
+.Sy false .
 This requires a
 .Cm when
 that is a single current-scope
@@ -653,8 +660,7 @@ an
 .Cm apply
 that only sets values, and no other transformation that sets the same fields
 to the same values.
-Codegen prints a cargo warning for each render transformation that cannot be
-undone.
+Codegen prints a cargo warning for each of them that cannot be undone.
 Simulation transformations are not undone.
 .Sh COMMAND LINE
 Each option without

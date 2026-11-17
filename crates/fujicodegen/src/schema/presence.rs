@@ -967,6 +967,7 @@ mod tests {
                     effect: AssignmentEffect::Set(json!("b")),
                 },
             ],
+            undo: true,
         };
         let aliases: Vec<NormalizedTransformation> = Option::from(alias).into_iter().collect();
         let rules = [NormalizedRule::from_rule(
@@ -1041,6 +1042,7 @@ mod tests {
                     effect: AssignmentEffect::Set(json!("b")),
                 },
             ],
+            undo: true,
         };
         let aliases: Vec<NormalizedTransformation> = Option::from(alias).into_iter().collect();
         let not_in = |r: &str| -> Predicate {

@@ -303,6 +303,7 @@ mod tests {
                     effect: AssignmentEffect::Set(v),
                 })
                 .collect(),
+            undo: true,
         }
     }
 
@@ -418,6 +419,7 @@ mod tests {
                 r#ref: "wb_shift_red".into(),
                 effect: AssignmentEffect::Clear,
             }],
+            undo: true,
         }];
         let rules = vec![rule(
             LeafEquals {
@@ -452,6 +454,7 @@ mod tests {
                     effect: AssignmentEffect::Clear,
                 },
             ],
+            undo: true,
         }];
         let rules = vec![rule(
             LeafEquals {

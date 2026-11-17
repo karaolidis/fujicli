@@ -728,6 +728,7 @@ mod tests {
                 r#ref: "x".into(),
                 effect: AssignmentEffect::Set(json!(2)),
             }],
+            undo: true,
         };
         let out = generate_transformation(&settings(), &transformation, &quote! { buf })
             .unwrap()

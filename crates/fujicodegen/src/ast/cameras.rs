@@ -81,6 +81,12 @@ pub enum SpecKind {
 pub struct Transformation {
     pub when: Option<Predicate>,
     pub apply: Vec<Assignment>,
+    #[serde(default = "undo_by_default")]
+    pub undo: bool,
+}
+
+const fn undo_by_default() -> bool {
+    true
 }
 
 #[derive(Clone, Debug)]
@@ -189,6 +195,14 @@ mod tests {
         assert_eq!(err.severity, Severity::Error);
 
         parse_err::<Rule>(r#"{ "severity": "critical", "message": "x", "when": true }"#);
+    }
+
+    #[test]
+    fn transformation_undo_defaults_to_true() {
+        let default_: Transformation = parse(r#"{ "apply": [] }"#);
+        let off: Transformation = parse(r#"{ "apply": [], "undo": false }"#);
+        assert!(default_.undo);
+        assert!(!off.undo);
     }
 
     #[test]

@@ -56,6 +56,9 @@ pub fn generate_inverses(
 ) -> anyhow::Result<TokenStream> {
     let mut blocks: Vec<TokenStream> = Vec::new();
     for t in transformations.iter().rev() {
+        if !t.undo {
+            continue;
+        }
         if !t.is_invertible(transformations) {
             println!(
                 "cargo:warning=skipping inverse for non-invertible transformation with when={:?} and apply={:?}.",
@@ -151,6 +154,7 @@ mod tests {
                     effect: AssignmentEffect::Set(v),
                 })
                 .collect(),
+            undo: true,
         }
     }
 
@@ -189,6 +193,7 @@ mod tests {
                 r#ref: "dr".into(),
                 effect: AssignmentEffect::Set(json!("hdr800")),
             }],
+            undo: true,
         };
         let all = vec![t];
         assert!(!all[0].is_invertible(&all));
@@ -202,6 +207,7 @@ mod tests {
                 r#ref: "shoot_condition".into(),
                 effect: AssignmentEffect::Set(json!(0)),
             }],
+            undo: true,
         };
         let all = vec![t];
         assert!(!all[0].is_invertible(&all));
