@@ -852,6 +852,29 @@ options: {
 		}
 	}
 
+	portrait_enhancer: #Option & {
+		spec: {
+			name:     "Portrait Enhancer"
+			category: "Detail"
+			kind:     "enum"
+			rules: variants: [
+				{id: "strong", name: "Strong"},
+				{id: "medium", name: "Medium"},
+				{id: "weak", name: "Weak"},
+				{id: "off", name: "Off"},
+			]
+			encoding: {
+				kind: "lookup"
+				spec: values: {
+					strong: 0x04
+					medium: 0x03
+					weak:   0x02
+					off:    0x01
+				}
+			}
+		}
+	}
+
 	exposure_offset: #Option & {
 		spec: {
 			name:     "Exposure Offset"
