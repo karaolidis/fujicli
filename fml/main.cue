@@ -1,6 +1,6 @@
 package fml
 
-#Definition: #Option | #Camera | #Generation
+#Definition: #Option | #Camera | #Processor | #Sensor
 
 #DefinitionBase: {
 	id:       string

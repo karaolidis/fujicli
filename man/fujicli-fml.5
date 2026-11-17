@@ -5,8 +5,8 @@
 .Nm fujicli-fml
 .Nd Fuji Modelling Language
 .Sh DESCRIPTION
-The Fuji Modelling Language (FML) describes the camera options, cameras and
-sensor generations that
+The Fuji Modelling Language (FML) describes the camera options, cameras,
+processors and sensors that
 .Xr fujicli 1
 supports, and the rules that relate option values to each other.
 It is a CUE schema in the
@@ -20,11 +20,12 @@ turns the package into a single JSON document, which is compiled into
 .Xr fujicli 1 .
 Editing FML and rebuilding is how support for a camera or option is added.
 .Pp
-The document has four top-level keys: the maps
+The document has five top-level keys: the maps
 .Cm options ,
-.Cm cameras
+.Cm cameras ,
+.Cm processors
 and
-.Cm generations ,
+.Cm sensors ,
 and
 .Cm profile ,
 the conversion profile layout.
@@ -260,8 +261,11 @@ cameras: <id>: #Camera & {
 .It Cm name : Ar string
 The model name.
 Required.
-.It Cm generation : Ar id
-The camera's generation.
+.It Cm sensor : Ar id
+The camera's image sensor.
+Required.
+.It Cm processor : Ar id
+The camera's image processor.
 Required.
 .It Cm usb : Ar object
 Required.
@@ -332,47 +336,52 @@ See
 .Pp
 Rules and transformations refer to settings and fields by id, and may only
 refer to those of their own block.
-.Sh GENERATIONS
-A generation groups cameras with the same sensor and processor family.
+.Sh PROCESSORS AND SENSORS
 .Bd -literal -offset indent
-generations: <id>: #Generation & {
+processors: <id>: #Processor & {
+    spec: name: string
+}
+
+sensors: <id>: #Sensor & {
     spec: name: string
 }
 .Ed
 .Pp
 .Cm name
-is the generation's display name, and is the only exported key.
+is the display name, and is the only exported key.
+Codegen uses a camera's processor to order the list of supported cameras.
+.Sh TRAITS
+A trait is a template for the cameras that match it, in the hidden list
+.Cm _traits .
+.Bd -literal -offset indent
+_traits: [...#Trait]
+
+#Trait: {
+    when: {sensor?: id, processor?: id}
+    simulation: {settings: [...], rules: [...]}
+    render: {fields: [...], transformations: [...], rules: [...]}
+}
+.Ed
 .Pp
-A generation can also hold templates for its cameras in hidden fields, by
-convention
-.Cm _simulation
-with
-.Cm settings
-and
-.Cm rules ,
-and
-.Cm _render
-with
-.Cm fields ,
-.Cm transformations
-and
-.Cm rules .
+A trait matches a camera when every key in its
+.Cm when
+equals the camera's, so it can target a processor, a sensor, or one
+combination of both.
+Each list defaults to empty.
+.Pp
 Within a camera's
 .Cm spec ,
-.Cm _generation
-is bound to the
-.Cm spec
-of the camera's generation; a camera declares
-.Ql _generation: _
+.Cm _template
+holds the lists of every matching trait, concatenated in
+.Cm _traits
+order; a camera declares
+.Ql _template: _
 in its own
 .Cm spec
 to refer to it.
 Templates are copied explicitly, and can be extended with
 .Ql list.Concat .
-A generation may build on another's templates the same way.
-.Pp
-Codegen sees only the result, and uses a camera's generation to order the list
-of supported cameras.
+Codegen sees only the result.
 .Sh PROFILE
 The conversion profile is a list of 32-bit fields, in wire order, shared by
 every camera.
@@ -671,9 +680,15 @@ and all options.
 .It Pa fml/camera.cue
 .Ql #Camera
 and all cameras.
-.It Pa fml/generation.cue
-.Ql #Generation
-and all generations.
+.It Pa fml/processor.cue
+.Ql #Processor
+and all processors.
+.It Pa fml/sensor.cue
+.Ql #Sensor
+and all sensors.
+.It Pa fml/trait.cue
+.Ql #Trait
+and all traits.
 .It Pa fml/profile.cue
 .Ql #Profile
 and the profile layout.
@@ -727,13 +742,14 @@ lens_modulation_optimizer: #Option & {
 }
 .Ed
 .Pp
-A camera that takes its simulation from its generation:
+A camera that takes its simulation from its traits:
 .Bd -literal -offset indent
 x_s20: #Camera & {
     spec: {
-        name:        "FUJIFILM X-S20"
-        generation:  "x_trans_iv"
-        _generation: _
+        name:      "FUJIFILM X-S20"
+        sensor:    "x_trans_cmos_4"
+        processor: "x_processor_5"
+        _template: _
 
         usb: product_id: 0x02f7
 
@@ -741,8 +757,8 @@ x_s20: #Camera & {
             backup: true
             simulation: {
                 slots:    4
-                settings: _generation._simulation.settings
-                rules:    _generation._simulation.rules
+                settings: _template.simulation.settings
+                rules:    _template.simulation.rules
             }
         }
     }

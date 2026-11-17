@@ -49,25 +49,25 @@ Every camera in the schema is recognised over USB, and
 .Ql fujicli device info
 should work on all of them.
 The other features are enabled per camera:
-.Bl -column "FUJIFILM X-S20" "X-Trans IV" "Backup" "Simulation" "Render" -offset indent
-.It Sy Model Ta Sy Generation Ta Sy Backup Ta Sy Simulation Ta Sy Render
-.It X-T5 Ta X-Trans V Ta yes Ta 7 slots Ta yes
-.It X-S20 Ta X-Trans IV Ta yes Ta 4 slots Ta no
+.Bl -column "FUJIFILM X-S20" "X-Processor 5" "Backup" "Simulation" "Render" -offset indent
+.It Sy Model Ta Sy Processor Ta Sy Backup Ta Sy Simulation Ta Sy Render
+.It X-T5 Ta X-Processor 5 Ta yes Ta 7 slots Ta yes
+.It X-S20 Ta X-Processor 5 Ta yes Ta 4 slots Ta no
 .El
 .Pp
 The remaining cameras are recognised but untested, and support
 .Ql device info
 only:
-.Bl -tag -width "X-Trans III"
-.It X-Trans
-X-E1, X-M1.
-.It X-Trans II
-X70, X-E2, X-T1, X-T10.
-.It X-Trans III
+.Bl -tag -width "EXR Processor Pro"
+.It EXR Processor Pro
+X-E1.
+.It EXR Processor II
+X70, X-E2, X-M1, X-T1, X-T10.
+.It X-Processor Pro
 X100F, X-E3, X-H1, X-Pro2, X-T2, X-T20.
-.It X-Trans IV
+.It X-Processor 4
 X100V, X-E4, X-Pro3, X-S10, X-T3, X-T4.
-.It X-Trans V
+.It X-Processor 5
 X100VI, X-H2, X-H2S.
 .El
 .Pp
@@ -185,7 +185,8 @@ to extract the maker notes, so it must be installed.
 .Sh ADDING A CAMERA
 A camera is an entry in
 .Pa fml/camera.cue .
-An entry with a name, a generation and a USB product identifier is enough for
+An entry with a name, a sensor, a processor and a USB product identifier is
+enough for
 .Ql device list
 and
 .Ql device info .
@@ -222,8 +223,8 @@ once a backup round-trips.
 The exchange has been the same on every camera seen so far.
 .It Va simulation
 The number of slots, the settings, and the rules.
-Most cameras use their generation's settings and rules.
-A setting the generation lacks is added to the list, and a new option is
+Most cameras use the settings and rules of their traits.
+A setting no trait provides is added to the list, and a new option is
 declared in
 .Pa fml/option.cue
 first.
@@ -235,7 +236,7 @@ round-trip on every slot.
 .It Va render
 The profile fields the camera uses, the transformations between user-facing
 values and wire values, and the render rules.
-Most cameras use their generation's.
+Most cameras use their traits'.
 A field missing from the profile layout is recovered as described in
 .Sx Render profiles .
 Check that a render with each setting changed produces what was asked for.

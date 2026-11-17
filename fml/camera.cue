@@ -8,10 +8,24 @@ cameras: [string]: #Camera
 	spec: #Spec
 
 	#Spec: {
-		name:       string
-		generation: #RefGeneration
+		name:      string
+		sensor:    #RefSensor
+		processor: #RefProcessor
 
-		_generation: generations["\(generation)"].spec
+		let is = {"sensor": sensor, "processor": processor}
+		let matched = [for t in _traits if len([for k, v in t.when if v != is[k] {k}]) == 0 {t}]
+
+		_template: {
+			simulation: {
+				settings: list.Concat([for t in matched {t.simulation.settings}])
+				rules: list.Concat([for t in matched {t.simulation.rules}])
+			}
+			render: {
+				fields: list.Concat([for t in matched {t.render.fields}])
+				transformations: list.Concat([for t in matched {t.render.transformations}])
+				rules: list.Concat([for t in matched {t.render.rules}])
+			}
+		}
 
 		usb: #USB
 
@@ -121,177 +135,199 @@ cameras: {
 
 	x_e1: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-E1"
-			generation: "x_trans"
+			name:      "FUJIFILM X-E1"
+			sensor:    "x_trans_cmos"
+			processor: "exr_processor_pro"
 			usb: product_id: 0x0283
 		}
 	}
 
 	x_m1: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-M1"
-			generation: "x_trans"
+			name:      "FUJIFILM X-M1"
+			sensor:    "x_trans_cmos"
+			processor: "exr_processor_ii"
 			usb: product_id: 0x02b6
 		}
 	}
 
 	x70: #Camera & {
 		spec: {
-			name:       "FUJIFILM X70"
-			generation: "x_trans_ii"
+			name:      "FUJIFILM X70"
+			sensor:    "x_trans_cmos_ii"
+			processor: "exr_processor_ii"
 			usb: product_id: 0x02ba
 		}
 	}
 
 	x_e2: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-E2"
-			generation: "x_trans_ii"
+			name:      "FUJIFILM X-E2"
+			sensor:    "x_trans_cmos_ii"
+			processor: "exr_processor_ii"
 			usb: product_id: 0x02b5
 		}
 	}
 
 	x_t1: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-T1"
-			generation: "x_trans_ii"
+			name:      "FUJIFILM X-T1"
+			sensor:    "x_trans_cmos_ii"
+			processor: "exr_processor_ii"
 			usb: product_id: 0x02bf
 		}
 	}
 
 	x_t10: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-T10"
-			generation: "x_trans_ii"
+			name:      "FUJIFILM X-T10"
+			sensor:    "x_trans_cmos_ii"
+			processor: "exr_processor_ii"
 			usb: product_id: 0x02c8
 		}
 	}
 
 	x100f: #Camera & {
 		spec: {
-			name:       "FUJIFILM X100F"
-			generation: "x_trans_iii"
+			name:      "FUJIFILM X100F"
+			sensor:    "x_trans_cmos_iii"
+			processor: "x_processor_pro"
 			usb: product_id: 0x02d1
 		}
 	}
 
 	x_e3: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-E3"
-			generation: "x_trans_iii"
+			name:      "FUJIFILM X-E3"
+			sensor:    "x_trans_cmos_iii"
+			processor: "x_processor_pro"
 			usb: product_id: 0x02d6
 		}
 	}
 
 	x_h1: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-H1"
-			generation: "x_trans_iii"
+			name:      "FUJIFILM X-H1"
+			sensor:    "x_trans_cmos_iii"
+			processor: "x_processor_pro"
 			usb: product_id: 0x02d7
 		}
 	}
 
 	x_pro2: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-Pro2"
-			generation: "x_trans_iii"
+			name:      "FUJIFILM X-Pro2"
+			sensor:    "x_trans_cmos_iii"
+			processor: "x_processor_pro"
 			usb: product_id: 0x02cb
 		}
 	}
 
 	x_t2: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-T2"
-			generation: "x_trans_iii"
+			name:      "FUJIFILM X-T2"
+			sensor:    "x_trans_cmos_iii"
+			processor: "x_processor_pro"
 			usb: product_id: 0x02cd
 		}
 	}
 
 	x_t20: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-T20"
-			generation: "x_trans_iii"
+			name:      "FUJIFILM X-T20"
+			sensor:    "x_trans_cmos_iii"
+			processor: "x_processor_pro"
 			usb: product_id: 0x02d4
 		}
 	}
 
 	x100v: #Camera & {
 		spec: {
-			name:       "FUJIFILM X100V"
-			generation: "x_trans_iv"
+			name:      "FUJIFILM X100V"
+			sensor:    "x_trans_cmos_4"
+			processor: "x_processor_4"
 			usb: product_id: 0x02e5
 		}
 	}
 
 	x_e4: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-E4"
-			generation: "x_trans_iv"
+			name:      "FUJIFILM X-E4"
+			sensor:    "x_trans_cmos_4"
+			processor: "x_processor_4"
 			usb: product_id: 0x02e8
 		}
 	}
 
 	x_pro3: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-Pro3"
-			generation: "x_trans_iv"
+			name:      "FUJIFILM X-Pro3"
+			sensor:    "x_trans_cmos_4"
+			processor: "x_processor_4"
 			usb: product_id: 0x02e4
 		}
 	}
 
 	x_s10: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-S10"
-			generation: "x_trans_iv"
+			name:      "FUJIFILM X-S10"
+			sensor:    "x_trans_cmos_4"
+			processor: "x_processor_4"
 			usb: product_id: 0x02ea
 		}
 	}
 
 	x_t3: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-T3"
-			generation: "x_trans_iv"
+			name:      "FUJIFILM X-T3"
+			sensor:    "x_trans_cmos_4"
+			processor: "x_processor_4"
 			usb: product_id: 0x02dd
 		}
 	}
 
 	x_t4: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-T4"
-			generation: "x_trans_iv"
+			name:      "FUJIFILM X-T4"
+			sensor:    "x_trans_cmos_4"
+			processor: "x_processor_4"
 			usb: product_id: 0x02e6
 		}
 	}
 
 	x100vi: #Camera & {
 		spec: {
-			name:       "FUJIFILM X100VI"
-			generation: "x_trans_v"
+			name:      "FUJIFILM X100VI"
+			sensor:    "x_trans_cmos_5_hr"
+			processor: "x_processor_5"
 			usb: product_id: 0x0305
 		}
 	}
 
 	x_h2: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-H2"
-			generation: "x_trans_v"
+			name:      "FUJIFILM X-H2"
+			sensor:    "x_trans_cmos_5_hr"
+			processor: "x_processor_5"
 			usb: product_id: 0x02f2
 		}
 	}
 
 	x_h2s: #Camera & {
 		spec: {
-			name:       "FUJIFILM X-H2S"
-			generation: "x_trans_v"
+			name:      "FUJIFILM X-H2S"
+			sensor:    "x_trans_cmos_5_hs"
+			processor: "x_processor_5"
 			usb: product_id: 0x02f0
 		}
 	}
 
 	x_s20: #Camera & {
 		spec: {
-			name:        "FUJIFILM X-S20"
-			generation:  "x_trans_iv"
-			_generation: _
+			name:      "FUJIFILM X-S20"
+			sensor:    "x_trans_cmos_4"
+			processor: "x_processor_5"
+			_template: _
 
 			usb: product_id: 0x02f7
 
@@ -300,8 +336,8 @@ cameras: {
 
 				simulation: {
 					slots:    4
-					settings: _generation._simulation.settings
-					rules:    _generation._simulation.rules
+					settings: _template.simulation.settings
+					rules:    _template.simulation.rules
 				}
 			}
 		}
@@ -309,9 +345,10 @@ cameras: {
 
 	x_t5: #Camera & {
 		spec: {
-			name:        "FUJIFILM X-T5"
-			generation:  "x_trans_v"
-			_generation: _
+			name:      "FUJIFILM X-T5"
+			sensor:    "x_trans_cmos_5_hr"
+			processor: "x_processor_5"
+			_template: _
 
 			_pins: {
 				common: [
@@ -444,14 +481,14 @@ cameras: {
 
 				simulation: {
 					slots:    7
-					settings: _generation._simulation.settings
-					rules: list.Concat([_pins.common, _pins.simulation, _generation._simulation.rules])
+					settings: _template.simulation.settings
+					rules: list.Concat([_pins.common, _pins.simulation, _template.simulation.rules])
 				}
 
 				render: {
-					fields:          _generation._render.fields
-					transformations: _generation._render.transformations
-					rules: list.Concat([_pins.common, _pins.render, _generation._render.rules])
+					fields:          _template.render.fields
+					transformations: _template.render.transformations
+					rules: list.Concat([_pins.common, _pins.render, _template.render.rules])
 				}
 			}
 		}

@@ -39,8 +39,7 @@ impl From<&Camera> for Features {
 pub fn generate(cameras: &BTreeMap<String, Camera>) -> TokenStream {
     let mut sorted: Vec<&Camera> = cameras.values().collect();
     sorted.sort_by(|a, b| {
-        (a.spec.generation.as_str(), a.id.as_str())
-            .cmp(&(b.spec.generation.as_str(), b.id.as_str()))
+        (a.spec.processor.as_str(), a.id.as_str()).cmp(&(b.spec.processor.as_str(), b.id.as_str()))
     });
 
     let mut defs = Vec::with_capacity(sorted.len());

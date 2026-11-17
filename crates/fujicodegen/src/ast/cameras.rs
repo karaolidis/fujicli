@@ -16,7 +16,8 @@ pub struct Camera {
 #[serde(deny_unknown_fields)]
 pub struct CameraSpec {
     pub name: String,
-    pub generation: String,
+    pub sensor: String,
+    pub processor: String,
     pub usb: Usb,
     pub features: Option<Features>,
 }

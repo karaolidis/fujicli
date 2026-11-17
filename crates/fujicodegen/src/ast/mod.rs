@@ -1,16 +1,18 @@
 mod cameras;
 mod dnf;
-mod generations;
 mod grammar;
 mod options;
+mod processors;
 mod profile;
+mod sensors;
 
 pub use cameras::*;
 pub use dnf::*;
-pub use generations::*;
 pub use grammar::*;
 pub use options::*;
+pub use processors::*;
 pub use profile::*;
+pub use sensors::*;
 
 use std::collections::BTreeMap;
 
@@ -21,8 +23,9 @@ use serde::Deserialize;
 pub struct Fml {
     pub cameras: BTreeMap<String, Camera>,
     pub options: BTreeMap<String, FujiOption>,
-    pub generations: BTreeMap<String, Generation>,
+    pub processors: BTreeMap<String, Processor>,
     pub profile: Profile,
+    pub sensors: BTreeMap<String, Sensor>,
 }
 
 #[cfg(test)]
@@ -43,24 +46,32 @@ mod tests {
     #[test]
     fn minimal_empty_fml() {
         let fml = parse(
-            r#"{ "cameras": {}, "options": {}, "generations": {}, "profile": { "fields": [] } }"#,
+            r#"{ "cameras": {}, "options": {}, "processors": {}, "profile": { "fields": [] }, "sensors": {} }"#,
         );
-        assert!(fml.cameras.is_empty() && fml.options.is_empty() && fml.generations.is_empty());
+        assert!(
+            fml.cameras.is_empty()
+                && fml.options.is_empty()
+                && fml.processors.is_empty()
+                && fml.sensors.is_empty()
+        );
     }
 
     #[test]
     fn each_top_level_field_required() {
-        let profile = r#""profile": { "fields": [] }"#;
-        parse_err(&format!(
-            r#"{{ "options": {{}}, "generations": {{}}, {profile} }}"#
-        ));
-        parse_err(&format!(
-            r#"{{ "cameras": {{}}, "generations": {{}}, {profile} }}"#
-        ));
-        parse_err(&format!(
-            r#"{{ "cameras": {{}}, "options": {{}}, {profile} }}"#
-        ));
-        parse_err(r#"{ "cameras": {}, "options": {}, "generations": {} }"#);
+        let fields = [
+            r#""cameras": {}"#,
+            r#""options": {}"#,
+            r#""processors": {}"#,
+            r#""profile": { "fields": [] }"#,
+            r#""sensors": {}"#,
+        ];
+        for missing in 0..fields.len() {
+            let present: Vec<_> = (0..fields.len())
+                .filter(|&i| i != missing)
+                .map(|i| fields[i])
+                .collect();
+            parse_err(&format!("{{ {} }}", present.join(", ")));
+        }
     }
 
     #[test]
@@ -72,7 +83,8 @@ mod tests {
                         "id": "demo",
                         "spec": {
                             "name": "Demo",
-                            "generation": "gen_a",
+                            "sensor": "sensor_a",
+                            "processor": "proc_a",
                             "usb": { "vendor_id": 1, "product_id": 2, "chunk_size": 1024 },
                             "features": {
                                 "simulation": {
@@ -99,14 +111,19 @@ mod tests {
                         }
                     }
                 },
-                "generations": {
-                    "gen_a": { "id": "gen_a", "spec": { "name": "Gen A" } }
+                "processors": {
+                    "proc_a": { "id": "proc_a", "spec": { "name": "Proc A" } }
                 },
-                "profile": { "fields": [] }
+                "profile": { "fields": [] },
+                "sensors": {
+                    "sensor_a": { "id": "sensor_a", "spec": { "name": "Sensor A" } }
+                }
             }"#,
         );
-        assert_eq!(fml.cameras["demo"].spec.generation, "gen_a");
+        assert_eq!(fml.cameras["demo"].spec.processor, "proc_a");
         assert_eq!(fml.options["image_size"].spec.name(), "Image Size");
-        assert_eq!(fml.generations["gen_a"].spec.name, "Gen A");
+        assert_eq!(fml.processors["proc_a"].spec.name, "Proc A");
+        assert_eq!(fml.cameras["demo"].spec.sensor, "sensor_a");
+        assert_eq!(fml.sensors["sensor_a"].spec.name, "Sensor A");
     }
 }

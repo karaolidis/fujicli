@@ -382,7 +382,7 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "fujicli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -398,7 +398,7 @@ dependencies = [
 
 [[package]]
 name = "fujicodegen"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "heck",
@@ -412,7 +412,7 @@ dependencies = [
 
 [[package]]
 name = "fujicore"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "ptp-cursor"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "byteorder",
  "derive_more",
@@ -849,7 +849,7 @@ dependencies = [
 
 [[package]]
 name = "ptp-macro"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "num_enum",
  "ptp-cursor",
