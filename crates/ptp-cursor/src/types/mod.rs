@@ -1,3 +1,5 @@
-mod exact_string;
+mod terminated_string;
+mod unterminated_string;
 
-pub use exact_string::ExactString;
+pub use terminated_string::TerminatedString;
+pub use unterminated_string::UnterminatedString;

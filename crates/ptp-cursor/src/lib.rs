@@ -1,6 +1,6 @@
 mod types;
 
-pub use types::ExactString;
+pub use types::{TerminatedString, UnterminatedString};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{self, Cursor};
@@ -93,10 +93,10 @@ pub trait Read: ReadBytesExt {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid UTF-16"))
     }
 
-    fn read_ptp_str_exact(&mut self) -> io::Result<ExactString> {
+    fn read_ptp_str_unterminated(&mut self) -> io::Result<UnterminatedString> {
         let len = self.read_u8()?;
         if len == 0 {
-            return Ok(ExactString::new(String::new()));
+            return Ok(UnterminatedString::new(String::new()));
         }
 
         // For strings that do not include a null terminator
@@ -106,7 +106,11 @@ pub trait Read: ReadBytesExt {
 
         let s = String::from_utf16(&data)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid UTF-16"))?;
-        Ok(ExactString::new(s))
+        Ok(UnterminatedString::new(s))
+    }
+
+    fn read_ptp_str_terminated(&mut self) -> io::Result<TerminatedString> {
+        self.read_ptp_str().map(TerminatedString::new)
     }
 
     fn expect_end(&mut self) -> io::Result<()>;
@@ -221,7 +225,18 @@ pub trait Write: WriteBytesExt {
         Ok(())
     }
 
-    fn write_ptp_str_exact(&mut self, s: &str) -> io::Result<()> {
+    fn write_ptp_str_terminated(&mut self, s: &str) -> io::Result<()> {
+        let utf16: Vec<u16> = s.encode_utf16().collect();
+        #[allow(clippy::cast_possible_truncation)]
+        self.write_u8((utf16.len() + 1) as u8)?;
+        for c in utf16 {
+            self.write_u16::<LittleEndian>(c)?;
+        }
+        self.write_u16::<LittleEndian>(0)?;
+        Ok(())
+    }
+
+    fn write_ptp_str_unterminated(&mut self, s: &str) -> io::Result<()> {
         if s.is_empty() {
             return self.write_u8(0);
         }
@@ -303,8 +318,10 @@ ptp_de!(i64, read_ptp_i64);
 ptp_ser!(&str, write_ptp_str);
 ptp_ser!(String, write_ptp_str);
 ptp_de!(String, read_ptp_str);
-ptp_ser!(ExactString, write_ptp_str_exact);
-ptp_de!(ExactString, read_ptp_str_exact);
+ptp_ser!(UnterminatedString, write_ptp_str_unterminated);
+ptp_de!(UnterminatedString, read_ptp_str_unterminated);
+ptp_ser!(TerminatedString, write_ptp_str_terminated);
+ptp_de!(TerminatedString, read_ptp_str_terminated);
 ptp_ser!(Vec<u8>, write_ptp_u8_vec);
 ptp_de!(Vec<u8>, read_ptp_u8_vec);
 ptp_ser!(Vec<i8>, write_ptp_i8_vec);
@@ -326,7 +343,7 @@ ptp_de!(Vec<i64>, read_ptp_i64_vec);
 mod tests {
     use std::io::Cursor;
 
-    use super::{ExactString, PtpDeserialize, PtpSerialize, Read};
+    use super::{PtpDeserialize, PtpSerialize, Read, TerminatedString, UnterminatedString};
 
     macro_rules! check_ptp_round_trip {
         ($ty:ty, $value:expr, $bytes:expr) => {{
@@ -455,18 +472,48 @@ mod tests {
     }
 
     #[test]
-    fn exact_string_omits_null_terminator() {
-        let bytes = ExactString::new("AB".to_string()).try_into_ptp().unwrap();
+    fn unterminated_string_omits_null_terminator() {
+        let bytes = UnterminatedString::new("AB".to_string())
+            .try_into_ptp()
+            .unwrap();
         assert_eq!(bytes, vec![0x02, 0x41, 0x00, 0x42, 0x00]);
 
-        let parsed = ExactString::try_from_ptp(&bytes).unwrap();
+        let parsed = UnterminatedString::try_from_ptp(&bytes).unwrap();
         assert_eq!(parsed.as_ref(), "AB");
     }
 
     #[test]
-    fn exact_string_empty_is_single_zero_byte() {
-        let bytes = ExactString::new(String::new()).try_into_ptp().unwrap();
+    fn unterminated_string_empty_is_single_zero_byte() {
+        let bytes = UnterminatedString::new(String::new())
+            .try_into_ptp()
+            .unwrap();
         assert_eq!(bytes, vec![0x00]);
+    }
+
+    #[test]
+    fn terminated_string_writes_like_string() {
+        let bytes = TerminatedString::new("AB".to_string())
+            .try_into_ptp()
+            .unwrap();
+        assert_eq!(bytes, "AB".to_string().try_into_ptp().unwrap());
+
+        let parsed = TerminatedString::try_from_ptp(&bytes).unwrap();
+        assert_eq!(parsed.as_str(), "AB");
+    }
+
+    #[test]
+    fn terminated_string_empty_keeps_null_terminator() {
+        let bytes = TerminatedString::new(String::new()).try_into_ptp().unwrap();
+        assert_eq!(bytes, vec![0x01, 0x00, 0x00]);
+
+        let parsed = TerminatedString::try_from_ptp(&bytes).unwrap();
+        assert_eq!(parsed.as_str(), "");
+    }
+
+    #[test]
+    fn terminated_string_reads_single_zero_byte_as_empty() {
+        let parsed = TerminatedString::try_from_ptp(&[0x00]).unwrap();
+        assert_eq!(parsed.as_str(), "");
     }
 
     #[test]
@@ -495,8 +542,8 @@ mod tests {
     }
 
     #[test]
-    fn exact_string_display_and_from_str() {
-        let s: ExactString = "hello".parse().unwrap();
+    fn unterminated_string_display_and_from_str() {
+        let s: UnterminatedString = "hello".parse().unwrap();
         assert_eq!(format!("{s}"), "hello");
         assert_eq!(s.into_inner(), "hello");
     }

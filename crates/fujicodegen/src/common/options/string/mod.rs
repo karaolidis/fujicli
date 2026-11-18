@@ -57,7 +57,7 @@ fn generate_default_impl(type_name: &Ident, default: Option<&str>) -> TokenStrea
         #[allow(clippy::derivable_impls)]
         impl ::std::default::Default for #type_name {
             fn default() -> Self {
-                Self(::std::string::String::from(#chosen))
+                Self(::ptp_cursor::TerminatedString::new(::std::string::String::from(#chosen)))
             }
         }
     }
@@ -78,7 +78,7 @@ fn generate_struct_def(type_name: &Ident) -> TokenStream {
             ::serde_with::SerializeDisplay,
             ::serde_with::DeserializeFromStr,
         )]
-        pub struct #type_name(String);
+        pub struct #type_name(::ptp_cursor::TerminatedString);
     }
 }
 
@@ -102,7 +102,7 @@ fn generate_inherent_impl(type_name: &Ident, bounds: &Bounds) -> TokenStream {
             #const_block
 
             #[must_use]
-            pub fn as_str(&self) -> &str { &self.0 }
+            pub fn as_str(&self) -> &str { self.0.as_str() }
         }
     }
 }
@@ -138,7 +138,7 @@ fn generate_from_str_impl(type_name: &Ident, bounds: &Bounds) -> TokenStream {
             fn from_str(s: &str) -> ::std::result::Result<Self, crate::input::OptionError> {
                 #validate_min
                 #validate_max
-                Ok(Self(s.to_string()))
+                Ok(Self(::ptp_cursor::TerminatedString::new(s.to_string())))
             }
         }
     }
@@ -148,7 +148,7 @@ fn generate_display_impl(type_name: &Ident) -> TokenStream {
     quote! {
         impl ::std::fmt::Display for #type_name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                f.write_str(&self.0)
+                f.write_str(self.0.as_str())
             }
         }
     }

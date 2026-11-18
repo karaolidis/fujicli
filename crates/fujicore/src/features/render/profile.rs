@@ -1,6 +1,6 @@
 use std::io;
 
-use ptp_cursor::{ExactString, PtpDeserialize, PtpSerialize, Read};
+use ptp_cursor::{PtpDeserialize, PtpSerialize, Read, UnterminatedString};
 
 /// Bytes the profile code occupies on the wire, including its padding.
 const CODE_REGION_LEN: usize = 0x1FF;
@@ -29,7 +29,7 @@ pub fn profile_value(values: &[i32], position: usize, id: &str) -> io::Result<i3
 /// A conversion profile as exchanged with the camera.
 #[derive(Debug, Clone)]
 pub struct ConversionProfile<T> {
-    pub code: ExactString,
+    pub code: UnterminatedString,
     pub fields: T,
     pub reported: Vec<i32>,
 }
@@ -80,7 +80,7 @@ impl<T: ConversionProfileFields> PtpDeserialize for ConversionProfile<T> {
         let cur = &mut io::Cursor::new(buf);
         let _count = i16::try_read_ptp(cur)?;
 
-        let code = ExactString::try_read_ptp(cur)?;
+        let code = UnterminatedString::try_read_ptp(cur)?;
         let code_len = code.encode_utf16().count() * 2 + 1;
         let padding = CODE_REGION_LEN.checked_sub(code_len).ok_or_else(|| {
             io::Error::new(
@@ -143,7 +143,7 @@ mod tests {
 
     fn two_bytes() -> Vec<u8> {
         ConversionProfile {
-            code: ExactString::from(String::from("FF179502")),
+            code: UnterminatedString::from(String::from("FF179502")),
             fields: Two(1, -2),
             reported: Vec::new(),
         }
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn round_trips_and_keeps_the_code() {
         let profile = ConversionProfile {
-            code: ExactString::from(String::from("FF179502")),
+            code: UnterminatedString::from(String::from("FF179502")),
             fields: Two(1, -2),
             reported: Vec::new(),
         };
@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn writes_the_fields_over_the_reported_values() {
         let profile = ConversionProfile {
-            code: ExactString::from(String::from("FF179502")),
+            code: UnterminatedString::from(String::from("FF179502")),
             fields: Two(1, -2),
             reported: vec![5, 6, 7],
         };
@@ -225,7 +225,7 @@ mod tests {
         /// As the camera reported it for a RAF shot in Provia with As Shot white balance.
         fn as_shot() -> ConversionProfile<XT5RenderProfile> {
             ConversionProfile {
-                code: ExactString::from(String::from("FF179502")),
+                code: UnterminatedString::from(String::from("FF179502")),
                 fields: XT5RenderProfile {
                     file_type: FileType::Jpeg,
                     image_size: ImageSize::L3_2,

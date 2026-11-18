@@ -22,9 +22,9 @@ use derive_more::{
     IndexMut,
     Into,
 )]
-pub struct ExactString(pub String);
+pub struct TerminatedString(pub String);
 
-impl ExactString {
+impl TerminatedString {
     #[must_use]
     pub const fn new(s: String) -> Self {
         Self(s)
