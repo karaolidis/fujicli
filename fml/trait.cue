@@ -142,7 +142,6 @@ _traits: [
 				"color_chrome_fx_blue",
 				"monochromatic_color_tint",
 				"clarity",
-				"teleconverter",
 			]
 			transformations: [
 				{
@@ -290,6 +289,17 @@ _traits: [
 						]},
 					]
 				},
+			]
+		}
+	},
+	{
+		when: sensor: "x_trans_cmos_5_hr"
+
+		simulation: settings: [{ref: "smooth_skin_effect"}]
+
+		render: {
+			fields: ["smooth_skin_effect", "teleconverter"]
+			rules: [
 				{
 					message: "Teleconverter can only be enabled if it was enabled when the image was shot."
 					when: all: [
@@ -299,11 +309,5 @@ _traits: [
 				},
 			]
 		}
-	},
-	{
-		when: sensor: "x_trans_cmos_5_hr"
-
-		simulation: settings: [{ref: "smooth_skin_effect"}]
-		render: fields: ["smooth_skin_effect"]
 	},
 ]
