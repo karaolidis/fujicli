@@ -1,0 +1,52 @@
+name: Bug report
+description: Report something that does not work as documented.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: fujicli --version
+      description: If you built from source, add the commit.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Linux, macOS, Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: device-list
+    attributes:
+      label: fujicli device list
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: device-info
+    attributes:
+      label: fujicli -vvv device info
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The command that fails.
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: The output of the command run with `-vvv`.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
