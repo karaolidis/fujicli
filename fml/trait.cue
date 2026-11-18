@@ -239,6 +239,13 @@ _traits: [
 					]
 				},
 				{
+					message: "Clarity is not available for HEIF."
+					when: all: [
+						{ref: "file_type", equals: "heif"},
+						{not: {ref: "clarity", equals: 0}},
+					]
+				},
+				{
 					message: "Dynamic Range cannot exceed the value the image was shot with."
 					when: any: [
 						{all: [
