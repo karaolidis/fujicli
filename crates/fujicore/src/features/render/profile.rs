@@ -7,9 +7,9 @@ const CODE_REGION_LEN: usize = 0x1FF;
 
 /// The fields of a camera's conversion profile, in wire order.
 pub trait ConversionProfileFields: Sized {
-    const FIELD_COUNT: i16;
+    const LEN: usize;
 
-    fn write_fields(&self, buf: &mut Vec<u8>) -> io::Result<()>;
+    fn write_fields(&self, values: &mut [i32]) -> io::Result<()>;
 
     fn read_fields(values: &[i32]) -> io::Result<Self>;
 }
@@ -31,6 +31,7 @@ pub fn profile_value(values: &[i32], position: usize, id: &str) -> io::Result<i3
 pub struct ConversionProfile<T> {
     pub code: ExactString,
     pub fields: T,
+    pub reported: Vec<i32>,
 }
 
 impl<T: ConversionProfileFields> PtpSerialize for ConversionProfile<T> {
@@ -41,7 +42,19 @@ impl<T: ConversionProfileFields> PtpSerialize for ConversionProfile<T> {
     }
 
     fn try_write_ptp(&self, buf: &mut Vec<u8>) -> io::Result<()> {
-        T::FIELD_COUNT.try_write_ptp(buf)?;
+        let mut values = self.reported.clone();
+        if values.len() < T::LEN {
+            values.resize(T::LEN, 0);
+        }
+        self.fields.write_fields(&mut values)?;
+
+        let count = i16::try_from(values.len()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("profile has {} fields", values.len()),
+            )
+        })?;
+        count.try_write_ptp(buf)?;
 
         let start = buf.len();
         self.code.try_write_ptp(buf)?;
@@ -55,7 +68,10 @@ impl<T: ConversionProfileFields> PtpSerialize for ConversionProfile<T> {
             })?;
         buf.resize(buf.len() + padding, 0);
 
-        self.fields.write_fields(buf)
+        for value in values {
+            value.try_write_ptp(buf)?;
+        }
+        Ok(())
     }
 }
 
@@ -86,7 +102,11 @@ impl<T: ConversionProfileFields> PtpDeserialize for ConversionProfile<T> {
         let values: Vec<i32> = chunks.iter().copied().map(i32::from_le_bytes).collect();
 
         let fields = T::read_fields(&values)?;
-        Ok(Self { code, fields })
+        Ok(Self {
+            code,
+            fields,
+            reported: values,
+        })
     }
 
     /// Reads to the end of the input.
@@ -105,11 +125,12 @@ mod tests {
     struct Two(i32, i32);
 
     impl ConversionProfileFields for Two {
-        const FIELD_COUNT: i16 = 2;
+        const LEN: usize = 2;
 
-        fn write_fields(&self, buf: &mut Vec<u8>) -> io::Result<()> {
-            self.0.try_write_ptp(buf)?;
-            self.1.try_write_ptp(buf)
+        fn write_fields(&self, values: &mut [i32]) -> io::Result<()> {
+            values[0] = self.0;
+            values[1] = self.1;
+            Ok(())
         }
 
         fn read_fields(values: &[i32]) -> io::Result<Self> {
@@ -124,6 +145,7 @@ mod tests {
         ConversionProfile {
             code: ExactString::from(String::from("FF179502")),
             fields: Two(1, -2),
+            reported: Vec::new(),
         }
         .try_into_ptp()
         .unwrap()
@@ -134,6 +156,7 @@ mod tests {
         let profile = ConversionProfile {
             code: ExactString::from(String::from("FF179502")),
             fields: Two(1, -2),
+            reported: Vec::new(),
         };
         let bytes = profile.try_into_ptp().unwrap();
         assert_eq!(bytes.len(), 2 + CODE_REGION_LEN + 8);
@@ -141,6 +164,7 @@ mod tests {
         let read = ConversionProfile::<Two>::try_from_ptp(&bytes).unwrap();
         assert_eq!(read.code.as_str(), "FF179502");
         assert_eq!(read.fields, Two(1, -2));
+        assert_eq!(read.reported, [1, -2]);
     }
 
     #[test]
@@ -157,6 +181,21 @@ mod tests {
         bytes.extend_from_slice(&7i32.to_le_bytes());
         let read = ConversionProfile::<Two>::try_from_ptp(&bytes).unwrap();
         assert_eq!(read.fields, Two(1, -2));
+        assert_eq!(read.reported, [1, -2, 7]);
+    }
+
+    #[test]
+    fn writes_the_fields_over_the_reported_values() {
+        let profile = ConversionProfile {
+            code: ExactString::from(String::from("FF179502")),
+            fields: Two(1, -2),
+            reported: vec![5, 6, 7],
+        };
+        let bytes = profile.try_into_ptp().unwrap();
+        assert_eq!(i16::from_le_bytes([bytes[0], bytes[1]]), 3);
+
+        let read = ConversionProfile::<Two>::try_from_ptp(&bytes).unwrap();
+        assert_eq!(read.reported, [1, -2, 7]);
     }
 
     #[test]
@@ -216,6 +255,7 @@ mod tests {
                     clarity: Clarity::default(),
                     teleconverter: Teleconverter::Off,
                 },
+                reported: Vec::new(),
             }
         }
 
@@ -230,11 +270,23 @@ mod tests {
         }
 
         #[test]
-        fn writes_every_field_with_unused_ones_zeroed() {
+        fn writes_every_field_with_unreported_ones_zeroed() {
             let bytes = as_shot().try_into_ptp().unwrap();
             let values = values(&bytes);
             assert_eq!(values.len(), LAYOUT_LEN);
             assert_eq!(values[0], 0, "shoot_condition");
+            assert_eq!(values[LAYOUT_LEN - 1], 0, "portrait_enhancer");
+        }
+
+        #[test]
+        fn writes_back_the_reported_values_of_undeclared_fields() {
+            let mut profile = as_shot();
+            profile.reported = (100..).take(LAYOUT_LEN - 1).collect();
+            let bytes = profile.try_into_ptp().unwrap();
+            let values = values(&bytes);
+            assert_eq!(values[0], 100, "shoot_condition");
+            assert_eq!(values[14], 0, "white_balance_temperature");
+            assert_eq!(values[LAYOUT_LEN - 2], 2, "teleconverter");
             assert_eq!(values[LAYOUT_LEN - 1], 0, "portrait_enhancer");
         }
 

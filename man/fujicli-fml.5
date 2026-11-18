@@ -400,7 +400,8 @@ A field without one is an integer with no encoding, and must have an
 Ids are unique.
 .Pp
 A camera's render uses the fields it lists.
-The others are written as 0 and ignored when read.
+The others are written back as the camera reported them, and ignored when
+read.
 A camera may send back fewer fields than it is sent.
 .Sh PREDICATES
 A predicate is a test on a block's values.

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Context;
-use proc_macro2::{Ident, Literal, TokenStream};
+use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
 use crate::{
@@ -97,8 +97,6 @@ fn generate_one(
         .map(str::to_owned)
         .collect();
 
-    let n_props = i16::try_from(profile.fields.len()).context("too many profile fields")?;
-
     let optional_field_ids: BTreeSet<String> = presence_info.conditions.keys().cloned().collect();
     let foreign_field_ids: Vec<&str> = base_union
         .iter()
@@ -160,8 +158,12 @@ fn generate_one(
         &render.transformations,
         &convert_order,
     )?;
-    let profile_fields_impl =
-        generate_profile_fields_impl(&complete_ident, n_props, &write_fields, &read_fields);
+    let profile_fields_impl = generate_profile_fields_impl(
+        &complete_ident,
+        profile.fields.len(),
+        &write_fields,
+        &read_fields,
+    );
     let manager_impl = generate_camera_render_manager_impl(
         &complete_ident,
         &draft_ident,
@@ -482,16 +484,15 @@ fn generate_write_fields(
     profile: &Profile,
     optional: &BTreeSet<String>,
 ) -> TokenStream {
-    let writes = profile.fields.iter().map(|field| {
-        if settings.contains_key(field.id()) {
-            generate_write_one(settings, optional, field)
-        } else {
-            quote! { ::ptp_cursor::PtpSerialize::try_write_ptp(&0i32, buf)?; }
-        }
-    });
+    let writes = profile
+        .fields
+        .iter()
+        .enumerate()
+        .filter(|(_, field)| settings.contains_key(field.id()))
+        .map(|(position, field)| generate_write_one(settings, optional, field, position));
 
     quote! {
-        fn write_fields(&self, buf: &mut Vec<u8>) -> ::std::io::Result<()> {
+        fn write_fields(&self, values: &mut [i32]) -> ::std::io::Result<()> {
             #( #writes )*
 
             Ok(())
@@ -503,38 +504,35 @@ fn generate_write_one(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     optional: &BTreeSet<String>,
     field: &Field,
+    position: usize,
 ) -> TokenStream {
     let id = field.id();
     let info = &settings[id];
     let ident = info.field_ident();
     let type_path = info.type_path();
-    let is_optional = optional.contains(id);
 
-    let write = |value: TokenStream| {
+    let encode = |reference: TokenStream, value: TokenStream| {
         if info.option.is_some() {
             quote! {
                 <#type_path as crate::ptp::option::ConversionProfileField>
-                    ::try_write_conversion_profile_field_ptp(#value, buf)?;
+                    ::try_into_conversion_profile_value(#reference)?
             }
         } else {
-            quote! {
-                ::ptp_cursor::PtpSerialize::try_write_ptp(#value, buf)?;
-            }
+            value
         }
     };
 
-    if is_optional {
-        let write_some = write(quote! { value });
+    if optional.contains(id) {
+        let encoded = encode(quote! { value }, quote! { *value });
         quote! {
-            match self.#ident.as_ref() {
-                Some(value) => { #write_some }
-                None => {
-                    ::ptp_cursor::PtpSerialize::try_write_ptp(&0i32, buf)?;
-                }
-            }
+            values[#position] = match self.#ident.as_ref() {
+                Some(value) => #encoded,
+                None => 0,
+            };
         }
     } else {
-        write(quote! { &self.#ident })
+        let encoded = encode(quote! { &self.#ident }, quote! { self.#ident });
+        quote! { values[#position] = #encoded; }
     }
 }
 
@@ -607,7 +605,7 @@ fn generate_convert_one(
     let value_expr = if info.option.is_some() {
         quote! {
             <#type_path as crate::ptp::option::ConversionProfileField>
-                ::try_from_conversion_profile_field_ptp(&#raw_ident.to_le_bytes())?
+                ::try_from_conversion_profile_value(#raw_ident)?
         }
     } else {
         quote! { #raw_ident }
@@ -634,14 +632,13 @@ fn raw_local_ident(ident: &Ident) -> Ident {
 
 fn generate_profile_fields_impl(
     complete_ident: &Ident,
-    n_props: i16,
+    len: usize,
     write_fields: &TokenStream,
     read_fields: &TokenStream,
 ) -> TokenStream {
-    let n_props_lit = Literal::i16_suffixed(n_props);
     quote! {
         impl crate::features::render::ConversionProfileFields for #complete_ident {
-            const FIELD_COUNT: i16 = #n_props_lit;
+            const LEN: usize = #len;
 
             #write_fields
 
@@ -686,6 +683,7 @@ fn generate_camera_render_manager_impl(
                 let next = crate::features::render::ConversionProfile {
                     code: current.code,
                     fields: <#complete_ident as ::std::convert::TryFrom<#draft_ident>>::try_from(buf)?,
+                    reported: current.reported,
                 };
                 ::log::debug!("Profile to apply: {next:?}");
                 ptp.set_prop(crate::ptp::DevicePropCode::FujiRawConversionProfile, &next)?;

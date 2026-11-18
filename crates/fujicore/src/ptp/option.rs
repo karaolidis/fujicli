@@ -33,4 +33,19 @@ pub trait ConversionProfileField: Sized {
     }
 
     fn try_read_conversion_profile_field_ptp<R: Read>(cur: &mut R) -> io::Result<Self>;
+
+    fn try_into_conversion_profile_value(&self) -> io::Result<i32> {
+        let buf = self.try_into_conversion_profile_field_ptp()?;
+        let bytes = <[u8; 4]>::try_from(buf.as_slice()).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("profile field encodes to {} bytes, not 4", buf.len()),
+            )
+        })?;
+        Ok(i32::from_le_bytes(bytes))
+    }
+
+    fn try_from_conversion_profile_value(value: i32) -> io::Result<Self> {
+        Self::try_from_conversion_profile_field_ptp(&value.to_le_bytes())
+    }
 }
