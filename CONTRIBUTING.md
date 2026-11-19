@@ -13,8 +13,8 @@ language and `fujicli(7)` for adding a camera.
 ## Setup
 
 `nix develop` provides the Rust toolchain and CUE. Without Nix, install a
-nightly Rust toolchain, [CUE](https://cuelang.org/) and the `libusb-1.0` headers
-yourself.
+nightly Rust toolchain, [CUE](https://cuelang.org/), and the `libusb-1.0`
+headers yourself.
 
 ## Checks
 
@@ -27,10 +27,10 @@ cargo clippy --all-features --all-targets --workspace -- -D warnings
 cargo test --all-features --all-targets --workspace
 ```
 
-Clippy's `all`, `pedantic` and `nursery` groups are enabled for the workspace,
+Clippy's `all`, `pedantic`, and `nursery` groups are enabled for the workspace,
 so every warning fails CI, and `unwrap()` is denied.
 
-Format with `nix fmt`, which runs rustfmt, nixfmt and shellcheck through
+Format with `nix fmt`, which runs rustfmt, nixfmt, and shellcheck through
 treefmt.
 
 ## Testing

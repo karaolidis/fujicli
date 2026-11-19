@@ -93,7 +93,7 @@ Print results as JSON instead of text.
 Applies to
 .Cm device list ,
 .Cm device info ,
-.Cm simulation list
+.Cm simulation list ,
 and
 .Cm simulation get .
 .It Fl v , Fl -verbose
@@ -124,14 +124,14 @@ Each command and subcommand has a one-letter alias, given in parentheses.
 .Ss device (d)
 .Bl -tag -width Ds
 .It Cm device list Pq Cm l
-List connected supported cameras, with their name, USB ID and serial number.
+List connected supported cameras, with their name, USB ID, and serial number.
 Ignores
 .Fl -device
 and
 .Fl -emulate .
 .It Cm device info Pq Cm i
 Print the camera's manufacturer, model, firmware version, serial number, USB
-mode and battery level.
+mode, and battery level.
 .It Cm device reverse Pq Cm r
 Developer tools for adding support for a new model.
 Hidden from
@@ -147,7 +147,7 @@ Only use these with a full backup of the camera.
 .It Cm backup export Ar output , Cm backup import Ar input
 Export or import a backup the way known models do.
 .It Cm info
-Dump the device information, USB mode and battery level.
+Dump the device information, USB mode, and battery level.
 .It Cm simulation
 Dump every simulation setting of every slot.
 .El
@@ -288,7 +288,7 @@ A flag for a setting the camera does not have is an error.
 .El
 .Pp
 .Fl -file-type ,
-.Fl -exposure-offset
+.Fl -exposure-offset ,
 and
 .Fl -teleconverter
 are taken only by
@@ -325,7 +325,7 @@ Negative values may be given as a separate argument, as in
 .Fl -color Ar -2 .
 .El
 .Pp
-The names, aliases, ranges and steps are defined in FML; see
+The names, aliases, ranges, and steps are defined in FML; see
 .Xr fujicli-fml 5 .
 .Sh ENVIRONMENT
 .Nm

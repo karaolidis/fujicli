@@ -75,7 +75,7 @@ The pages are in `man/`. Read them without installing with
 The canonical repository is on
 [Gitea](https://git.karaolidis.com/karaolidis/fujicli), with a
 [GitHub mirror](https://github.com/karaolidis/fujicli). See
-[CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks and testing.
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, and testing.
 
 ## Acknowledgements
 

@@ -6,7 +6,7 @@
 .Nd Fuji Modelling Language
 .Sh DESCRIPTION
 The Fuji Modelling Language (FML) describes the camera options, cameras,
-processors and sensors that
+processors, and sensors that
 .Xr fujicli 1
 supports, and the rules that relate option values to each other.
 It is a CUE schema in the
@@ -23,7 +23,7 @@ Editing FML and rebuilding is how support for a camera or option is added.
 The document has five top-level keys: the maps
 .Cm options ,
 .Cm cameras ,
-.Cm processors
+.Cm processors ,
 and
 .Cm sensors ,
 and
@@ -38,7 +38,7 @@ Ids are
 and are used as Rust identifiers and command-line flag names.
 Entries reference each other by id.
 .Pp
-CUE checks types, references and the constraints below when the package is
+CUE checks types, references, and the constraints below when the package is
 exported.
 The code generator rejects any key it does not know.
 Keys whose names begin with an underscore are hidden: they can be used within
@@ -65,7 +65,7 @@ Optional.
 The value type, one of
 .Cm integer ,
 .Cm float ,
-.Cm string
+.Cm string ,
 or
 .Cm enum .
 Required.
@@ -433,7 +433,7 @@ is unknown when the field has no value, and so is its negation.
 A predicate holds only when it is true; to match a field without a value, test
 .Cm present : false .
 .Cm present ,
-.Cm equals
+.Cm equals ,
 and
 .Cm in
 apply to any field; the others only to
@@ -478,7 +478,7 @@ A rule names a combination of values that is invalid or noteworthy.
 .Bl -tag -width Ds
 .It Cm severity : Ar severity
 .Cm error ,
-.Cm warning
+.Cm warning ,
 or
 .Cm info .
 Default
@@ -512,7 +512,7 @@ longer does.
 If the field is optional, it first tries clearing it.
 For a negated
 .Cm equals ,
-.Cm in
+.Cm in ,
 or
 .Cm min Ns / Ns Cm max ,
 it then tries setting the field to the value named, the first value listed, or
@@ -583,7 +583,7 @@ or
 .Cm info
 rule that holds is logged at that level with its
 .Cm message .
-Such rules never block, repair or gate.
+Such rules never block, repair, or gate.
 .Sh TRANSFORMATIONS
 A transformation sets fields when a predicate holds.
 .Bl -tag -width Ds

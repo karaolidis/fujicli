@@ -36,7 +36,7 @@ Runs at build time only.
 .It Sy ptp-cursor
 The PTP wire codec:
 .Vt PtpSerialize ,
-.Vt PtpDeserialize
+.Vt PtpDeserialize ,
 and PTP strings.
 .It Sy ptp-macro
 Derive macros for
@@ -86,7 +86,7 @@ It selects which generated implementation is used and nothing else.
 It does not add support for a camera missing from the schema.
 .Pp
 Emulation exists for development and reverse engineering.
-The emulated model's property codes, value ranges and slot count may not match
+The emulated model's property codes, value ranges, and slot count may not match
 the real camera, so reads can return garbage and writes can store values the
 camera does not expect.
 Rendering under emulation is unpredictable, and its output should not be
@@ -96,7 +96,7 @@ Take a backup first.
 .Ss Transport
 The camera appears as a PTP device on USB.
 .Nm
-claims its interface, opens a PTP session, and exchanges command, data and
+claims its interface, opens a PTP session, and exchanges command, data, and
 response containers over the bulk endpoints.
 On Windows it instead goes through the stock MTP driver.
 Large transfers are split into chunks of at most the camera's
@@ -185,7 +185,7 @@ to extract the maker notes, so it must be installed.
 .Sh ADDING A CAMERA
 A camera is an entry in
 .Pa fml/camera.cue .
-An entry with a name, a sensor, a processor and a USB product identifier is
+An entry with a name, a sensor, a processor, and a USB product identifier is
 enough for
 .Ql device list
 and
@@ -323,7 +323,7 @@ interface of the camera's bus, before connecting the camera:
 $ INTERFACE=usbmon1 ./support/monitor-rendering.sh
 .Ed
 .It
-Start the virtual machine, connect the camera and pass it through.
+Start the virtual machine, connect the camera, and pass it through.
 .It
 Open X RAW Studio and change settings.
 The live preview is enough; the image does not need to be saved.
@@ -382,7 +382,7 @@ the emitters.
 Every option becomes a Rust type implementing
 .Vt Default ,
 .Vt Eq ,
-.Vt Ord
+.Vt Ord ,
 and
 .Vt Hash .
 .Pp
