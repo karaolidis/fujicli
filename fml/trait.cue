@@ -244,6 +244,13 @@ _traits: [
 					]
 				},
 				{
+					message: "HEIF is not available for HDR images."
+					when: all: [
+						{ref: "dynamic_range", scope: "original", in: ["hdr800", "hdr800_plus"]},
+						{ref: "file_type", equals: "heif"},
+					]
+				},
+				{
 					message: "Dynamic Range cannot exceed the value the image was shot with."
 					when: any: [
 						{all: [
