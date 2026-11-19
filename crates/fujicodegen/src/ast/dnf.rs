@@ -10,8 +10,8 @@ use anyhow::bail;
 
 use crate::{
     ast::{
-        Assignment, AssignmentEffect, LeafBetween, LeafEquals, LeafGt, LeafGte, LeafIn, LeafLt,
-        LeafLte, LeafPresent, PredAll, PredAny, PredNot, Predicate, Scope,
+        LeafBetween, LeafEquals, LeafGt, LeafGte, LeafIn, LeafLt, LeafLte, LeafPresent, PredAll,
+        PredAny, PredNot, Predicate, Scope,
     },
     util::multiset,
 };
@@ -90,23 +90,6 @@ impl Leaf {
             Self::NotGreaterThan(l) => Self::GreaterThan(l),
             Self::GreaterThanOrEqual(l) => Self::NotGreaterThanOrEqual(l),
             Self::NotGreaterThanOrEqual(l) => Self::GreaterThanOrEqual(l),
-        }
-    }
-}
-
-impl From<&Assignment> for Leaf {
-    fn from(a: &Assignment) -> Self {
-        match &a.effect {
-            AssignmentEffect::Set(v) => Self::Equals(LeafEquals {
-                r#ref: a.r#ref.clone(),
-                scope: Scope::Current,
-                equals: v.clone(),
-            }),
-            AssignmentEffect::Clear => Self::Present(LeafPresent {
-                r#ref: a.r#ref.clone(),
-                scope: Scope::Current,
-                present: false,
-            }),
         }
     }
 }

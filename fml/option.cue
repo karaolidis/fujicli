@@ -813,7 +813,6 @@ options: {
 			kind:     "enum"
 			rules: variants: [
 				{id: "auto", name: "Auto"},
-				{id: "plus", name: "Plus"},
 				{id: "strong", name: "Strong"},
 				{id: "weak", name: "Weak"},
 				{id: "off", name: "Off"},
@@ -823,7 +822,6 @@ options: {
 				kind:      "lookup"
 				spec: values: {
 					auto:   0x8000
-					plus:   0x03
 					strong: 0x02
 					weak:   0x01
 					off:    0x00

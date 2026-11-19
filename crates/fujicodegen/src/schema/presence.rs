@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     ast::{Conjunction, Dnf, Leaf, LeafPresent, PredAll, Predicate, Scope, Severity},
-    schema::alias::NormalizedRule,
+    schema::rule::NormalizedRule,
 };
 
 #[derive(Debug, Default)]
@@ -19,7 +19,7 @@ impl PresenceDag {
         rules
             .iter()
             .filter(|r| r.severity == Severity::Error)
-            .flat_map(|r| r.gating.iter())
+            .flat_map(|r| r.when.iter())
             .for_each(|conj| Self::process_disjunct(conj, &mut contributions, &mut edges));
 
         let conditions = contributions
@@ -157,11 +157,7 @@ impl Gate {
 mod tests {
     use super::*;
     use crate::{
-        ast::{
-            Assignment, AssignmentEffect, LeafEquals, LeafIn, LeafPresent, PredAll, PredAny,
-            PredNot, Rule, Transformation,
-        },
-        schema::alias::NormalizedTransformation,
+        ast::{LeafEquals, LeafIn, LeafPresent, PredAll, PredAny, PredNot, Rule},
         util::dag::Dag,
     };
     use serde_json::json;
@@ -187,10 +183,7 @@ mod tests {
     }
 
     fn collect_raw(rules: &[Rule]) -> PresenceDag {
-        let normalised: Vec<NormalizedRule> = rules
-            .iter()
-            .map(|r| NormalizedRule::from_rule(r, &[]))
-            .collect();
+        let normalised: Vec<NormalizedRule> = rules.iter().map(NormalizedRule::from).collect();
         PresenceDag::from_rules(&normalised)
     }
 
@@ -942,128 +935,6 @@ mod tests {
             .into(),
         )];
         let info = collect_raw(&rules);
-        assert!(info.conditions.is_empty(), "got: {:?}", info.conditions);
-        assert!(info.edges.is_empty(), "got: {:?}", info.edges);
-    }
-
-    #[test]
-    fn alias_exemption_self_reference_only_validates() {
-        let alias = Transformation {
-            when: Some(
-                LeafEquals {
-                    r#ref: "A".into(),
-                    scope: Scope::Current,
-                    equals: json!("ab"),
-                }
-                .into(),
-            ),
-            apply: vec![
-                Assignment {
-                    r#ref: "A".into(),
-                    effect: AssignmentEffect::Set(json!("a")),
-                },
-                Assignment {
-                    r#ref: "B".into(),
-                    effect: AssignmentEffect::Set(json!("b")),
-                },
-            ],
-            undo: true,
-        };
-        let aliases: Vec<NormalizedTransformation> = Option::from(alias).into_iter().collect();
-        let rules = [NormalizedRule::from_rule(
-            &rule(
-                PredAll {
-                    all: vec![
-                        LeafPresent {
-                            r#ref: "A".into(),
-                            scope: Scope::Current,
-                            present: true,
-                        }
-                        .into(),
-                        PredNot {
-                            not: Box::new(
-                                LeafEquals {
-                                    r#ref: "B".into(),
-                                    scope: Scope::Current,
-                                    equals: json!("off"),
-                                }
-                                .into(),
-                            ),
-                        }
-                        .into(),
-                    ],
-                }
-                .into(),
-            ),
-            &aliases,
-        )];
-
-        let info = PresenceDag::from_rules(&rules);
-        let b = |leaf: Leaf| Conjunction(vec![leaf]);
-        let expected = Dnf(vec![
-            b(Leaf::Present(LeafPresent {
-                r#ref: "B".into(),
-                scope: Scope::Current,
-                present: false,
-            })),
-            b(Leaf::Equals(LeafEquals {
-                r#ref: "B".into(),
-                scope: Scope::Current,
-                equals: json!("off"),
-            })),
-            b(Leaf::Equals(LeafEquals {
-                r#ref: "B".into(),
-                scope: Scope::Current,
-                equals: json!("b"),
-            })),
-        ]);
-        assert_eq!(info.conditions["A"], expected);
-        assert_eq!(info.edges, std::iter::once(edge("B", "A")).collect());
-    }
-
-    #[test]
-    fn alias_guards_on_value_rules_do_not_gate() {
-        let alias = Transformation {
-            when: Some(
-                LeafEquals {
-                    r#ref: "A".into(),
-                    scope: Scope::Current,
-                    equals: json!("ab"),
-                }
-                .into(),
-            ),
-            apply: vec![
-                Assignment {
-                    r#ref: "A".into(),
-                    effect: AssignmentEffect::Set(json!("a")),
-                },
-                Assignment {
-                    r#ref: "B".into(),
-                    effect: AssignmentEffect::Set(json!("b")),
-                },
-            ],
-            undo: true,
-        };
-        let aliases: Vec<NormalizedTransformation> = Option::from(alias).into_iter().collect();
-        let not_in = |r: &str| -> Predicate {
-            PredNot {
-                not: Box::new(
-                    LeafIn {
-                        r#ref: r.into(),
-                        scope: Scope::Current,
-                        values: vec![json!("x")],
-                    }
-                    .into(),
-                ),
-            }
-            .into()
-        };
-        let rules = [
-            NormalizedRule::from_rule(&rule(not_in("A")), &aliases),
-            NormalizedRule::from_rule(&rule(not_in("B")), &aliases),
-        ];
-
-        let info = PresenceDag::from_rules(&rules);
         assert!(info.conditions.is_empty(), "got: {:?}", info.conditions);
         assert!(info.edges.is_empty(), "got: {:?}", info.edges);
     }

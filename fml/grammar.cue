@@ -74,32 +74,6 @@ import "list"
 			}
 		}
 	}
-
-	#Assignment: #Assignments.#Clear | #Assignments.#Set
-
-	#Assignments: {
-		#Set: {
-			ref: or(_ids.all)
-
-			if list.Contains(_ids.i, ref) {
-				value: int
-			}
-
-			if list.Contains(_ids.f, ref) {
-				value: float
-			}
-
-			if list.Contains(_ids.s, ref) {
-				value: string
-			}
-
-			if list.Contains(_ids.e, ref) {
-				value: or([for v in options[ref].spec.rules.variants {v.id}])
-			}
-		}
-
-		#Clear: {ref: or(_ids.all), present: false}
-	}
 }
 
 #Severity: "error" | "warning" | "info"
@@ -108,10 +82,4 @@ import "list"
 	severity: #Severity | *"error"
 	message:  string
 	when:     _
-}
-
-#TransformationBase: {
-	when?: _
-	apply: _
-	undo:  bool | *true
 }

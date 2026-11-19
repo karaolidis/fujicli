@@ -5,17 +5,21 @@ use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
 use crate::{
-    ast::{Camera, Dnf, Field, FujiOption, Profile, Render, Transformation},
+    ast::{Camera, Dnf, Field, FujiOption, Profile, Render},
     common::{cameras, renders},
     schema::{
-        alias::{NormalizedRule, NormalizedTransformation},
         grammar::{
-            Scopes, SettingInfo, build_settings, generate_apply_transformations, generate_dnf,
-            generate_emit_warnings_and_infos,
+            Scopes, SettingInfo, build_settings, generate_dnf, generate_emit_warnings_and_infos,
+            generate_report,
         },
-        inverse::generate_inverses,
         presence::PresenceDag,
         repair::generate_solve,
+        request::{check_requests, generate_requests},
+        rule::NormalizedRule,
+        transformation::{
+            Encoding, analyse, generate_encode, generate_settled_check, generate_undo, raw_ident,
+            settled_by,
+        },
     },
     snake_case_ident, upper_camel_case_ident,
     util::dag::Dag,
@@ -26,7 +30,7 @@ pub fn generate(
     profile: &Profile,
     cameras: &BTreeMap<String, Camera>,
 ) -> anyhow::Result<TokenStream> {
-    let base_union = collect_base_union(cameras);
+    let base_union = collect_base_union(profile, cameras);
     let mut blocks = Vec::with_capacity(cameras.len());
     for camera in cameras.values() {
         let block = generate_one(options, profile, camera, &base_union)
@@ -36,11 +40,12 @@ pub fn generate(
     Ok(quote! { #( #blocks )* })
 }
 
-fn collect_base_union(cameras: &BTreeMap<String, Camera>) -> BTreeSet<String> {
+fn collect_base_union(profile: &Profile, cameras: &BTreeMap<String, Camera>) -> BTreeSet<String> {
     cameras
         .values()
         .filter_map(|c| c.spec.features.as_ref()?.render.as_ref())
         .flat_map(|r| r.fields.iter().cloned())
+        .filter(|id| profile.get(id).is_some_and(Field::is_setting))
         .collect()
 }
 
@@ -59,20 +64,26 @@ fn generate_one(
         return Ok(quote! {});
     };
 
-    let fields = profile.select(&render.fields)?;
+    let listed = profile.select(&render.fields)?;
+    let fields: Vec<&Field> = listed.iter().copied().filter(|f| f.is_setting()).collect();
+    let inline: Vec<&str> = listed
+        .iter()
+        .filter(|f| !f.is_setting())
+        .map(|f| f.id())
+        .collect();
     let settings = build_settings(options, &fields);
+    let positions: BTreeMap<&str, usize> = profile
+        .fields
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| render.fields.iter().any(|id| id == f.id()))
+        .map(|(position, f)| (f.id(), position))
+        .collect();
 
-    let aliases: Vec<NormalizedTransformation> = render
-        .transformations
-        .iter()
-        .cloned()
-        .filter_map(Option::from)
-        .collect();
-    let effective_rules: Vec<NormalizedRule> = render
-        .rules
-        .iter()
-        .map(|r| NormalizedRule::from_rule(r, &aliases))
-        .collect();
+    let effective_rules: Vec<NormalizedRule> =
+        render.rules.iter().map(NormalizedRule::from).collect();
+    check_requests(&render.requests, &effective_rules)?;
+    let encodings = analyse(&settings, &inline, &render.transformations)?;
 
     let complete_ident = upper_camel_case_ident!("{}_render_profile", camera.id);
     let draft_ident = upper_camel_case_ident!("{}_render_profile_draft", camera.id);
@@ -137,7 +148,6 @@ fn generate_one(
         &optional_field_ids,
         &complete_ident,
         &draft_ident,
-        &mod_ident,
     );
     let try_from_base_for_draft = generate_try_from_base_for_draft(
         &settings,
@@ -147,15 +157,23 @@ fn generate_one(
         &draft_ident,
         &renders_path,
     );
-    let write_fields = generate_write_fields(&settings, profile, &optional_field_ids);
-    let read_fields = generate_read_fields(
+    let write_fields = generate_write_fields(
         &settings,
         profile,
+        &optional_field_ids,
+        &inline,
+        &positions,
+        &encodings,
+        &draft_ident,
+    )?;
+    let read_fields = generate_read_fields(
+        &settings,
         &fields,
         &complete_ident,
         &draft_ident,
         &presence_info.conditions,
-        &render.transformations,
+        &positions,
+        &encodings,
         &convert_order,
     )?;
     let profile_fields_impl = generate_profile_fields_impl(
@@ -225,18 +243,19 @@ fn generate_rule_module(
     let buf_acc = quote! { buf };
     let original_acc = quote! { original };
     let scopes = Scopes::with_original(&buf_acc, &original_acc);
-    let apply_transformations =
-        generate_apply_transformations(settings, &render.transformations, &buf_acc, &buf_ty)?;
+    let requests = generate_requests(settings, &render.requests, &buf_ty)?;
     let emit_warnings_and_infos =
         generate_emit_warnings_and_infos(settings, effective_rules, scopes, &buf_ty)?;
     let solve = generate_solve(settings, effective_rules, scopes, &buf_ty, optional)?;
+    let report = generate_report(settings, fields.iter().map(|f| f.id()), &buf_ty);
     let try_update_from = generate_try_update_from(fields, settings, &buf_ty);
 
     Ok(quote! {
         pub mod #mod_ident {
-            #apply_transformations
+            #requests
             #emit_warnings_and_infos
             #solve
+            #report
             #try_update_from
         }
     })
@@ -251,9 +270,9 @@ fn generate_try_update_from(
         let info = &settings[f.id()];
         let ident = info.field_ident();
         let read = if info.is_copy {
-            quote! { partial_normalized.#ident }
+            quote! { pins.#ident }
         } else {
-            quote! { partial_normalized.#ident.clone() }
+            quote! { pins.#ident.clone() }
         };
         quote! {
             if let Some(value) = #read {
@@ -266,17 +285,19 @@ fn generate_try_update_from(
         pub fn try_update_from(
             buf: &mut #buf_ty,
             partial: &#buf_ty,
+            original: &#buf_ty,
         ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
-            let original = buf.clone();
-            let mut partial_normalized = partial.clone();
-            apply_transformations(&mut partial_normalized);
+            let mut pins = partial.clone();
+            drop_keeps(&mut pins);
 
             let mut candidate = buf.clone();
             #( #merge_assigns )*
-            apply_transformations(&mut candidate);
+            apply_becomes(&mut candidate);
 
-            solve(&mut candidate, &partial_normalized, &original)?;
-            emit_warnings_and_infos(&candidate, &original)?;
+            let before = candidate.clone();
+            solve(&mut candidate, &pins, original)?;
+            report(&before, &candidate);
+            emit_warnings_and_infos(&candidate, original)?;
 
             *buf = candidate;
             Ok(())
@@ -398,7 +419,6 @@ fn generate_try_from_draft_for_complete(
     optional: &BTreeSet<String>,
     complete_ident: &Ident,
     draft_ident: &Ident,
-    mod_ident: &Ident,
 ) -> TokenStream {
     let complete_name = complete_ident.to_string();
     let inits = fields.iter().map(|f| {
@@ -424,10 +444,8 @@ fn generate_try_from_draft_for_complete(
         impl ::std::convert::TryFrom<#draft_ident> for #complete_ident {
             type Error = crate::features::simulation::SimulationError;
             fn try_from(
-                draft: #draft_ident,
+                candidate: #draft_ident,
             ) -> ::std::result::Result<Self, crate::features::simulation::SimulationError> {
-                let mut candidate = draft;
-                #mod_ident::try_update_from(&mut candidate, &#draft_ident::default())?;
                 Ok(Self {
                     #( #inits )*
                 })
@@ -483,21 +501,42 @@ fn generate_write_fields(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
     profile: &Profile,
     optional: &BTreeSet<String>,
-) -> TokenStream {
+    inline: &[&str],
+    positions: &BTreeMap<&str, usize>,
+    encodings: &[Encoding],
+    draft_ident: &Ident,
+) -> anyhow::Result<TokenStream> {
     let writes = profile
         .fields
         .iter()
         .enumerate()
         .filter(|(_, field)| settings.contains_key(field.id()))
         .map(|(position, field)| generate_write_one(settings, optional, field, position));
+    let zeros = inline.iter().map(|id| {
+        let position = positions[id];
+        quote! { values[#position] = 0; }
+    });
+    let encode = if encodings.is_empty() {
+        quote! {}
+    } else {
+        let draft = quote! { draft };
+        let blocks = generate_encode(settings, encodings, positions, &draft)?;
+        quote! {
+            let draft = #draft_ident::from(self);
+            #blocks
+        }
+    };
 
-    quote! {
+    Ok(quote! {
+        #[allow(clippy::nonminimal_bool)]
         fn write_fields(&self, values: &mut [i32]) -> ::std::io::Result<()> {
             #( #writes )*
+            #( #zeros )*
+            #encode
 
             Ok(())
         }
-    }
+    })
 }
 
 fn generate_write_one(
@@ -511,19 +550,15 @@ fn generate_write_one(
     let ident = info.field_ident();
     let type_path = info.type_path();
 
-    let encode = |reference: TokenStream, value: TokenStream| {
-        if info.option.is_some() {
-            quote! {
-                <#type_path as crate::ptp::option::ConversionProfileField>
-                    ::try_into_conversion_profile_value(#reference)?
-            }
-        } else {
-            value
+    let encode = |reference: TokenStream| {
+        quote! {
+            <#type_path as crate::ptp::option::ConversionProfileField>
+                ::try_into_conversion_profile_value(#reference)?
         }
     };
 
     if optional.contains(id) {
-        let encoded = encode(quote! { value }, quote! { *value });
+        let encoded = encode(quote! { value });
         quote! {
             values[#position] = match self.#ident.as_ref() {
                 Some(value) => #encoded,
@@ -531,35 +566,42 @@ fn generate_write_one(
             };
         }
     } else {
-        let encoded = encode(quote! { &self.#ident }, quote! { self.#ident });
+        let encoded = encode(quote! { &self.#ident });
         quote! { values[#position] = #encoded; }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn generate_read_fields(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
-    profile: &Profile,
     fields: &[&Field],
     complete_ident: &Ident,
     draft_ident: &Ident,
     presence_conditions: &BTreeMap<String, Dnf>,
-    transformations: &[Transformation],
+    positions: &BTreeMap<&str, usize>,
+    encodings: &[Encoding],
     convert_order: &[String],
 ) -> anyhow::Result<TokenStream> {
-    let raw_reads: Vec<TokenStream> = profile
-        .fields
+    let pattern_fields: BTreeSet<&str> = encodings
         .iter()
-        .enumerate()
-        .filter(|(_, field)| settings.contains_key(field.id()))
-        .map(|(position, field)| {
-            let id = field.id();
-            let raw_ident = raw_local_ident(&settings[id].field_ident());
-            quote! {
-                let #raw_ident = crate::features::render::profile_value(values, #position, #id)?;
-            }
-        })
+        .filter(|e| e.witness.is_some())
+        .flat_map(|e| e.writes.iter().map(|(f, _)| f.as_str()))
         .collect();
+    let mut read: Vec<(&str, usize)> = positions
+        .iter()
+        .filter(|(id, _)| settings.contains_key(*id) || pattern_fields.contains(*id))
+        .map(|(id, position)| (*id, *position))
+        .collect();
+    read.sort_by_key(|(_, position)| *position);
+    let raw_reads = read.into_iter().map(|(id, position)| {
+        let raw = raw_ident(id);
+        quote! {
+            let #raw = crate::features::render::profile_value(values, #position, #id)?;
+        }
+    });
 
+    let staged = quote! { staged };
+    let undo = generate_undo(settings, encodings, positions, &staged)?;
     let conversions = convert_order
         .iter()
         .map(|id| {
@@ -567,11 +609,20 @@ fn generate_read_fields(
                 .iter()
                 .find(|f| f.id() == id.as_str())
                 .expect("convert order references known field");
-            generate_convert_one(settings, field, presence_conditions)
+            let convert = generate_convert_one(settings, field, presence_conditions)?;
+            let settled = settled_by(encodings, id);
+            Ok(if settled.is_empty() {
+                convert
+            } else {
+                quote! {
+                    if !( #( #settled )||* ) {
+                        #convert
+                    }
+                }
+            })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-
-    let inverses = generate_inverses(settings, transformations, &quote! { staged })?;
+    let settled_check = generate_settled_check(settings, encodings, presence_conditions, &staged)?;
 
     Ok(quote! {
         #[allow(clippy::nonminimal_bool)]
@@ -579,9 +630,9 @@ fn generate_read_fields(
             #( #raw_reads )*
 
             let mut staged = #draft_ident::default();
+            #undo
             #( #conversions )*
-
-            #inverses
+            #settled_check
 
             <Self as ::std::convert::TryFrom<#draft_ident>>::try_from(staged)
                 .map_err(|err| ::std::io::Error::new(
@@ -600,15 +651,11 @@ fn generate_convert_one(
     let info = &settings[field.id()];
     let ident = info.field_ident();
     let type_path = info.type_path();
-    let raw_ident = raw_local_ident(&ident);
+    let raw = raw_ident(field.id());
 
-    let value_expr = if info.option.is_some() {
-        quote! {
-            <#type_path as crate::ptp::option::ConversionProfileField>
-                ::try_from_conversion_profile_value(#raw_ident)?
-        }
-    } else {
-        quote! { #raw_ident }
+    let value_expr = quote! {
+        <#type_path as crate::ptp::option::ConversionProfileField>
+            ::try_from_conversion_profile_value(#raw)?
     };
 
     if let Some(condition) = presence_conditions.get(field.id()) {
@@ -624,10 +671,6 @@ fn generate_convert_one(
     } else {
         Ok(quote! { staged.#ident = Some(#value_expr); })
     }
-}
-
-fn raw_local_ident(ident: &Ident) -> Ident {
-    snake_case_ident!("raw_{}", ident)
 }
 
 fn generate_profile_fields_impl(
@@ -678,8 +721,9 @@ fn generate_camera_render_manager_impl(
                 let partial_draft = <#draft_ident as ::std::convert::TryFrom<
                     #renders_path::RenderBase,
                 >>::try_from(partial.clone())?;
-                let mut buf = #draft_ident::from(&current.fields);
-                #mod_ident::try_update_from(&mut buf, &partial_draft)?;
+                let original = #draft_ident::from(&current.fields);
+                let mut buf = original.clone();
+                #mod_ident::try_update_from(&mut buf, &partial_draft, &original)?;
                 let next = crate::features::render::ConversionProfile {
                     code: current.code,
                     fields: <#complete_ident as ::std::convert::TryFrom<#draft_ident>>::try_from(buf)?,

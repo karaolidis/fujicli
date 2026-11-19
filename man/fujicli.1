@@ -1,4 +1,4 @@
-.Dd October 5, 2026
+.Dd November 19, 2026
 .Dt FUJICLI 1
 .Os
 .Sh NAME
@@ -166,6 +166,7 @@ The given flags are merged with the slot's current settings.
 The result is then checked against the camera's rules.
 Some rules repair the simulation, and may change settings other than those
 given; others reject it, and the command fails with the rule's message.
+Each setting a rule changes is logged as a warning.
 Nothing is written to the camera if the simulation is rejected.
 See
 .Sx Option flags .
@@ -184,6 +185,7 @@ and write it to
 .Ar slot ,
 replacing every setting.
 The file must come from the same model.
+A file that breaks one of the camera's rules is rejected.
 .El
 .Ss backup (b)
 .Bl -tag -width Ds

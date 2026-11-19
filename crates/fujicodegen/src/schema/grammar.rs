@@ -7,11 +7,11 @@ use serde_json::Value;
 
 use crate::{
     ast::{
-        Assignment, AssignmentEffect, Conjunction, Dnf, Field, FujiOption, Leaf, NumericRules,
-        OptionSpec, Predicate, Scope, Setting, Severity, SpecKind, Transformation,
+        Conjunction, Dnf, Field, FujiOption, Leaf, NumericRules, OptionSpec, Predicate, Scope,
+        Setting, Severity, SpecKind,
     },
     common::options,
-    schema::alias::NormalizedRule,
+    schema::rule::NormalizedRule,
     upper_camel_case_ident,
 };
 
@@ -224,65 +224,36 @@ fn generate_junction(
     })
 }
 
-pub fn generate_assignment(
+pub fn generate_report<'a>(
     settings: &BTreeMap<&str, SettingInfo<'_>>,
-    assignment: &Assignment,
-    accessor: &TokenStream,
-) -> anyhow::Result<TokenStream> {
-    let info = &settings[assignment.r#ref.as_str()];
-    let field = info.field_ident();
-    Ok(match &assignment.effect {
-        AssignmentEffect::Set(value) => {
-            let value = generate_field_value(info, value)?;
-            quote! { #accessor.#field = Some(#value); }
-        }
-        AssignmentEffect::Clear => quote! { #accessor.#field = None; },
-    })
-}
-
-pub fn generate_transformation(
-    settings: &BTreeMap<&str, SettingInfo<'_>>,
-    transformation: &Transformation,
-    accessor: &TokenStream,
-) -> anyhow::Result<TokenStream> {
-    let assignments = transformation
-        .apply
-        .iter()
-        .map(|a| generate_assignment(settings, a, accessor))
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let body = quote! { #( #assignments )* };
-    Ok(match &transformation.when {
-        Some(pred) => {
-            let scopes = Scopes::new(accessor);
-            let cond = generate_predicate(settings, pred, scopes)?;
-            quote! { if #cond { #body } }
-        }
-        None => body,
-    })
-}
-
-pub fn generate_apply_transformations(
-    settings: &BTreeMap<&str, SettingInfo<'_>>,
-    transformations: &[Transformation],
-    accessor: &TokenStream,
+    ids: impl IntoIterator<Item = &'a str>,
     buf_ty: &TokenStream,
-) -> anyhow::Result<TokenStream> {
-    if transformations.is_empty() {
-        return Ok(quote! {
-            #[allow(clippy::needless_pass_by_ref_mut)]
-            pub const fn apply_transformations(_buf: &mut #buf_ty) {}
-        });
-    }
-    let parts = transformations
-        .iter()
-        .map(|t| generate_transformation(settings, t, accessor))
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    Ok(quote! {
-        #[allow(clippy::nonminimal_bool)]
-        pub fn apply_transformations(#accessor: &mut #buf_ty) {
-            #( #parts )*
+) -> TokenStream {
+    let checks = ids.into_iter().map(|id| {
+        let info = &settings[id];
+        let ident = info.field_ident();
+        let name = info.option.map_or(id, |o| o.spec.name());
+        quote! {
+            if before.#ident != after.#ident {
+                ::log::warn!(
+                    "{} changed from {} to {} to satisfy the camera's rules",
+                    #name,
+                    show(before.#ident.as_ref()),
+                    show(after.#ident.as_ref()),
+                );
+            }
         }
-    })
+    });
+
+    quote! {
+        fn report(before: &#buf_ty, after: &#buf_ty) {
+            fn show<T: ::std::fmt::Display>(value: Option<&T>) -> ::std::string::String {
+                value.map_or_else(|| ::std::string::String::from("unset"), ToString::to_string)
+            }
+
+            #( #checks )*
+        }
+    }
 }
 
 pub fn generate_emit_warnings_and_infos(
@@ -591,10 +562,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::ast::{
-        Assignment, AssignmentEffect, LeafBetween, LeafEquals, LeafIn, PredAll, PredNot, Scope,
-        Transformation,
-    };
+    use crate::ast::{LeafBetween, LeafEquals, LeafIn, PredAll, PredNot, Scope};
 
     fn integer_info(id: &'static str) -> SettingInfo<'static> {
         SettingInfo {
@@ -713,30 +681,6 @@ mod tests {
         };
         assert_eq!(leaf_tokens(&Leaf::In(empty.clone())), "false");
         assert_eq!(leaf_tokens(&Leaf::NotIn(empty)), "self . x . is_some ()");
-    }
-
-    #[test]
-    fn negated_transformation_condition_skips_absent_fields() {
-        let transformation = Transformation {
-            when: Some(
-                PredNot {
-                    not: Box::new(eq_leaf(Scope::Current)),
-                }
-                .into(),
-            ),
-            apply: vec![Assignment {
-                r#ref: "x".into(),
-                effect: AssignmentEffect::Set(json!(2)),
-            }],
-            undo: true,
-        };
-        let out = generate_transformation(&settings(), &transformation, &quote! { buf })
-            .unwrap()
-            .to_string();
-        assert_eq!(
-            out,
-            "if buf . x . is_some_and (| v | v != (1i32)) { buf . x = Some (2i32) ; }"
-        );
     }
 
     fn sharpness() -> FujiOption {

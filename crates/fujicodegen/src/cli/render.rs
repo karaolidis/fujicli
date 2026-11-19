@@ -21,8 +21,7 @@ pub fn generate(
     cameras: &BTreeMap<String, Camera>,
 ) -> TokenStream {
     let render_options = collect_render_option_ids(profile, cameras);
-    let render_inline_ids = collect_render_inline_ids(profile, cameras);
-    let entries = build_entries(options, &render_options, &render_inline_ids);
+    let entries = build_entries(options, &render_options);
 
     let struct_def = generate_struct(&entries);
     let from_impl = generate_from_impl(&entries);
@@ -56,38 +55,14 @@ fn collect_render_option_ids(
     out
 }
 
-fn collect_render_inline_ids(
-    profile: &Profile,
-    cameras: &BTreeMap<String, Camera>,
-) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    for camera in cameras.values() {
-        let Some(render) = camera
-            .spec
-            .features
-            .as_ref()
-            .and_then(|f| f.render.as_ref())
-        else {
-            continue;
-        };
-        for field in render.fields.iter().filter_map(|id| profile.get(id)) {
-            if let Field::Inline(i) = field {
-                out.insert(i.id.clone());
-            }
-        }
-    }
-    out
-}
-
 fn build_entries(
     options: &BTreeMap<String, FujiOption>,
     render_options: &BTreeSet<String>,
-    render_inline_ids: &BTreeSet<String>,
 ) -> Vec<Entry> {
     options
         .values()
         .filter(|opt| !opt.codegen.skip)
-        .filter(|opt| render_options.contains(&opt.id) && !render_inline_ids.contains(&opt.id))
+        .filter(|opt| render_options.contains(&opt.id))
         .map(|opt| {
             let ident = snake_case_ident!("{}", opt.id);
             let type_ident = upper_camel_case_ident!("{}", opt.id);
@@ -136,7 +111,6 @@ fn generate_from_impl(entries: &[Entry]) -> TokenStream {
             fn from(args: RenderArgs) -> Self {
                 Self {
                     #( #fields )*
-                    ..::std::default::Default::default()
                 }
             }
         }

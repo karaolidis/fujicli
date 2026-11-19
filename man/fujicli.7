@@ -1,4 +1,4 @@
-.Dd October 5, 2026
+.Dd November 19, 2026
 .Dt FUJICLI 7
 .Os
 .Sh NAME
@@ -234,8 +234,8 @@ and
 .Ql fujicli simulation set
 round-trip on every slot.
 .It Va render
-The profile fields the camera uses, the transformations between user-facing
-values and wire values, and the render rules.
+The profile fields the camera uses, the requests, the transformations, and the
+render rules.
 Most cameras use their traits'.
 A field missing from the profile layout is recovered as described in
 .Sx Render profiles .
@@ -337,10 +337,9 @@ Each field becomes an entry in the profile layout in
 in wire order, and each camera lists the fields it uses in
 .Va render.fields .
 A field with no matching option gets an inline identifier.
-When one user-facing value is stored as several wire values, as HDR800+ is
-stored as HDR800 plus a priority flag, declare a transformation.
-Transformations with a single equality condition and a unique result are
-inverted when reading, so the user sees the original value.
+When the camera stores a setting value differently, as it stores HDR800+ as
+HDR800 with a priority of 3, declare a transformation; see
+.Xr fujicli-fml 5 .
 .Sh ARCHITECTURE
 .Ss Build
 .Pa crates/fujicore/build.rs
@@ -407,15 +406,17 @@ are the union of all cameras' fields, and carry requests from the command line.
 Each camera's rules become a module,
 .Ql x_t5 ,
 with:
-.Bl -tag -width "apply_transformations"
-.It Fn apply_transformations
-Rewrites user-facing values into wire values.
+.Bl -tag -width "emit_warnings_and_infos"
+.It Fn drop_keeps , apply_becomes
+Apply render requests.
 .It Fn solve
 Checks the error rules and repairs violations.
+.It Fn report
+Logs each setting that repair changed.
 .It Fn emit_warnings_and_infos
 Logs the warning and info rules that hold.
 .It Fn try_update_from
-Merges a partial draft into the current one, and runs the three above.
+Merges a partial draft into the current one, and runs the above.
 .El
 .Pp
 The runtime only sees traits.
@@ -436,17 +437,9 @@ of comparisons, with negation pushed into the comparisons.
 A comparison on an absent setting is neither true nor false, so a negated
 comparison still requires its setting.
 The later passes all work on this form.
-.It Alias substitution
-Rules are written against user-facing values, but checked after
-transformations have run.
-Each transformation's condition is replaced in the rules by what it produces,
-so a rule about HDR800+ applies to HDR800 with the priority flag set.
-.It Expansion exemption
-The dual of substitution.
-A rule that never mentions an alias value can still match what the alias
-produces: a rule forbidding a dynamic range while priority is on would reject
-HDR800+.
-Such rules are given an exception for the exact output of the transformation.
+.It Requests
+Checks that no request chains into another, and that no error rule can repair
+a setting to a request.
 .It Presence
 A rule of the form
 .Do
@@ -474,12 +467,10 @@ name: clear it, if it is gated, or else set it to the value the rule requires.
 A change is kept only if it fixes the rule without breaking one that was
 satisfied.
 Values as shot are never changed.
-.It Inverses
-Transformations with a single equality condition and a result no other
-transformation produces are inverted on read, in reverse order.
-Others are skipped with a build warning.
-Reading and writing a profile is therefore equivalent, but not necessarily
-identical byte for byte.
+.It Transformations
+Finds what each transformation encodes and the value that identifies it on the
+wire, and fails the build if one could overwrite another or could not be
+undone.
 .El
 .Sh SEE ALSO
 .Xr exiftool 1 ,

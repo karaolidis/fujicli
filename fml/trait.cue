@@ -15,6 +15,7 @@ _traits: [...#Trait]
 
 	render: {
 		fields: [...] | *[]
+		requests: [...] | *[]
 		transformations: [...] | *[]
 		rules: [...] | *[]
 	}
@@ -143,37 +144,22 @@ _traits: [
 				"monochromatic_color_tint",
 				"clarity",
 			]
+			requests: [
+				{ref: "dynamic_range", value: "auto", keep: true},
+				{ref: "dynamic_range_priority", value: "auto", keep: true},
+				{ref: "image_quality", value: "raw", keep: true},
+				{ref: "image_quality", value: "fine_raw", becomes: "fine"},
+				{ref: "image_quality", value: "normal_raw", becomes: "normal"},
+			]
 			transformations: [
 				{
-					when: {ref: "dynamic_range", equals: "auto"}
-					apply: [{ref: "dynamic_range", present: false}]
-					undo: false
-				},
-				{
-					when: {ref: "dynamic_range_priority", equals: "auto"}
-					apply: [{ref: "dynamic_range_priority", present: false}]
-					undo: false
-				},
-				{
-					when: {ref: "image_quality", equals: "fine_raw"}
-					apply: [{ref: "image_quality", value: "fine"}]
-					undo: false
-				},
-				{
-					when: {ref: "image_quality", equals: "normal_raw"}
-					apply: [{ref: "image_quality", value: "normal"}]
-					undo: false
-				},
-				{
-					when: {ref: "image_quality", equals: "raw"}
-					apply: [{ref: "image_quality", present: false}]
-					undo: false
-				},
-				{
-					when: {ref: "dynamic_range", equals: "hdr800_plus"}
+					when: all: [
+						{ref: "dynamic_range", equals: "hdr800_plus"},
+						{ref: "dynamic_range_priority", equals: "off"},
+					]
 					apply: [
 						{ref: "dynamic_range", value: "hdr800"},
-						{ref: "dynamic_range_priority", value: "plus"},
+						{ref: "dynamic_range_priority", value: 0x03},
 					]
 				},
 				{
@@ -181,9 +167,8 @@ _traits: [
 					apply: [{ref: "white_balance_as_shot", value: 0x01}]
 				},
 				{
-					when: {not: {ref: "white_balance", equals: "as_shot"}}
+					when: not: {ref: "white_balance", equals: "as_shot"}
 					apply: [{ref: "white_balance_as_shot", value: 0x02}]
-					undo: false
 				},
 			]
 			rules: [
@@ -218,6 +203,13 @@ _traits: [
 					]
 				},
 				{
+					message: "White Balance Temperature must be set in Temperature mode."
+					when: all: [
+						{ref: "white_balance_temperature", present: false},
+						{ref: "white_balance", equals: "temperature"},
+					]
+				},
+				{
 					message: "Dynamic Range can only be set when Dynamic Range Priority is disabled."
 					when: all: [
 						{ref: "dynamic_range", present: true},
@@ -225,17 +217,23 @@ _traits: [
 					]
 				},
 				{
-					message: "Highlight Tone can only be set when Dynamic Range Priority is disabled."
+					message: "Highlight Tone can only be set when Dynamic Range Priority is disabled and Dynamic Range is not HDR800+."
 					when: all: [
 						{ref: "highlight_tone", present: true},
-						{not: {ref: "dynamic_range_priority", equals: "off"}},
+						{any: [
+							{not: {ref: "dynamic_range_priority", equals: "off"}},
+							{ref: "dynamic_range", equals: "hdr800_plus"},
+						]},
 					]
 				},
 				{
-					message: "Shadow Tone can only be set when Dynamic Range Priority is disabled."
+					message: "Shadow Tone can only be set when Dynamic Range Priority is disabled and Dynamic Range is not HDR800+."
 					when: all: [
 						{ref: "shadow_tone", present: true},
-						{not: {ref: "dynamic_range_priority", equals: "off"}},
+						{any: [
+							{not: {ref: "dynamic_range_priority", equals: "off"}},
+							{ref: "dynamic_range", equals: "hdr800_plus"},
+						]},
 					]
 				},
 				{
@@ -284,15 +282,12 @@ _traits: [
 					when: any: [
 						{all: [
 							{ref: "dynamic_range_priority", scope: "original", equals: "off"},
-							{ref: "dynamic_range_priority", in: ["weak", "strong", "plus"]},
+							{not: {ref: "dynamic_range", scope: "original", equals: "hdr800_plus"}},
+							{ref: "dynamic_range_priority", in: ["weak", "strong"]},
 						]},
 						{all: [
 							{ref: "dynamic_range_priority", scope: "original", equals: "weak"},
-							{ref: "dynamic_range_priority", in: ["strong", "plus"]},
-						]},
-						{all: [
-							{ref: "dynamic_range_priority", scope: "original", equals: "strong"},
-							{ref: "dynamic_range_priority", equals: "plus"},
+							{ref: "dynamic_range_priority", equals: "strong"},
 						]},
 					]
 				},

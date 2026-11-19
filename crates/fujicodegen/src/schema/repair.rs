@@ -7,8 +7,8 @@ use syn::Lifetime;
 use crate::{
     ast::{Conjunction, Dnf, Leaf, Scope, Severity},
     schema::{
-        alias::NormalizedRule,
         grammar::{Scopes, SettingInfo, generate_conjunction, generate_dnf, generate_field_value},
+        rule::NormalizedRule,
     },
 };
 

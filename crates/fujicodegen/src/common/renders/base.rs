@@ -47,7 +47,8 @@ fn build_union(
         .try_fold(
             BTreeMap::<String, UnionEntry>::new(),
             |mut by_id, render| -> anyhow::Result<_> {
-                let fields = profile.select(&render.fields)?;
+                let mut fields = profile.select(&render.fields)?;
+                fields.retain(|f| f.is_setting());
                 let settings = build_settings(options, &fields);
                 for field in &fields {
                     let id = field.id().to_string();

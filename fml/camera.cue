@@ -22,6 +22,7 @@ cameras: [string]: #Camera
 			}
 			render: {
 				fields: list.Concat([for t in matched {t.render.fields}])
+				requests: list.Concat([for t in matched {t.render.requests}])
 				transformations: list.Concat([for t in matched {t.render.transformations}])
 				rules: list.Concat([for t in matched {t.render.rules}])
 			}
@@ -64,13 +65,6 @@ cameras: [string]: #Camera
 					}
 				}
 
-				transformations?: [...#Transformation]
-
-				#Transformation: #TransformationBase & {
-					when?: #Grammar.#Predicate
-					apply: [...#Grammar.#Assignment]
-				}
-
 				rules?: [...#Rule]
 
 				#Rule: #RuleBase & {
@@ -84,31 +78,46 @@ cameras: [string]: #Camera
 				fields: [...string]
 
 				_fields: [for f in profile.fields if list.Contains(fields, f.id) {f}]
+				_settings: [for f in _fields if f.ref != _|_ {f}]
 
 				#Grammar: #GrammarBase & {
 					_scoped: true
 					_ids: {
-						all: fields
-						i: list.Concat([
-							[for _, field in _fields if field.ref == _|_ {field.id}],
-							[for _, field in _fields if field.ref != _|_ if options[field.ref].spec.kind == "integer" {field.id}],
-						])
-						f: [for _, field in _fields if field.ref != _|_ if options[field.ref].spec.kind == "float" {field.id}]
-						s: [for _, field in _fields if field.ref != _|_ if options[field.ref].spec.kind == "string" {field.id}]
-						e: [for _, field in _fields if field.ref != _|_ if options[field.ref].spec.kind == "enum" {field.id}]
+						all: [for _, setting in _settings {setting.id}]
+						i: [for _, setting in _settings if options[setting.ref].spec.kind == "integer" {setting.id}]
+						f: [for _, setting in _settings if options[setting.ref].spec.kind == "float" {setting.id}]
+						s: [for _, setting in _settings if options[setting.ref].spec.kind == "string" {setting.id}]
+						e: [for _, setting in _settings if options[setting.ref].spec.kind == "enum" {setting.id}]
 					}
 				}
 
-				#TransformationGrammar: #GrammarBase & {
-					_scoped: false
-					_ids:    #Grammar._ids
+				#SettingGrammar: #GrammarBase & {
+					_ids: #Grammar._ids
+				}
+
+				requests?: [...#Request]
+
+				#Request: {
+					ref:   or(#Grammar._ids.e)
+					value: or([for v in options[ref].spec.rules.variants {v.id}])
+					{keep: true} | {becomes: or([for v in options[ref].spec.rules.variants {v.id}])}
 				}
 
 				transformations?: [...#Transformation]
 
-				#Transformation: #TransformationBase & {
-					when?: #TransformationGrammar.#Predicate
-					apply: [...#TransformationGrammar.#Assignment]
+				#Transformation: {
+					when?: #SettingGrammar.#Predicate
+					apply: [...#Raw]
+				}
+
+				#Raw: {
+					ref: or(fields)
+					if list.Contains(#Grammar._ids.e, ref) {
+						value: int | or([for v in options[ref].spec.rules.variants {v.id}])
+					}
+					if !list.Contains(#Grammar._ids.e, ref) {
+						value: int
+					}
 				}
 
 				rules?: [...#Rule]
@@ -386,14 +395,6 @@ cameras: {
 						when: not: {ref: "color_space", in: ["srgb", "adobe_rgb"]}
 					},
 					{
-						message: "Dynamic Range value is not supported by this camera."
-						when: not: {ref: "dynamic_range", in: ["auto", "hdr100", "hdr200", "hdr400"]}
-					},
-					{
-						message: "Dynamic Range Priority value is not supported by this camera."
-						when: not: {ref: "dynamic_range_priority", in: ["auto", "strong", "weak", "off"]}
-					},
-					{
 						message: "Smooth Skin Effect value is not supported by this camera."
 						when: not: {ref: "smooth_skin_effect", in: ["strong", "weak", "off"]}
 					},
@@ -406,6 +407,14 @@ cameras: {
 					{
 						message: "White Balance value is not supported by this camera."
 						when: not: {ref: "white_balance", in: ["white_priority", "auto", "ambience_priority", "custom1", "custom2", "custom3", "temperature", "daylight", "shade", "fluorescent1", "fluorescent2", "fluorescent3", "incandescent", "underwater"]}
+					},
+					{
+						message: "Dynamic Range value is not supported by this camera."
+						when: not: {ref: "dynamic_range", in: ["auto", "hdr100", "hdr200", "hdr400"]}
+					},
+					{
+						message: "Dynamic Range Priority value is not supported by this camera."
+						when: not: {ref: "dynamic_range_priority", in: ["auto", "strong", "weak", "off"]}
 					},
 				]
 				render: [
@@ -429,6 +438,14 @@ cameras: {
 						message: "Teleconverter value is not supported by this camera."
 						when: not: {ref: "teleconverter", in: ["on", "off"]}
 					},
+					{
+						message: "Dynamic Range value is not supported by this camera."
+						when: not: {ref: "dynamic_range", in: ["hdr100", "hdr200", "hdr400"]}
+					},
+					{
+						message: "Dynamic Range Priority value is not supported by this camera."
+						when: not: {ref: "dynamic_range_priority", in: ["off", "weak", "strong"]}
+					},
 				]
 			}
 
@@ -445,6 +462,7 @@ cameras: {
 
 				render: {
 					fields:          _template.render.fields
+					requests:        _template.render.requests
 					transformations: _template.render.transformations
 					rules: list.Concat([_pins.common, _pins.render, _template.render.rules])
 				}
@@ -542,14 +560,6 @@ cameras: {
 						message: "Color Space value is not supported by this camera."
 						when: not: {ref: "color_space", in: ["srgb", "adobe_rgb"]}
 					},
-					{
-						message: "Dynamic Range value is not supported by this camera."
-						when: not: {ref: "dynamic_range", in: ["auto", "hdr100", "hdr200", "hdr400"]}
-					},
-					{
-						message: "Dynamic Range Priority value is not supported by this camera."
-						when: not: {ref: "dynamic_range_priority", in: ["auto", "strong", "weak", "off"]}
-					},
 				]
 				simulation: [
 					{
@@ -559,6 +569,14 @@ cameras: {
 					{
 						message: "White Balance value is not supported by this camera."
 						when: not: {ref: "white_balance", in: ["white_priority", "auto", "ambience_priority", "custom1", "custom2", "custom3", "temperature", "daylight", "shade", "fluorescent1", "fluorescent2", "fluorescent3", "incandescent", "underwater"]}
+					},
+					{
+						message: "Dynamic Range value is not supported by this camera."
+						when: not: {ref: "dynamic_range", in: ["auto", "hdr100", "hdr200", "hdr400"]}
+					},
+					{
+						message: "Dynamic Range Priority value is not supported by this camera."
+						when: not: {ref: "dynamic_range_priority", in: ["auto", "strong", "weak", "off"]}
 					},
 				]
 				render: [
@@ -578,6 +596,14 @@ cameras: {
 						message: "White Balance value is not supported by this camera."
 						when: not: {ref: "white_balance", in: ["as_shot", "white_priority", "auto", "ambience_priority", "custom1", "custom2", "custom3", "temperature", "daylight", "shade", "fluorescent1", "fluorescent2", "fluorescent3", "incandescent", "underwater"]}
 					},
+					{
+						message: "Dynamic Range value is not supported by this camera."
+						when: not: {ref: "dynamic_range", in: ["hdr100", "hdr200", "hdr400"]}
+					},
+					{
+						message: "Dynamic Range Priority value is not supported by this camera."
+						when: not: {ref: "dynamic_range_priority", in: ["off", "weak", "strong"]}
+					},
 				]
 			}
 
@@ -594,6 +620,7 @@ cameras: {
 
 				render: {
 					fields:          _template.render.fields
+					requests:        _template.render.requests
 					transformations: _template.render.transformations
 					rules: list.Concat([_pins.common, _pins.render, _template.render.rules])
 				}
@@ -683,14 +710,6 @@ cameras: {
 						when: not: {ref: "color_space", in: ["srgb", "adobe_rgb"]}
 					},
 					{
-						message: "Dynamic Range value is not supported by this camera."
-						when: not: {ref: "dynamic_range", in: ["auto", "hdr100", "hdr200", "hdr400"]}
-					},
-					{
-						message: "Dynamic Range Priority value is not supported by this camera."
-						when: not: {ref: "dynamic_range_priority", in: ["auto", "strong", "weak", "off"]}
-					},
-					{
 						message: "Smooth Skin Effect value is not supported by this camera."
 						when: not: {ref: "smooth_skin_effect", in: ["strong", "weak", "off"]}
 					},
@@ -703,6 +722,14 @@ cameras: {
 					{
 						message: "White Balance value is not supported by this camera."
 						when: not: {ref: "white_balance", in: ["white_priority", "auto", "ambience_priority", "custom1", "custom2", "custom3", "temperature", "daylight", "shade", "fluorescent1", "fluorescent2", "fluorescent3", "incandescent", "underwater"]}
+					},
+					{
+						message: "Dynamic Range value is not supported by this camera."
+						when: not: {ref: "dynamic_range", in: ["auto", "hdr100", "hdr200", "hdr400"]}
+					},
+					{
+						message: "Dynamic Range Priority value is not supported by this camera."
+						when: not: {ref: "dynamic_range_priority", in: ["auto", "strong", "weak", "off"]}
 					},
 				]
 				render: [
@@ -726,6 +753,14 @@ cameras: {
 						message: "Teleconverter value is not supported by this camera."
 						when: not: {ref: "teleconverter", in: ["on", "off"]}
 					},
+					{
+						message: "Dynamic Range value is not supported by this camera."
+						when: not: {ref: "dynamic_range", in: ["hdr100", "hdr200", "hdr400", "hdr800", "hdr800_plus"]}
+					},
+					{
+						message: "Dynamic Range Priority value is not supported by this camera."
+						when: not: {ref: "dynamic_range_priority", in: ["off", "weak", "strong"]}
+					},
 				]
 			}
 
@@ -745,6 +780,7 @@ cameras: {
 
 				render: {
 					fields:          _template.render.fields
+					requests:        _template.render.requests
 					transformations: _template.render.transformations
 					rules: list.Concat([_pins.common, _pins.render, _template.render.rules])
 				}

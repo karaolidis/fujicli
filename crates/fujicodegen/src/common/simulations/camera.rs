@@ -8,13 +8,13 @@ use crate::{
     ast::{Camera, Dnf, FujiOption, Setting},
     common::{cameras, options},
     schema::{
-        alias::{NormalizedRule, NormalizedTransformation},
         grammar::{
-            Scopes, SettingInfo, build_settings, generate_apply_transformations, generate_dnf,
-            generate_emit_warnings_and_infos,
+            Scopes, SettingInfo, build_settings, generate_dnf, generate_emit_warnings_and_infos,
+            generate_report,
         },
         presence::PresenceDag,
         repair::generate_solve,
+        rule::NormalizedRule,
     },
     snake_case_ident, upper_camel_case_ident,
     util::dag::Dag,
@@ -58,17 +58,8 @@ fn generate_one(
 
     let settings = build_settings(options, &simulation.settings);
 
-    let aliases: Vec<NormalizedTransformation> = simulation
-        .transformations
-        .iter()
-        .cloned()
-        .filter_map(Option::from)
-        .collect();
-    let effective_rules: Vec<NormalizedRule> = simulation
-        .rules
-        .iter()
-        .map(|r| NormalizedRule::from_rule(r, &aliases))
-        .collect();
+    let effective_rules: Vec<NormalizedRule> =
+        simulation.rules.iter().map(NormalizedRule::from).collect();
 
     let complete_ident = upper_camel_case_ident!("{}_simulation", camera.id);
     let draft_ident = upper_camel_case_ident!("{}_simulation_draft", camera.id);
@@ -155,7 +146,6 @@ fn generate_one(
         &optional_field_ids,
         &complete_ident,
         &draft_ident,
-        &mod_ident,
     );
     let try_from_base_for_draft = generate_try_from_base_for_draft(
         &settings,
@@ -170,7 +160,7 @@ fn generate_one(
         &optional_field_ids,
         &complete_ident,
     );
-    let deserialize_impl = generate_deserialize_impl(&complete_ident, &draft_ident);
+    let deserialize_impl = generate_deserialize_impl(&complete_ident, &draft_ident, &mod_ident);
     let simulation_impl = generate_simulation_impl(
         &settings,
         &optional_field_ids,
@@ -250,18 +240,21 @@ fn generate_rule_module(
     let buf_ty = quote! { super::#draft_ident };
     let buf_acc = quote! { buf };
     let scopes = Scopes::new(&buf_acc);
-    let apply_transformations =
-        generate_apply_transformations(settings, &simulation.transformations, &buf_acc, &buf_ty)?;
     let emit_warnings_and_infos =
         generate_emit_warnings_and_infos(settings, effective_rules, scopes, &buf_ty)?;
     let solve = generate_solve(settings, effective_rules, scopes, &buf_ty, optional)?;
+    let report = generate_report(
+        settings,
+        simulation.settings.iter().map(|s| s.id.as_str()),
+        &buf_ty,
+    );
     let try_update_from = generate_try_update_from(&simulation.settings, settings, &buf_ty);
 
     Ok(quote! {
         pub mod #mod_ident {
-            #apply_transformations
             #emit_warnings_and_infos
             #solve
+            #report
             #try_update_from
         }
     })
@@ -276,9 +269,9 @@ fn generate_try_update_from(
         let info = &settings[s.id.as_str()];
         let ident = info.field_ident();
         let read = if info.is_copy {
-            quote! { partial_normalized.#ident }
+            quote! { partial.#ident }
         } else {
-            quote! { partial_normalized.#ident.clone() }
+            quote! { partial.#ident.clone() }
         };
         quote! {
             if let Some(value) = #read {
@@ -292,14 +285,12 @@ fn generate_try_update_from(
             buf: &mut #buf_ty,
             partial: &#buf_ty,
         ) -> ::std::result::Result<(), crate::features::simulation::SimulationError> {
-            let mut partial_normalized = partial.clone();
-            apply_transformations(&mut partial_normalized);
-
             let mut candidate = buf.clone();
             #( #merge_assigns )*
-            apply_transformations(&mut candidate);
 
-            solve(&mut candidate, &partial_normalized)?;
+            let before = candidate.clone();
+            solve(&mut candidate, partial)?;
+            report(&before, &candidate);
             emit_warnings_and_infos(&candidate)?;
 
             *buf = candidate;
@@ -492,7 +483,6 @@ fn generate_try_from_draft_for_complete(
     optional: &BTreeSet<String>,
     complete_ident: &Ident,
     draft_ident: &Ident,
-    mod_ident: &Ident,
 ) -> TokenStream {
     let complete_name = complete_ident.to_string();
     let inits = fields.iter().map(|s| {
@@ -518,10 +508,8 @@ fn generate_try_from_draft_for_complete(
         impl ::std::convert::TryFrom<#draft_ident> for #complete_ident {
             type Error = crate::features::simulation::SimulationError;
             fn try_from(
-                draft: #draft_ident,
+                candidate: #draft_ident,
             ) -> ::std::result::Result<Self, crate::features::simulation::SimulationError> {
-                let mut candidate = draft;
-                #mod_ident::try_update_from(&mut candidate, &#draft_ident::default())?;
                 Ok(Self {
                     #( #inits )*
                 })
@@ -614,13 +602,20 @@ fn generate_display_impl(
     }
 }
 
-fn generate_deserialize_impl(complete_ident: &Ident, draft_ident: &Ident) -> TokenStream {
+fn generate_deserialize_impl(
+    complete_ident: &Ident,
+    draft_ident: &Ident,
+    mod_ident: &Ident,
+) -> TokenStream {
     quote! {
         impl<'de> ::serde::Deserialize<'de> for #complete_ident {
             fn deserialize<D: ::serde::Deserializer<'de>>(
                 deserializer: D,
             ) -> ::std::result::Result<Self, D::Error> {
-                let draft = <#draft_ident as ::serde::Deserialize<'de>>::deserialize(deserializer)?;
+                let file = <#draft_ident as ::serde::Deserialize<'de>>::deserialize(deserializer)?;
+                let mut draft = #draft_ident::default();
+                #mod_ident::try_update_from(&mut draft, &file)
+                    .map_err(<D::Error as ::serde::de::Error>::custom)?;
                 <Self as ::std::convert::TryFrom<#draft_ident>>::try_from(draft)
                     .map_err(<D::Error as ::serde::de::Error>::custom)
             }

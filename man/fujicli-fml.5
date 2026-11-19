@@ -1,4 +1,4 @@
-.Dd October 5, 2026
+.Dd November 19, 2026
 .Dt FUJICLI-FML 5
 .Os
 .Sh NAME
@@ -20,15 +20,14 @@ turns the package into a single JSON document, which is compiled into
 .Xr fujicli 1 .
 Editing FML and rebuilding is how support for a camera or option is added.
 .Pp
-The document has five top-level keys: the maps
+The document has five top-level keys:
+.Cm profile ,
+the conversion profile layout, and the maps
 .Cm options ,
 .Cm cameras ,
 .Cm processors ,
 and
-.Cm sensors ,
-and
-.Cm profile ,
-the conversion profile layout.
+.Cm sensors .
 Each map entry has an
 .Cm id ,
 which is set to its map key and need not be written, and a
@@ -125,7 +124,7 @@ At least one.
 Each variant has:
 .Bl -tag -width Ds
 .It Cm id : Ar string
-Identifier used in predicates, assignments and lookup tables.
+Identifier used in predicates and lookup tables.
 Unique within the option.
 .It Cm name : Ar string
 Display name.
@@ -308,15 +307,12 @@ names an option and
 .Cm id ,
 which defaults to
 .Cm ref ,
-names the setting in predicates and assignments.
+names the setting in predicates.
 Ids are unique.
 Required.
 .It Cm rules : Ar list
 See
 .Sx RULES .
-.It Cm transformations : Ar list
-See
-.Sx TRANSFORMATIONS .
 .El
 .It Cm render : Ar object
 The camera converts RAF files using a conversion profile.
@@ -325,17 +321,21 @@ The camera converts RAF files using a conversion profile.
 The ids of the profile fields the camera uses; see
 .Sx PROFILE .
 Required.
-.It Cm rules : Ar list
+.It Cm requests : Ar list
 See
-.Sx RULES .
+.Sx REQUESTS .
 .It Cm transformations : Ar list
 See
 .Sx TRANSFORMATIONS .
+.It Cm rules : Ar list
+See
+.Sx RULES .
 .El
 .El
 .Pp
-Rules and transformations refer to settings and fields by id, and may only
-refer to those of their own block.
+Rules, requests, and transformations refer to settings and fields by id, and
+may only refer to those of their own block.
+Rules and requests may only refer to settings.
 .Sh PROCESSORS AND SENSORS
 .Bd -literal -offset indent
 processors: <id>: #Processor & {
@@ -359,7 +359,7 @@ _traits: [...#Trait]
 #Trait: {
     when: {sensor?: id, processor?: id}
     simulation: {settings: [...], rules: [...]}
-    render: {fields: [...], transformations: [...], rules: [...]}
+    render: {fields: [...], requests: [...], transformations: [...], rules: [...]}
 }
 .Ed
 .Pp
@@ -391,17 +391,19 @@ profile: fields: [...#Field]
 .Pp
 A field with a
 .Cm ref
-takes its type and encoding from that option, and
+is a setting, and takes its type and encoding from that option.
+Its
 .Cm id
 defaults to
 .Cm ref .
-A field without one is an integer with no encoding, and must have an
+A field without one is an inline integer with no encoding, and must have an
 .Cm id .
 Ids are unique.
 .Pp
 A camera's render uses the fields it lists.
-The others are written back as the camera reported them, and ignored when
-read.
+A setting without a value is written as 0.
+Fields a camera does not list are written back as the camera reported them,
+and ignored when read.
 A camera may send back fewer fields than it is sent.
 .Sh PREDICATES
 A predicate is a test on a block's values.
@@ -409,7 +411,7 @@ It is a leaf, a combination of predicates, or a boolean literal.
 .Ss Leaves
 A leaf has
 .Cm ref ,
-the id of a setting or field, an optional
+the id of a setting, an optional
 .Cm scope ,
 and exactly one test:
 .Bl -tag -width Ds
@@ -468,7 +470,8 @@ selects which values a leaf tests:
 The values being validated or written.
 The default.
 .It Cm original
-The render profile as read from the image, before the user's changes.
+The render profile as read from the image, with transformations undone,
+before the user's changes.
 Only allowed in render rules.
 Original values are never changed: they are ignored when deciding how to
 repair a rule or whether to read a field.
@@ -491,15 +494,12 @@ The rule fires when this holds.
 Required.
 .El
 .Pp
-Before any rule is checked,
-.Cm when
-is rewritten through the block's aliases; see
-.Sx Aliases .
+Rules test settings, not the values transformations write.
 .Ss Errors
 Values may not be written while an error rule fires.
 When the user changes settings, the new values are merged into the current
-ones, transformations are applied, and each error rule that fires is then
-repaired, in order.
+ones, requests are applied, and each error rule that fires is then repaired,
+in order.
 .Pp
 Repair rewrites
 .Cm when
@@ -517,12 +517,19 @@ or
 .Cm min Ns / Ns Cm max ,
 it then tries setting the field to the value named, the first value listed, or
 .Cm min .
-It never changes a field the user set, including fields that a transformation
-set from the user's input, and never an original value.
+It never changes an original value, or a setting the user set.
+A setting given a
+.Cm keep
+request counts as not set.
 A change is undone if it makes a rule that was satisfied fire, or leaves the
 rule being repaired firing.
 If no change works, the update fails with the rule's
 .Cm message .
+Each change is logged as a warning.
+.Pp
+Importing a simulation file sets every setting in it, so a file that breaks a
+rule is refused.
+Reading a simulation or a render profile does not repair it.
 .Pp
 Order matters.
 Rules are repaired one at a time, and repairing one rule can leave a later rule
@@ -584,85 +591,91 @@ or
 rule that holds is logged at that level with its
 .Cm message .
 Such rules never block, repair, or gate.
+.Sh REQUESTS
+A request marks an option value that a render cannot have, and says what it
+means.
+Each is
+.Bro Cm ref , value Brc
+on an
+.Cm enum
+setting, with one of:
+.Bl -tag -width Ds
+.It Cm keep : Cm true
+The value, given by the user, counts as not given, so the image's value is
+kept.
+.It Cm becomes : Ar variant
+The value, given by the user or as shot, is replaced by this variant.
+.El
+.Pp
+Requests only apply to renders.
+Codegen fails if a value has two requests, if a
+.Cm becomes
+variant has a request of its own, or if repair could set a setting to a value
+that has a request; see
+.Sx Errors .
 .Sh TRANSFORMATIONS
-A transformation sets fields when a predicate holds.
+A render transformation writes raw values to profile fields when a predicate
+on the settings holds.
+Transformations encode setting values that the camera stores differently.
 .Bl -tag -width Ds
 .It Cm when : Ar predicate
 The condition.
 Optional; without it the transformation always applies.
 Current scope only.
 .It Cm apply : Ar list
-Assignments, each either
+Writes, each
 .Bro Cm ref , value Brc ,
-which sets the field to a value of its type, or
-.Bro Cm ref , present : false Brc ,
-which clears it.
+where
+.Cm ref
+is a listed field, and
+.Cm value
+is an integer or, for an
+.Cm enum
+setting, a variant, which is written as its encoded value.
 Required.
-.It Cm undo : Ar bool
-Whether to undo the transformation when a render profile is read.
-Defaults to
-.Sy true .
 .El
 .Pp
-Transformations apply in order, both to the user's input and to the merged
-values, before rules are checked.
-Each
+When a render profile is written, inline fields start at 0, and each
+transformation whose
 .Cm when
-sees the effect of earlier transformations.
-They map values the user sees onto the values the camera stores, for example a
-single option value that the camera represents as two fields.
-.Ss Aliases
-Every transformation with a
-.Cm when
-and a non-empty
-.Cm apply
-is also an alias in rules.
-Where a rule conjunction contains all leaves of one of the alias's
-conjunctions, they are replaced by the leaves its
-.Cm apply
-produces.
-A rule written against the user's value is thus checked against the stored
-fields.
-Aliases are substituted in order.
+holds then overwrites the fields it writes, in order.
 .Pp
-Conversely, a rule conjunction that does not mention the alias value, but is
-satisfied by the alias's expansion alone, does not fire on that exact
-expansion.
-In the example below, the rule that
-.Ql dynamic_range
-may only be set while
-.Ql dynamic_range_priority
-is
-.Cm off
-would otherwise reject
-.Cm hdr800_plus ,
-which is stored as
-.Cm hdr800
-with priority
-.Cm plus ;
-it still rejects
-.Cm hdr800
-with priority
-.Cm strong .
-If codegen cannot decide whether an expansion satisfies a conjunction, because
-an ordered comparison involves a non-numeric value, it prints a cargo warning
-naming the rule, and the alias value may be rejected at run time.
-.Pp
-When a render profile is read, aliases are undone, in reverse order, so that
-the user sees the alias value, unless
-.Cm undo
-is
-.Sy false .
-This requires a
+A transformation whose
 .Cm when
-that is a single current-scope
+is an
 .Cm equals ,
-an
-.Cm apply
-that only sets values, and no other transformation that sets the same fields
-to the same values.
-Codegen prints a cargo warning for each of them that cannot be undone.
-Simulation transformations are not undone.
+or an
+.Cm all
+of
+.Cm equals
+on different settings, encodes those values.
+It can be undone if it writes a value that nothing else puts in that field:
+a value other than 0 in an inline field, or a value other than 0 and the
+encoded values in a lookup-encoded setting, that no other transformation
+writes there.
+When a render profile is read and every field such a transformation writes
+holds its value, the settings it encodes take their values from its
+.Cm when
+and are not read.
+Reading fails if that value is there without the rest, or if a setting's gate
+excludes it.
+.Pp
+Codegen fails unless:
+.Bl -bullet
+.It
+every listed inline field is written by some transformation;
+.It
+only a transformation that encodes values writes a setting, and only one of
+the settings it encodes;
+.It
+a transformation that writes a setting can be undone;
+.It
+a later transformation that writes a field of one that can be undone cannot
+hold where that one does;
+.It
+two transformations that can be undone, and encode different values for a
+setting, write different values to a field they both write.
+.El
 .Sh COMMAND LINE
 Each option without
 .Cm codegen.skip
@@ -700,7 +713,7 @@ and all traits.
 .Ql #Profile
 and the profile layout.
 .It Pa fml/grammar.cue
-Predicates, assignments, rules and transformations.
+Predicates and rules.
 .It Pa fml/main.cue
 The definition root.
 .El
@@ -794,14 +807,32 @@ A rule pinning an option to the values one camera accepts:
 }
 .Ed
 .Pp
-A render alias for a value that the camera stores as two fields:
+Render requests for Auto Dynamic Range, which keeps the image's value, and for
+Fine+RAW, which renders the JPEG part:
+.Bd -literal -offset indent
+{ref: "dynamic_range", value: "auto", keep: true}
+{ref: "image_quality", value: "fine_raw", becomes: "fine"}
+.Ed
+.Pp
+HDR800+, which the camera stores as HDR800 with a priority of 3:
 .Bd -literal -offset indent
 {
-    when: {ref: "dynamic_range", equals: "hdr800_plus"}
+    when: all: [
+        {ref: "dynamic_range", equals: "hdr800_plus"},
+        {ref: "dynamic_range_priority", equals: "off"},
+    ]
     apply: [
         {ref: "dynamic_range", value: "hdr800"},
-        {ref: "dynamic_range_priority", value: "plus"},
+        {ref: "dynamic_range_priority", value: 0x03},
     ]
+}
+.Ed
+.Pp
+A render transformation that writes an inline field:
+.Bd -literal -offset indent
+{
+    when: {ref: "white_balance", equals: "as_shot"}
+    apply: [{ref: "white_balance_as_shot", value: 0x01}]
 }
 .Ed
 .Pp

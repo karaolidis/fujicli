@@ -34,6 +34,11 @@ pub enum Field {
 
 impl Field {
     #[must_use]
+    pub const fn is_setting(&self) -> bool {
+        matches!(self, Self::Ref(_))
+    }
+
+    #[must_use]
     pub fn id(&self) -> &str {
         match self {
             Self::Ref(r) => &r.id,

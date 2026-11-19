@@ -1,6 +1,8 @@
 pub mod error;
 pub mod manager;
 pub mod parser;
+#[cfg(test)]
+mod tests;
 
 pub use error::SimulationError;
 pub use manager::CameraSimulationManager;

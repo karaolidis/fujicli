@@ -1,9 +1,8 @@
 use std::num::NonZeroU32;
 
-use serde::Deserialize;
-use serde_json::Value;
+use serde::{Deserialize, de::Error};
 
-use crate::ast::{LeafEquals, LeafPresent, Predicate, Scope};
+use crate::ast::Predicate;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -45,8 +44,6 @@ pub struct Simulation {
     pub slots: u32,
     pub settings: Vec<Setting>,
     #[serde(default)]
-    pub transformations: Vec<Transformation>,
-    #[serde(default)]
     pub rules: Vec<Rule>,
 }
 
@@ -54,6 +51,8 @@ pub struct Simulation {
 #[serde(deny_unknown_fields)]
 pub struct Render {
     pub fields: Vec<String>,
+    #[serde(default)]
+    pub requests: Vec<Request>,
     #[serde(default)]
     pub transformations: Vec<Transformation>,
     #[serde(default)]
@@ -76,51 +75,20 @@ pub enum SpecKind {
     Enum,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Transformation {
-    pub when: Option<Predicate>,
-    pub apply: Vec<Assignment>,
-    #[serde(default = "undo_by_default")]
-    pub undo: bool,
-}
-
-const fn undo_by_default() -> bool {
-    true
-}
-
 #[derive(Clone, Debug)]
-pub struct Assignment {
+pub struct Request {
     pub r#ref: String,
-    pub effect: AssignmentEffect,
+    pub value: String,
+    pub then: RequestThen,
 }
 
-#[derive(Clone, Debug)]
-pub enum AssignmentEffect {
-    Set(Value),
-    Clear,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RequestThen {
+    Keep,
+    Becomes(String),
 }
 
-impl From<&Assignment> for Predicate {
-    fn from(a: &Assignment) -> Self {
-        match &a.effect {
-            AssignmentEffect::Set(v) => LeafEquals {
-                r#ref: a.r#ref.clone(),
-                scope: Scope::Current,
-                equals: v.clone(),
-            }
-            .into(),
-            AssignmentEffect::Clear => LeafPresent {
-                r#ref: a.r#ref.clone(),
-                scope: Scope::Current,
-                present: false,
-            }
-            .into(),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for Assignment {
+impl<'de> Deserialize<'de> for Request {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -129,25 +97,50 @@ impl<'de> Deserialize<'de> for Assignment {
         #[serde(deny_unknown_fields)]
         struct Raw {
             r#ref: String,
+            value: String,
             #[serde(default)]
-            value: Option<Value>,
+            keep: bool,
             #[serde(default)]
-            present: Option<bool>,
+            becomes: Option<String>,
         }
 
         let raw = Raw::deserialize(deserializer)?;
-        match (raw.value, raw.present) {
-            (Some(value), None) => Ok(Self {
-                r#ref: raw.r#ref,
-                effect: AssignmentEffect::Set(value),
-            }),
-            (None, Some(false)) => Ok(Self {
-                r#ref: raw.r#ref,
-                effect: AssignmentEffect::Clear,
-            }),
-            _ => unreachable!("cue should ensure exactly one of the variants is present"),
-        }
+        let then = match (raw.keep, raw.becomes) {
+            (true, None) => RequestThen::Keep,
+            (false, Some(value)) => RequestThen::Becomes(value),
+            _ => {
+                return Err(D::Error::custom(
+                    "a request needs exactly one of keep and becomes",
+                ));
+            }
+        };
+        Ok(Self {
+            r#ref: raw.r#ref,
+            value: raw.value,
+            then,
+        })
     }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Transformation {
+    pub when: Option<Predicate>,
+    pub apply: Vec<RawWrite>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawWrite {
+    pub r#ref: String,
+    pub value: RawValue,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum RawValue {
+    Int(i64),
+    Variant(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -198,14 +191,6 @@ mod tests {
     }
 
     #[test]
-    fn transformation_undo_defaults_to_true() {
-        let default_: Transformation = parse(r#"{ "apply": [] }"#);
-        let off: Transformation = parse(r#"{ "apply": [], "undo": false }"#);
-        assert!(default_.undo);
-        assert!(!off.undo);
-    }
-
-    #[test]
     fn setting_requires_ref() {
         let s: Setting = parse(r#"{ "id": "x", "ref": "image_size" }"#);
         assert_eq!(s.id, "x");
@@ -214,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn simulation_transformations_and_rules_default_empty() {
+    fn simulation_rules_default_empty() {
         let sim: Simulation = parse(
             r#"{
                 "slots": 4,
@@ -223,7 +208,6 @@ mod tests {
         );
         assert_eq!(sim.slots, 4);
         assert_eq!(sim.settings.len(), 1);
-        assert!(sim.transformations.is_empty());
         assert!(sim.rules.is_empty());
     }
 
@@ -235,17 +219,19 @@ mod tests {
     }
 
     #[test]
-    fn assignment_parses_set_form() {
-        let a: Assignment = parse(r#"{ "ref": "x", "value": 5 }"#);
-        assert_eq!(a.r#ref, "x");
-        assert!(matches!(a.effect, AssignmentEffect::Set(_)));
+    fn raw_write_takes_an_integer_or_a_variant() {
+        let int: RawWrite = parse(r#"{ "ref": "x", "value": 3 }"#);
+        let variant: RawWrite = parse(r#"{ "ref": "x", "value": "hdr800" }"#);
+        assert_eq!(int.value, RawValue::Int(3));
+        assert_eq!(variant.value, RawValue::Variant("hdr800".into()));
     }
 
     #[test]
-    fn assignment_parses_clear_form() {
-        let a: Assignment = parse(r#"{ "ref": "x", "present": false }"#);
-        assert_eq!(a.r#ref, "x");
-        assert!(matches!(a.effect, AssignmentEffect::Clear));
+    fn request_keeps_or_becomes() {
+        let keep: Request = parse(r#"{ "ref": "x", "value": "auto", "keep": true }"#);
+        let becomes: Request = parse(r#"{ "ref": "x", "value": "fine_raw", "becomes": "fine" }"#);
+        assert_eq!(keep.then, RequestThen::Keep);
+        assert_eq!(becomes.then, RequestThen::Becomes("fine".into()));
     }
 
     #[test]

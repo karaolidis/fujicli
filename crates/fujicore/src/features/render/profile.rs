@@ -236,7 +236,6 @@ mod tests {
                     film_simulation: FilmSimulation::Provia,
                     grain_effect: GrainEffect::Off,
                     color_chrome_effect: ColorChromeEffect::Off,
-                    white_balance_as_shot: 1,
                     white_balance: WhiteBalance::AsShot,
                     white_balance_shift_red: WhiteBalanceShiftRed::default(),
                     white_balance_shift_blue: WhiteBalanceShiftBlue::default(),
